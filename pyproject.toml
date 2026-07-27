@@ -56,6 +56,8 @@ packages = ["icarus"]
 line-length = 100
 target-version = "py312"
 src = ["icarus", "tests"]
+# Alembic writes migration scripts in its own style; don't lint generated migrations.
+extend-exclude = ["icarus/state/migrations/versions"]
 
 [tool.ruff.lint]
 select = [
@@ -85,6 +87,11 @@ warn_unused_ignores = true
 disallow_any_generics = true
 plugins = ["pydantic.mypy"]
 files = ["icarus", "tests"]
+# Generated Alembic migrations aren't type-checked. explicit_package_bases + namespace_packages
+# let the two conftest.py files (tests/ and tests/integration/) resolve as distinct modules.
+exclude = ["icarus/state/migrations/versions/"]
+explicit_package_bases = true
+namespace_packages = true
 
 [[tool.mypy.overrides]]
 # Third-party libs without shipped type stubs — don't fail strict mode on their internals.
