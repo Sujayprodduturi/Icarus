@@ -1,0 +1,103 @@
+# Project Icarus — package + tooling config.
+# Python 3.12, async-first, uv-managed. See PRD §21 for the version-checked stack.
+[project]
+name = "icarus"
+version = "0.0.0"
+description = "Multi-agent, self-learning, fully-autonomous trading system for the Indian market (Phase 0 skeleton)."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = { text = "Proprietary — self + immediate-family use only (PRD §1 non-goals)." }
+
+# Runtime deps. Versions annotated with the PRD §21/§25 as-of (June 2026) where the PRD pins them.
+# Kept deliberately lean for Phase 0; heavier quant/backtest deps arrive in Phase 1.
+dependencies = [
+  "pydantic>=2.7,<3",         # typed config + message contracts (goal.yaml loader, schemas)
+  "pyyaml>=6.0,<7",           # goal.yaml
+  "redis>=5.0,<6",            # redis-py works against Valkey server (PRD §21 licensing note: prefer Valkey)
+  "sqlalchemy>=2.0.51,<2.1",  # PRD §21
+  "alembic>=1.18,<1.19",      # PRD §21
+  "psycopg[binary]>=3.2,<4",  # Postgres driver for SQLAlchemy 2.x
+  "structlog>=24.1,<25",      # structured logging (0.12)
+  "kiteconnect>=5.2,<6",      # Zerodha — PyPI name is `kiteconnect`, NOT pykiteconnect (PRD §11.2, §21)
+  "httpx>=0.27,<1",           # async HTTP for Delta/Upstox read paths
+]
+
+[project.optional-dependencies]
+# Broker/venue SDKs that are optional at Phase 0 (adapters are mocked in tests).
+crypto = [
+  "ccxt>=4.5,<5",             # verify ccxt.deltaindia exists in the pinned version (PRD Appendix B)
+]
+dev = [
+  "ruff>=0.6,<1",
+  "mypy==1.11.2",  # pinned: newer mypy pulls compiled `librt`, blocked by Windows Smart App Control (dev machine)
+  "pytest>=8.2,<9",
+  "pytest-asyncio>=0.23,<1",
+  "types-pyyaml>=6.0,<7",
+  "fakeredis>=2.23,<3",       # bus unit tests without a live Valkey
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+# mypy ships mypyc-COMPILED .pyd wheels; Windows Smart App Control blocks unsigned binaries
+# on this dev machine. Force a pure-Python install from sdist so `mypy` runs locally.
+# No effect on Linux (Hermes deploy PC) where the compiled wheel installs fine.
+no-binary-package = ["mypy"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["icarus"]
+
+# ---------------------------------------------------------------------------
+# Ruff — format + lint. NPY201 enabled for the numpy-2 migration (CLAUDE.md §2).
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["icarus", "tests"]
+
+[tool.ruff.lint]
+select = [
+  "E", "F", "W",   # pyflakes + pycodestyle
+  "I",             # isort
+  "UP",            # pyupgrade
+  "B",             # bugbear
+  "ASYNC",         # async pitfalls (this is an asyncio codebase)
+  "NPY201",        # numpy-2 migration (CLAUDE.md §2)
+  "RUF",
+]
+# No commented-out code / dead code (CLAUDE.md §2) — ERA catches commented code.
+extend-select = ["ERA001"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["icarus"]
+
+# ---------------------------------------------------------------------------
+# mypy — strict. "Type everything" (CLAUDE.md §2).
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+disallow_any_generics = true
+plugins = ["pydantic.mypy"]
+files = ["icarus", "tests"]
+
+[[tool.mypy.overrides]]
+# Third-party libs without shipped type stubs — don't fail strict mode on their internals.
+module = ["kiteconnect.*", "ccxt.*", "fakeredis.*"]
+ignore_missing_imports = true
+
+# ---------------------------------------------------------------------------
+# pytest (task 0.1b)
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+  "live: hits a real external venue/API; skipped unless creds + --run-live are present",
+  "integration: needs a real Postgres/Valkey (docker compose up)",
+]

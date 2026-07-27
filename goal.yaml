@@ -1,0 +1,146 @@
+# goal.yaml — Icarus single source of truth for objectives, thresholds, and hard limits.
+#
+# Merged from PRD §15 (Part I) + §39.3 (Part II v2). Per the PRD's own rule, the §39.3
+# additions WIN on any conflict. Every number here is a starting value the operator tunes,
+# NOT a law of physics — but the risk/compliance limits are enforced in CODE and cannot be
+# overridden by any strategy or the learning loop (CLAUDE.md §0 invariant #4).
+#
+# All risk-related logic reads from this file; nothing risk-related is hard-coded (CLAUDE.md §2).
+
+objective:
+  account_currency: INR
+  target_return_30d: 0.05          # success bar (operator-set; aspirational, not a guarantee)
+  max_drawdown: 0.08               # strategy-level failure bar used by the gate
+  min_sharpe: 1.3
+  min_sortino: 1.5
+  min_calmar: 1.0
+  min_profit_factor: 1.3
+  min_trades_oos: 30
+  min_rr: 1.2
+  oos_decay_max: 0.40              # OOS Sharpe >= 0.6 x IS
+  cost_stress_multiplier: 1.5
+  dsr_confidence: 0.95
+
+learning:
+  reflection_every_trades: 15      # seed: per-strategy (5 was statistical noise; BUILD_MAP M3)
+  one_change_per_cycle: true
+  invention_enabled: true          # grammar-constrained (DSL only)
+  inventor_model: claude-sonnet-4-6
+  inventor_model_hard: claude-opus-4-8
+  sentiment_model: claude-haiku-4-5
+
+risk:                              # DECIDED VALUES (see PRD §14 for rationale)
+  per_trade_risk_r: 0.005          # 0.5% equity at risk per trade (proven strategy), tier-scaled
+  new_strategy_size_factor: 0.25   # canary runs at 25% -> ~0.125% effective
+  kelly_fraction_cap: 0.5          # never exceed half-Kelly; Kelly only reduces size
+  daily_loss_limit: 0.03           # -3% equity -> halt new entries for the day
+  daily_derisk_trigger: 0.015      # -1.5% -> halve all sizing
+  max_drawdown_killswitch: 0.10    # -10% peak-to-trough -> full stop, operator-only restart
+  max_open_positions: 3
+  max_portfolio_heat: 0.02
+  max_pairwise_correlation: 0.7
+  consecutive_loss_pause: 3        # consecutive losses on a strategy -> pause + revalidate
+  canary_min_trades: 10
+  canary_min_days: 7
+  cost_hurdle_multiplier: 1.5
+  crypto_max_leverage_hard: 2.0    # HARD ceiling, never loosens with tier (invariant #7)
+  crypto_max_leverage_seed: 1.0    # seed tier effective cap until proven
+
+compliance:
+  max_orders_per_sec: 2
+  max_orders_per_min: 20
+  max_orders_per_day: 200
+  white_box_only: true
+  static_ip_required: true
+  limit_orders_only: true          # NSE bars market orders via algo (invariant #5)
+  algo_id_tagging_required: true
+
+tax:
+  equity_intraday: speculative_business
+  equity_delivery: per_classification
+  equity_fno: nonspeculative_business
+  crypto_inr_derivatives: speculative_business   # DEFAULT (contested - see PRD §6)
+  crypto_reclassification_stress: vda_30_flat    # gate stress scenario
+  operator_slab_rate: 0.30         # conservative default; operator sets actual
+
+# --------------------------------------------------------------------------------------
+# v2 additions (PRD §39.3) — these WIN on conflict with the blocks above.
+# --------------------------------------------------------------------------------------
+data:
+  timezone_storage: UTC
+  equity_session: NSE
+  point_in_time_universe: true
+  survivorship_control: true               # PIT universe; penny/SME universe banned (§29.2)
+  corporate_action_adjust: back_adjust     # splits/bonus/rights; dividend convention fixed
+  data_quality_gate: true
+  min_oos_calendar_span_days: 250          # >= ~1 stress episode; weight daily+ evidence
+
+execution_realism:
+  fill_requires_trade_through: true        # touch != fill (invariant #12)
+  queue_volume_multiple_k: 2.0             # bar vol must exceed k x order size to fill
+  next_bar_execution: true                 # no same-bar look-ahead (invariant #13)
+  latency_ms: 750                          # conservative decision->fill latency
+  model_partial_fills: true
+  max_participation_of_depth: 0.05         # capacity/impact cap (<=5%)
+
+overfitting:
+  lifetime_trial_ledger: true
+  cumulative_effective_n: true
+  haircut_method: BHY                      # Harvey-Liu multiple-testing
+  gate_on_sharpe_lower_bound: true
+  small_sample_shrinkage: true
+  lockbox_eval_budget: 50
+  lockbox_rotation_days: 90
+  benchmark_equity: NIFTY50
+  benchmark_crypto: BTCINR
+  min_alpha_after_cost_tax: 0.0
+  max_benchmark_r2: 0.8
+
+trade_quality:
+  min_quality_score: 0.6                   # tune on evidence
+  rank_select_top_k: 1
+  max_trades_per_day_per_strategy: 3
+  min_holding_bars: 3
+
+crypto:
+  accrue_funding: true
+  futures_roll_days_before_expiry: 2
+  expiry_buffer_hours: 12
+  options_enabled: false                   # no crypto options until DSL supports Greeks (invariant #20)
+
+allocation:
+  max_concurrent_strategies: 4
+  allocation_method: risk_parity_capped
+  correlated_strategies_share_slot: true
+
+recovery:
+  startup_state: RECOVERY
+  three_way_reconcile: true
+  halt_on_unresolved: true
+  require_broker_side_stop: true
+
+resilience:
+  datastore_down_action: halt
+  bus_consumer_groups: true
+  bus_dead_letter: true
+  bus_maxlen_approx: 100000
+  backup_interval_min: 20
+  cancel_on_disconnect: true
+  ntp_required: true
+  secondary_alert_channel: email
+
+observability:
+  heartbeat_interval_s: 5
+  heartbeat_miss_threshold: 3
+  data_staleness_equity_s: 10
+  data_staleness_crypto_s: 30
+
+auth:
+  daily_auth_mode: one_tap                 # one_tap | totp_auto (totp = operator-owned risk)
+  equity_auth_failure_isolates_plane: true
+
+learning_budgets:
+  max_candidates_per_day: 12
+  max_llm_spend_per_day_inr: 200
+  research_never_preempts_live: true
+  thrash_guard_hours: 24

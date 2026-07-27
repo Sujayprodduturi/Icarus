@@ -1,0 +1,56 @@
+# Icarus CI gate (task 0.1b) — ruff -> format -> mypy -> pytest on every push/PR.
+# This gate MUST pass before any deploy. The golden backtest regression (task 1.12) plugs
+# in here in Phase 1. Runs on Linux (matches the Hermes deploy target).
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    services:
+      # Real Postgres + Valkey for integration-marked tests (bus/DB durability, append-only audit).
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: icarus
+          POSTGRES_PASSWORD: icarus
+          POSTGRES_DB: icarus
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U icarus"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      valkey:
+        image: valkey/valkey:8
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "valkey-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      ICARUS_PG_DSN: postgresql+psycopg://icarus:icarus@localhost:5432/icarus
+      ICARUS_VALKEY_URL: redis://localhost:6379/0
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Sync deps
+        run: uv sync --extra dev --extra crypto
+
+      - name: Ruff lint
+        run: uv run ruff check .
+
+      - name: Ruff format check
+        run: uv run ruff format --check .
+
+      - name: Mypy (strict)
+        run: uv run mypy
+
+      - name: Pytest (unit + integration)
+        run: uv run pytest -q

@@ -1,0 +1,37 @@
+# Secrets — NEVER commit (CLAUDE.md §7). Only .env.example is tracked.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# uv
+uv.lock.local
+
+# Local data / caches (PIT cache, backups) — never source of truth
+data/
+*.sqlite
+*.db
+backups/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Claude Code local memory/scratch (not part of the deliverable repo)
+.claude/
