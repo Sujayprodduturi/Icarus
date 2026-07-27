@@ -1,0 +1,83 @@
+"""Trading calendar & sessions (task 0.15, PRD §28, §29.5, §33).
+
+Prevents two backtest/live invalidators: fabricated bars on holidays, and orders on a closed
+market. Timestamps arrive tz-aware UTC and are converted to IST only here, at the session
+boundary (invariant #22, §29.5).
+
+Fail-safe: if the holiday list for a year isn't loaded, :func:`is_nse_trading_day` RAISES
+rather than guessing — "I don't know if the market is open" must never silently become "open".
+
+NSE 2026 equity holidays (full-day closures) cross-checked against two sources 2026-07-27:
+Zerodha holiday calendar + ClearTax (both agree). ⚠️ VERIFY-BEFORE-LIVE (PRD Appendix B): re-pull
+the official NSE circular before Phase 2, as dates can change by circular.
+"""
+
+from __future__ import annotations
+
+from datetime import date, datetime, time
+from zoneinfo import ZoneInfo
+
+from icarus.common.types import AssetClass
+
+IST = ZoneInfo("Asia/Kolkata")
+
+# NSE equity/capital-market normal session (IST). Pre-open (09:00-09:15) excluded from "open".
+EQUITY_SESSION_OPEN = time(9, 15)
+EQUITY_SESSION_CLOSE = time(15, 30)
+
+# Source: Zerodha holiday-calendar + ClearTax, both as-of 2026-07-27 (agree). Muhurat special
+# session on 2026-11-08 (Sun) is a special session, not a normal trading day — excluded here.
+NSE_HOLIDAYS: dict[int, frozenset[date]] = {
+    2026: frozenset(
+        {
+            date(2026, 1, 15),  # Municipal Corporation Elections (Maharashtra)
+            date(2026, 1, 26),  # Republic Day
+            date(2026, 3, 3),  # Holi
+            date(2026, 3, 26),  # Ram Navami
+            date(2026, 3, 31),  # Mahavir Jayanti
+            date(2026, 4, 3),  # Good Friday
+            date(2026, 4, 14),  # Ambedkar Jayanti
+            date(2026, 5, 1),  # Maharashtra Day
+            date(2026, 5, 28),  # Bakri Eid
+            date(2026, 6, 26),  # Muharram
+            date(2026, 9, 14),  # Ganesh Chaturthi
+            date(2026, 10, 2),  # Gandhi Jayanti
+            date(2026, 10, 20),  # Dussehra
+            date(2026, 11, 10),  # Diwali Balipratipada
+            date(2026, 11, 24),  # Guru Nanak Jayanti
+            date(2026, 12, 25),  # Christmas
+        }
+    ),
+}
+
+
+class CalendarDataMissing(RuntimeError):
+    """Raised when the holiday list for a requested year isn't loaded (fail-safe, don't guess)."""
+
+
+def is_nse_trading_day(d: date) -> bool:
+    """True if ``d`` is an NSE equity trading day (weekday and not a holiday).
+
+    Raises :class:`CalendarDataMissing` if the year's holiday list isn't loaded.
+    """
+    holidays = NSE_HOLIDAYS.get(d.year)
+    if holidays is None:
+        raise CalendarDataMissing(
+            f"no NSE holiday list loaded for {d.year}; refusing to assume market state (§28)"
+        )
+    return d.weekday() < 5 and d not in holidays
+
+
+def is_market_open(asset_class: AssetClass, ts_utc: datetime) -> bool:
+    """Whether the market for ``asset_class`` is open at ``ts_utc`` (tz-aware UTC).
+
+    Crypto is 24/7. Equity follows NSE trading days + the 09:15-15:30 IST session.
+    """
+    if ts_utc.tzinfo is None:
+        raise ValueError("ts_utc must be tz-aware UTC (§29.5)")
+    if asset_class is AssetClass.CRYPTO:
+        return True
+    ist = ts_utc.astimezone(IST)
+    if not is_nse_trading_day(ist.date()):
+        return False
+    return EQUITY_SESSION_OPEN <= ist.time() <= EQUITY_SESSION_CLOSE
