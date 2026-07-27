@@ -31,7 +31,7 @@ Right now the system can log in and read market data, but it **cannot place a si
 
 ## Current build status
 
-**Phase 0 — Skeleton & safety rails.** Goal: the system authenticates, streams data, and can place nothing. **In progress (14 of 18 pieces done).** Everything below is built, tested, and green (79 automated tests; formatter + type-checker clean).
+**Phase 0 — Skeleton & safety rails.** Goal: the system authenticates, streams data, and can place nothing. **✅ Complete (18 of 18 pieces).** Everything below is built, tested, and green (99 automated tests; formatter + type-checker clean). Next: operator reviews, then Phase 1 (data + backtesting).
 
 | Piece | What it does (plain English) | Status |
 |---|---|---|
@@ -46,9 +46,9 @@ Right now the system can log in and read market data, but it **cannot place a si
 | Compliance gate (0.10) | The bouncer every order passes: limit-only, correct ID tag, registered IP, market open, speed limit — rejects or halts | ✅ |
 | Calendar (0.15) | NSE trading days/hours + crypto 24/7; refuses to guess the market state for an unknown year | ✅ |
 | Clock check (0.16) | Halts at startup if the computer's clock disagrees with internet time | ✅ |
-| Broker adapters (0.7–0.9) | Read-only connectors for Zerodha, Delta India, Upstox (writes raise) | ⏳ in progress |
-| Daily-auth agent (0.11) | Logs in each morning; only enters TRADING on success, else stays safe and alerts | ⏳ todo |
-| Phase-0 exit + Hermes handoff (18) | A scan proving no order path exists; deployment runbook for the second PC | ⏳ todo |
+| Broker adapters (0.7–0.9) | Read-only connectors for Zerodha, Delta India, Upstox (writes raise) | ✅ |
+| Daily-auth agent (0.11) | Logs in each morning; only enters TRADING on success, else stays safe and alerts | ✅ |
+| Phase-0 exit + Hermes handoff (18) | A codebase scan proving no order path exists; deploy runbook + systemd for the second PC | ✅ |
 
 **Later phases** (not started): Phase 1 = data + backtesting + honest metric sheet → **STOP for human review** → Phase 2 = first live trading (tiny, real money) → Phase 3 = the self-learning loop → Phase 4 = hardening → Phase 5 = scaling.
 

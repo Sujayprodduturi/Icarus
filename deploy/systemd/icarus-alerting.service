@@ -1,0 +1,20 @@
+# The alerting / kill process — runs as its OWN unit, separate from the orchestrator, so the kill
+# path outlives a wedged orchestrator (invariant #17, PRD §36.4). Start this BEFORE the orchestrator.
+[Unit]
+Description=Icarus alerting/kill process (independent of the orchestrator)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/icarus
+EnvironmentFile=/opt/icarus/.env
+# uv run resolves the project venv; adjust the path if uv is installed elsewhere.
+ExecStart=/usr/local/bin/uv run python -m icarus.agents.oversight.alerting
+Restart=always
+RestartSec=2
+# Least privilege: this process needs Valkey (the HALT flag) + Telegram (Phase 2); no broker WRITE creds.
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
