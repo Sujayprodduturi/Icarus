@@ -137,6 +137,33 @@ class Data(_Strict):
     min_oos_calendar_span_days: _PosInt
 
 
+class DataQuality(_Strict):
+    """Thresholds for the Data-QA layer (task 1.1b, PRD §29.3-29.4).
+
+    Config, not constants: a threshold buried in a helper cannot be reviewed, and these decide
+    which bars the whole system is allowed to believe (CLAUDE.md §2).
+    """
+
+    atr_window: _PosInt
+    max_bar_move_atr: _Positive
+    max_single_bar_move: _Positive
+    min_day_score: _Fraction
+    stale_sessions_symbol_veto: _PosInt
+    stale_plane_halt_ratio: _Fraction
+
+    @model_validator(mode="after")
+    def _thresholds_must_be_meaningful(self) -> DataQuality:
+        # A quality gate that accepts everything is not a gate. Catch a well-meaning edit that
+        # disables the layer by loosening it to a no-op rather than by turning it off.
+        if self.max_single_bar_move >= 1.0:
+            raise ValueError(
+                "max_single_bar_move must be < 1.0 (a >=100% bar is always worth quarantining)"
+            )
+        if self.min_day_score == 0:
+            raise ValueError("min_day_score must be > 0 (§29.4 — the gate reads this score)")
+        return self
+
+
 class ExecutionRealism(_Strict):
     fill_requires_trade_through: bool
     queue_volume_multiple_k: _Positive
@@ -264,6 +291,7 @@ class GoalConfig(_Strict):
     compliance: Compliance
     tax: Tax
     data: Data
+    data_quality: DataQuality
     execution_realism: ExecutionRealism
     overfitting: Overfitting
     trade_quality: TradeQuality
