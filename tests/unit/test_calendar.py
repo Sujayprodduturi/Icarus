@@ -11,6 +11,8 @@ from icarus.common.calendar import (
     CalendarDataMissing,
     is_market_open,
     is_nse_trading_day,
+    session_closed,
+    session_open_utc,
 )
 from icarus.common.types import AssetClass
 
@@ -60,3 +62,36 @@ def test_crypto_always_open() -> None:
 def test_naive_ts_rejected() -> None:
     with pytest.raises(ValueError, match="tz-aware"):
         is_market_open(AssetClass.EQUITY, datetime(2026, 7, 27, 11, 0))
+
+
+# --------------------------------------------------------------------------------------
+# Session-open stamping + session-closed (task 1.1: partial bars must never be published)
+# --------------------------------------------------------------------------------------
+def test_session_open_utc_is_0915_ist_on_the_same_date() -> None:
+    """The whole NSE session sits inside one UTC date, so bars key by date across vendors."""
+    opened = session_open_utc(date(2026, 7, 24))
+    assert opened == datetime(2026, 7, 24, 3, 45, tzinfo=UTC)
+    assert opened.astimezone(IST).time() == datetime(2026, 7, 24, 9, 15, tzinfo=IST).time()
+    assert opened.date() == date(2026, 7, 24)
+
+
+def test_equity_session_not_closed_mid_session() -> None:
+    # 14:30 IST on the bar's own date — the close has not happened yet.
+    assert not session_closed(AssetClass.EQUITY, date(2026, 7, 24), _ist(2026, 7, 24, 14, 30))
+
+
+def test_equity_session_closed_after_1530_ist() -> None:
+    assert session_closed(AssetClass.EQUITY, date(2026, 7, 24), _ist(2026, 7, 24, 15, 30))
+    assert session_closed(AssetClass.EQUITY, date(2026, 7, 24), _ist(2026, 7, 24, 16, 0))
+
+
+def test_crypto_day_closes_only_at_utc_midnight() -> None:
+    """Crypto is 24/7, so its daily bar is final only once the UTC date has rolled over."""
+    late = datetime(2026, 7, 24, 23, 59, tzinfo=UTC)
+    assert not session_closed(AssetClass.CRYPTO, date(2026, 7, 24), late)
+    assert session_closed(AssetClass.CRYPTO, date(2026, 7, 24), datetime(2026, 7, 25, tzinfo=UTC))
+
+
+def test_session_closed_rejects_naive_timestamp() -> None:
+    with pytest.raises(ValueError, match="tz-aware"):
+        session_closed(AssetClass.EQUITY, date(2026, 7, 24), datetime(2026, 7, 24, 16, 0))

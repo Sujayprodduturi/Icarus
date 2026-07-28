@@ -21,11 +21,13 @@ htmlcov/
 # uv
 uv.lock.local
 
-# Local data / caches (PIT cache, backups) — never source of truth
-data/
+# Local data / caches (PIT cache, backups) — never source of truth.
+# Leading slash anchors these to the repo root: an unanchored `data/` also matched the
+# `icarus/agents/data` source package and silently kept task 1.1 out of the repo.
+/data/
 *.sqlite
 *.db
-backups/
+/backups/
 
 # OS / editor
 .DS_Store

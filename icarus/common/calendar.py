@@ -14,7 +14,7 @@ the official NSE circular before Phase 2, as dates can change by circular.
 
 from __future__ import annotations
 
-from datetime import date, datetime, time
+from datetime import UTC, date, datetime, time
 from zoneinfo import ZoneInfo
 
 from icarus.common.types import AssetClass
@@ -66,6 +66,34 @@ def is_nse_trading_day(d: date) -> bool:
             f"no NSE holiday list loaded for {d.year}; refusing to assume market state (§28)"
         )
     return d.weekday() < 5 and d not in holidays
+
+
+def session_open_utc(day: date) -> datetime:
+    """The UTC instant the NSE equity session opens on ``day`` (09:15 IST).
+
+    Bars are stamped here so their UTC date equals the IST trading date — the whole session sits
+    inside one UTC date — which is what lets bars from different vendors be matched by date.
+    Derived from :data:`EQUITY_SESSION_OPEN` rather than restated, so there is one source of truth.
+    """
+    return datetime.combine(day, EQUITY_SESSION_OPEN, tzinfo=IST).astimezone(UTC)
+
+
+def session_closed(asset_class: AssetClass, day: date, now_utc: datetime) -> bool:
+    """Whether ``day``'s session has ended, so its daily bar is final rather than in-progress.
+
+    A bar for the session still running is a partial: its close is only the last trade so far and
+    its high/low can still move. Treating it as complete would hand a strategy a close that has
+    not happened yet — the look-ahead that invariants #12/#13 exist to prevent.
+
+    Equity sessions end at 15:30 IST on the bar's own date; a crypto daily bar runs to UTC
+    midnight, so it is final only once the date has rolled over.
+    """
+    if now_utc.tzinfo is None:
+        raise ValueError("now_utc must be tz-aware UTC (§29.5)")
+    if asset_class is AssetClass.CRYPTO:
+        return day < now_utc.astimezone(UTC).date()
+    close_utc = datetime.combine(day, EQUITY_SESSION_CLOSE, tzinfo=IST).astimezone(UTC)
+    return now_utc >= close_utc
 
 
 def is_market_open(asset_class: AssetClass, ts_utc: datetime) -> bool:
