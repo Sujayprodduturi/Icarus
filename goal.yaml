@@ -98,6 +98,76 @@ universe:
   dividend_convention: price_return        # §29.3 — ONE convention in signal, cost and tax
   history_years: 5
 
+# Cost schedule (task 1.5, PRD §7). Statutory + broker charges ONLY — slippage and fill
+# probability live in the execution/fill model (§30.1, task 1.7b), so friction is never
+# double-counted. Rates live here rather than in code because they change by circular and
+# Appendix B requires re-pulling them, not hard-coding (CLAUDE.md §2).
+#
+# SOURCES, all re-verified 2026-07-29:
+#   * Rates: zerodha.com/charges (the broker that actually debits us) — cross-checked against
+#     PRD §7.1, which they match including the post-1-Apr-2026 STT hikes (futures 0.05% sell,
+#     options 0.15% on premium).
+#   * NSE cash txn charge / IPFT convention: NSE circular 27 Feb 2026, effective 1 Mar 2026,
+#     rolled IPFT back to Rs 0.01/crore with transaction charges raised correspondingly and
+#     "no change in the overall outflow". This RESOLVES the Appendix-B open item:
+#         pre-Mar-2026:  0.00297%     + Rs 10/crore IPFT (=0.0001%)      = 0.00307%
+#         post-Mar-2026: 0.00307%     + Rs 0.01/crore IPFT (~0.0000001%) = 0.00307%
+#     Same total, split differently. So: use the all-in 0.00307% and DO NOT add IPFT as a
+#     separate line — at Rs 0.01/crore it is Rs 0.0001 on a Rs 1 lakh trade. A page still
+#     showing "0.00297% + Rs 10/crore IPFT" is quoting the pre-March split, not a cheaper rate.
+#   * Residual uncertainty: the NSE circular PDFs would not extract (one timed out, one is
+#     image-encoded). Relied on a circular summary plus Zerodha's live page — independent and
+#     arithmetically consistent. Re-pull the primary before live capital (Appendix B).
+costs:
+  gst_rate: 0.18                           # on (brokerage + exchange txn + SEBI fee) only —
+                                           # never on STT, stamp duty, or the GST-inclusive DP fee
+  sebi_turnover_pct: 0.000001              # Rs 10/crore, both sides, all segments
+  dp_charge_inr: 15.34                     # per scrip per day on a DELIVERY SELL. Rs 3.5 CDSL +
+                                           # Rs 9.5 Zerodha + Rs 2.34 GST — ALREADY GST-inclusive.
+                                           # Fixed rupees, so it dominates below ~Rs 10k notional:
+                                           # this single line is most of the seed-tier C1 problem.
+  subscription_monthly_inr: 500            # Kite Connect. Amortized into the hurdle (§7.1), never
+                                           # charged per trade — see costmodel.amortised_subscription
+  segments:
+    # brokerage = flat + min(pct x turnover, cap). Covers all three real shapes:
+    # zero (delivery), lower-of (intraday/futures), flat-per-order (options).
+    equity_delivery:
+      brokerage_flat_inr: 0.0
+      brokerage_pct: 0.0                   # Rs 0 — makes delivery the cheapest seed-tier path
+      brokerage_cap_inr: 0.0
+      stt_buy_pct: 0.001                   # 0.1% buy AND sell (unchanged Apr 2026)
+      stt_sell_pct: 0.001
+      exchange_txn_pct: 0.0000307          # 0.00307% all-in, incl. IPFT — see note above
+      stamp_buy_pct: 0.00015               # 0.015%, buy side only
+      dp_charge_on_sell: true              # the fixed-rupee killer at small size
+    equity_intraday:
+      brokerage_flat_inr: 0.0
+      brokerage_pct: 0.0003                # 0.03% or Rs 20/order, whichever LOWER
+      brokerage_cap_inr: 20.0
+      stt_buy_pct: 0.0
+      stt_sell_pct: 0.00025                # 0.025% sell only
+      exchange_txn_pct: 0.0000307
+      stamp_buy_pct: 0.00003               # 0.003%
+      dp_charge_on_sell: false             # nothing leaves the demat account
+    equity_futures:
+      brokerage_flat_inr: 0.0
+      brokerage_pct: 0.0003
+      brokerage_cap_inr: 20.0
+      stt_buy_pct: 0.0
+      stt_sell_pct: 0.0005                 # 0.05% sell — RAISED 1 Apr 2026 (was 0.02%)
+      exchange_txn_pct: 0.0000183          # 0.00183%
+      stamp_buy_pct: 0.00002               # 0.002%
+      dp_charge_on_sell: false
+    equity_options:
+      brokerage_flat_inr: 20.0             # flat Rs 20/executed order
+      brokerage_pct: 0.0
+      brokerage_cap_inr: 0.0
+      stt_buy_pct: 0.0
+      stt_sell_pct: 0.0015                 # 0.15% on PREMIUM, sell — RAISED 1 Apr 2026 (was 0.10%)
+      exchange_txn_pct: 0.0003553          # 0.03553% on premium
+      stamp_buy_pct: 0.00003               # 0.003%
+      dp_charge_on_sell: false
+
 execution_realism:
   fill_requires_trade_through: true        # touch != fill (invariant #12)
   queue_volume_multiple_k: 2.0             # bar vol must exceed k x order size to fill

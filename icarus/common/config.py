@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 # Reusable constrained scalars.
 _Fraction = Annotated[float, Field(ge=0.0, le=1.0)]
 _Positive = Annotated[float, Field(gt=0.0)]
+_NonNegative = Annotated[float, Field(ge=0.0)]
 _PosInt = Annotated[int, Field(gt=0)]
 
 # Hard ceiling from invariant #7 — the leverage cap NEVER loosens with tier.
@@ -192,6 +193,64 @@ class Universe(_Strict):
         return self
 
 
+class SegmentSchedule(_Strict):
+    """The charge schedule for one tradable segment (task 1.5, PRD §7.1).
+
+    ``brokerage = brokerage_flat_inr + min(brokerage_pct x turnover, brokerage_cap_inr)`` — one
+    formula covering all three real shapes: zero (delivery), lower-of (intraday/futures), and
+    flat-per-order (options).
+    """
+
+    brokerage_flat_inr: _NonNegative
+    brokerage_pct: _NonNegative
+    brokerage_cap_inr: _NonNegative
+    stt_buy_pct: _NonNegative
+    stt_sell_pct: _NonNegative
+    exchange_txn_pct: _NonNegative
+    stamp_buy_pct: _NonNegative
+    dp_charge_on_sell: bool
+
+    @model_validator(mode="after")
+    def _percentage_brokerage_needs_a_cap(self) -> SegmentSchedule:
+        # A percentage brokerage with a zero cap silently computes to zero brokerage on every
+        # trade — free trading is exactly the kind of "wrong in our favour" default that makes a
+        # backtest look profitable. Force the cap to be stated.
+        if self.brokerage_pct > 0 and self.brokerage_cap_inr <= 0:
+            raise ValueError(
+                "brokerage_pct > 0 requires brokerage_cap_inr > 0 (the 'or Rs 20/order, whichever "
+                "lower' cap); a zero cap would zero out brokerage entirely"
+            )
+        return self
+
+
+class SegmentSchedules(_Strict):
+    """One schedule per segment. Named fields, not a dict, so pydantic itself enforces that all
+    four are present and that a typo'd segment name is an error — no hand-written validator, and
+    no import of :mod:`icarus.engine` from ``common`` to check the names against.
+
+    ``test_costmodel`` asserts these field names stay in step with ``costmodel.Segment``.
+    """
+
+    equity_delivery: SegmentSchedule
+    equity_intraday: SegmentSchedule
+    equity_futures: SegmentSchedule
+    equity_options: SegmentSchedule
+
+
+class Costs(_Strict):
+    """Statutory + broker charges (task 1.5, PRD §7).
+
+    Charges only. Slippage and fill probability belong to the execution/fill model (§30.1) so
+    the two are never double-counted.
+    """
+
+    gst_rate: _Fraction
+    sebi_turnover_pct: _NonNegative
+    dp_charge_inr: _NonNegative
+    subscription_monthly_inr: _NonNegative
+    segments: SegmentSchedules
+
+
 class ExecutionRealism(_Strict):
     fill_requires_trade_through: bool
     queue_volume_multiple_k: _Positive
@@ -321,6 +380,7 @@ class GoalConfig(_Strict):
     data: Data
     data_quality: DataQuality
     universe: Universe
+    costs: Costs
     execution_realism: ExecutionRealism
     overfitting: Overfitting
     trade_quality: TradeQuality
