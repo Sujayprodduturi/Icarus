@@ -276,6 +276,10 @@ class _FixedSource:
     def supports(self, asset_class: AssetClass) -> bool:
         return True
 
+    @property
+    def prices_are_split_adjusted(self) -> bool:
+        return False
+
     async def daily_bars(self, symbol: str, frm: date, to: date) -> list[Candle]:
         return self._bars.get(symbol, [])
 

@@ -223,6 +223,10 @@ class CachedDailySource:
     def supports(self, asset_class: AssetClass) -> bool:
         return self._inner.supports(asset_class)
 
+    @property
+    def prices_are_split_adjusted(self) -> bool:
+        return self._inner.prices_are_split_adjusted
+
     async def daily_bars(self, symbol: str, frm: date, to: date) -> list[Candle]:
         """Serve from cache when the range is fully covered, else fetch the union and store it.
 

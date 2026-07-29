@@ -55,17 +55,56 @@ class CalendarDataMissing(RuntimeError):
     """Raised when the holiday list for a requested year isn't loaded (fail-safe, don't guess)."""
 
 
+# Sessions derived from the exchange's own archive for years with no verified holiday list
+# (task 1.1c; operator decision 2026-07-29). NSE publishes holidays only for the current year, so
+# for 2021-2025 a weekday with no bhavcopy in EITHER archive is taken as a closure — the exchange
+# not publishing an end-of-day file is its own evidence the market was shut. Populated by
+# :mod:`icarus.agents.data.backfill`; empty until a backfill artifact is loaded.
+_DERIVED_SESSIONS: dict[int, frozenset[date]] = {}
+
+# NSE runs ~245-250 sessions a year. A complete derived year outside this band means the archive
+# had holes, not that the market took a month off — refuse it rather than backtest on a fiction.
+MIN_SESSIONS_PER_YEAR = 240
+MAX_SESSIONS_PER_YEAR = 255
+
+
+def register_derived_sessions(year: int, sessions: frozenset[date], *, complete_year: bool) -> None:
+    """Record archive-derived trading days for ``year``.
+
+    ``complete_year`` says whether the backfill covered all 12 months; only then is the
+    session-count sanity check meaningful. A partial year is accepted as-is — it is still the
+    truth about the range that was scanned.
+    """
+    if complete_year and not MIN_SESSIONS_PER_YEAR <= len(sessions) <= MAX_SESSIONS_PER_YEAR:
+        raise CalendarDataMissing(
+            f"derived calendar for {year} has {len(sessions)} sessions, outside the plausible "
+            f"{MIN_SESSIONS_PER_YEAR}-{MAX_SESSIONS_PER_YEAR}; the archive is incomplete (§29.4)"
+        )
+    _DERIVED_SESSIONS[year] = sessions
+
+
+def clear_derived_sessions() -> None:
+    """Drop all derived calendars. For tests and for reloading a corrected artifact."""
+    _DERIVED_SESSIONS.clear()
+
+
 def is_nse_trading_day(d: date) -> bool:
     """True if ``d`` is an NSE equity trading day (weekday and not a holiday).
 
-    Raises :class:`CalendarDataMissing` if the year's holiday list isn't loaded.
+    Prefers the verified holiday list; falls back to archive-derived sessions for years that have
+    one. Raises :class:`CalendarDataMissing` when neither exists — "I don't know whether the
+    market was open" must never silently become "it was".
     """
     holidays = NSE_HOLIDAYS.get(d.year)
-    if holidays is None:
-        raise CalendarDataMissing(
-            f"no NSE holiday list loaded for {d.year}; refusing to assume market state (§28)"
-        )
-    return d.weekday() < 5 and d not in holidays
+    if holidays is not None:
+        return d.weekday() < 5 and d not in holidays
+    derived = _DERIVED_SESSIONS.get(d.year)
+    if derived is not None:
+        return d in derived
+    raise CalendarDataMissing(
+        f"no NSE holiday list or derived calendar for {d.year}; "
+        f"refusing to assume market state (§28)"
+    )
 
 
 def session_open_utc(day: date) -> datetime:

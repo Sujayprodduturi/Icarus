@@ -82,6 +82,7 @@ _BHAVCOPY_COLUMNS = [
     "LwPric",
     "ClsPric",
     "TtlTradgVol",
+    "TtlTrfVal",
 ]
 
 
@@ -110,6 +111,7 @@ def _equity_row(**overrides: str) -> dict[str, str]:
         "LwPric": "1249.80",
         "ClsPric": "1278.00",
         "TtlTradgVol": "9817000",
+        "TtlTrfVal": "12509975780.10",
     }
     row.update(overrides)
     return row
@@ -295,7 +297,7 @@ async def test_nse_skips_non_equity_rows(tmp_path: Path) -> None:
 
 
 async def test_nse_missing_column_raises_schema_error(tmp_path: Path) -> None:
-    """Induced drift: NSE drops ClsPric from the layout."""
+    """Induced drift: NSE drops ClsPric. Matching neither known layout must halt, not guess."""
     columns = [c for c in _BHAVCOPY_COLUMNS if c != "ClsPric"]
     rows = [{k: v for k, v in _equity_row().items() if k != "ClsPric"}]
 
@@ -303,7 +305,7 @@ async def test_nse_missing_column_raises_schema_error(tmp_path: Path) -> None:
         return httpx.Response(200, content=_bhavcopy_zip(rows, columns))
 
     async with _client(handler) as http:
-        with pytest.raises(SchemaError, match="ClsPric"):
+        with pytest.raises(SchemaError, match="neither archive layout"):
             await NseBhavcopySource(http, tmp_path).daily_bars(
                 "RELIANCE", date(2026, 7, 24), date(2026, 7, 24)
             )
@@ -449,6 +451,10 @@ class _CountingSource:
 
     def supports(self, asset_class: AssetClass) -> bool:
         return True
+
+    @property
+    def prices_are_split_adjusted(self) -> bool:
+        return False
 
     async def daily_bars(self, symbol: str, frm: date, to: date) -> list[Candle]:
         self.calls += 1
@@ -602,6 +608,10 @@ class _StubSource:
 
     def supports(self, asset_class: AssetClass) -> bool:
         return True
+
+    @property
+    def prices_are_split_adjusted(self) -> bool:
+        return False
 
     async def daily_bars(self, symbol: str, frm: date, to: date) -> list[Candle]:
         if symbol in self._errors:

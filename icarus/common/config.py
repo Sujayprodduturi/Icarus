@@ -164,6 +164,34 @@ class DataQuality(_Strict):
         return self
 
 
+class Universe(_Strict):
+    """Point-in-time tradable-universe policy (task 1.1c, PRD §29.1-29.3)."""
+
+    min_avg_turnover_inr: _Positive
+    turnover_window_sessions: _PosInt
+    min_close_inr: _Positive
+    dividend_convention: str
+    history_years: _PosInt
+
+    @model_validator(mode="after")
+    def _enforce_universe_policy(self) -> Universe:
+        # §29.3: one convention, applied identically in signal, cost and tax. Anything else means
+        # the backtest and the tax model disagree about what a return is.
+        if self.dividend_convention not in {"price_return", "total_return"}:
+            raise ValueError(
+                f"dividend_convention must be price_return or total_return, "
+                f"got {self.dividend_convention!r} (§29.3)"
+            )
+        # The penny ban is an invariant (§29.2), not a preference: low-priced names cannot be
+        # backtested honestly at this budget. _Positive already bars 0; this bars a token floor.
+        if self.min_close_inr < 10:
+            raise ValueError(
+                f"min_close_inr={self.min_close_inr} effectively disables the penny-universe ban "
+                f"(§29.2)"
+            )
+        return self
+
+
 class ExecutionRealism(_Strict):
     fill_requires_trade_through: bool
     queue_volume_multiple_k: _Positive
@@ -292,6 +320,7 @@ class GoalConfig(_Strict):
     tax: Tax
     data: Data
     data_quality: DataQuality
+    universe: Universe
     execution_realism: ExecutionRealism
     overfitting: Overfitting
     trade_quality: TradeQuality

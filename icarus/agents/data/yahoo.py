@@ -61,6 +61,16 @@ class YahooDailySource:
         # Equities via the .NS suffix, crypto via pairs like BTC-USD.
         return asset_class in (AssetClass.EQUITY, AssetClass.CRYPTO)
 
+    @property
+    def prices_are_split_adjusted(self) -> bool:
+        """True — verified 2026-07-29: RELIANCE crosses its 2024-10-28 1:2 split with no gap.
+
+        Yahoo's plain OHLC is already split-adjusted (``adjclose`` additionally adjusts dividends,
+        which is why we never use it under the price-return convention). Never pass these bars to
+        :func:`icarus.agents.data.corpactions.back_adjust`.
+        """
+        return True
+
     async def daily_bars(self, symbol: str, frm: date, to: date) -> list[Candle]:
         payload = await self._get(symbol, frm, to)
         result = _unwrap(payload, symbol)
@@ -72,9 +82,9 @@ class YahooDailySource:
     async def _get(self, symbol: str, frm: date, to: date) -> dict[str, Any]:
         """One rate-limited HTTP GET; transport/status failures become the right error type."""
         params = {
-            "period1": str(_epoch(frm)),
+            "period1": str(epoch_seconds(frm)),
             # period2 is exclusive of the following midnight, so push past the last session.
-            "period2": str(_epoch(to + timedelta(days=1))),
+            "period2": str(epoch_seconds(to + timedelta(days=1))),
             "interval": "1d",
         }
         resp = await get_or_raise(
@@ -93,7 +103,7 @@ class YahooDailySource:
         return body
 
 
-def _epoch(d: date) -> int:
+def epoch_seconds(d: date) -> int:
     return int(datetime.combine(d, time.min, tzinfo=UTC).timestamp())
 
 

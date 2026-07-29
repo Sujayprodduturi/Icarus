@@ -57,6 +57,18 @@ class DailyBarSource(Protocol):
         """Whether this source can serve that asset class (NSE bhavcopy is equity-only)."""
         ...
 
+    @property
+    def prices_are_split_adjusted(self) -> bool:
+        """Whether this source already back-adjusts its OHLC for splits/bonuses.
+
+        Every source must declare this, because getting it wrong is silent and catastrophic:
+        back-adjusting an already-adjusted series halves every historical price a second time,
+        producing a smooth, plausible-looking series that is simply wrong. Verified 2026-07-29 —
+        Yahoo adjusts (RELIANCE crosses its 2024-10-28 1:2 split with no gap), NSE bhavcopy does
+        not (it reports the price that actually traded that day).
+        """
+        ...
+
     async def daily_bars(self, symbol: str, frm: date, to: date) -> list[Candle]:
         """Daily bars for ``symbol`` over ``[frm, to]`` inclusive, ascending by timestamp.
 

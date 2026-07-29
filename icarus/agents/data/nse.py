@@ -20,6 +20,21 @@ universe snapshot in 1.1c needs.
 **A missing file for a day the calendar calls a trading day raises** rather than being skipped.
 Skipping would leave a hole indistinguishable from a holiday, which is the precise failure PRD
 §29.4 exists to prevent — a silent gap corrupts every backtest that spans it.
+
+**Two archive formats (task 1.1c).** The UDiFF layout above only reaches back to mid-2024 — 2023
+returns 404 (verified 2026-07-29). Older sessions use the legacy layout at
+``/content/historical/EQUITIES/{YYYY}/{MON}/cm{DDMONYYYY}bhav.csv.zip``, verified against
+2021-07-23, whose columns carry everything we need::
+
+    SYMBOL SERIES OPEN HIGH LOW CLOSE TOTTRDQTY TOTTRDVAL TIMESTAMP ISIN
+
+``_download`` tries UDiFF first and falls back to legacy, so the cutover date never has to be
+hard-coded; only a day missing from *both* archives is a real gap. The parser dispatches on the
+header it actually sees, so a cached file from either era decodes identically.
+
+**Turnover is carried through** (``TtlTrfVal`` / ``TOTTRDVAL``) because it is the point-in-time
+liquidity measure the universe builder filters on — the only honest one available, since NSE's
+published F&O and equity master lists are *today's* snapshots (§29.1).
 """
 
 from __future__ import annotations
@@ -37,6 +52,7 @@ import httpx
 
 from icarus.agents.data.cache import read_versioned_json, write_atomic_json
 from icarus.agents.data.fetch import COURTESY_PER_S, RateLimiter, get_or_raise
+from icarus.agents.data.source import SourceUnavailableError
 from icarus.common.calendar import is_nse_trading_day, session_open_utc
 from icarus.common.logging import get_logger
 from icarus.common.schemas import SchemaError
@@ -48,9 +64,16 @@ if TYPE_CHECKING:
 log = get_logger("data.nse")
 
 BASE_URL = "https://nsearchives.nseindia.com/content/cm"
+ARCHIVE_URL = "https://nsearchives.nseindia.com/content/historical/EQUITIES"
 
-# The columns we depend on. Any one missing means the layout changed -> halt, never guess.
-_REQUIRED_COLUMNS = (
+# NSE spells months this way in legacy archive paths. Not %b — that is locale-dependent.
+_MONTH_ABBR = (
+    "JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+    "JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
+)  # fmt: skip
+
+# Columns we depend on per format. Any one missing means the layout changed -> halt, never guess.
+_UDIFF_COLUMNS = (
     "TradDt",
     "TckrSymb",
     "SctySrs",
@@ -60,12 +83,31 @@ _REQUIRED_COLUMNS = (
     "LwPric",
     "ClsPric",
     "TtlTradgVol",
+    "TtlTrfVal",
+)
+_LEGACY_COLUMNS = (
+    "SYMBOL",
+    "SERIES",
+    "OPEN",
+    "HIGH",
+    "LOW",
+    "CLOSE",
+    "TOTTRDQTY",
+    "TOTTRDVAL",
 )
 # Cash-segment equity rows only: series EQ, instrument type STK. Excludes ETFs, debt, derivatives.
+# Series EQ also excludes BE/BZ, which is how NSE marks trade-to-trade and surveillance names —
+# so the §29.2 "non-surveillance" requirement is satisfied by construction, point-in-time.
 _EQUITY_SERIES = "EQ"
 _EQUITY_INSTRUMENT = "STK"
 
-_DAY_CACHE_SCHEMA = 1
+# A day-row: [open, high, low, close, volume, turnover]. Turnover is index 5 (task 1.1c).
+TURNOVER_INDEX = 5
+CLOSE_INDEX = 3
+
+# Schema 2 added turnover; schema-1 caches are discarded and refetched, which is what the
+# version is for.
+_DAY_CACHE_SCHEMA = 2
 
 # Parsed day-files kept in memory. One entry is ~2,000 tickers; the bound keeps a long backfill
 # from growing without limit while still covering a typical multi-symbol lookback window, where
@@ -76,6 +118,16 @@ _MEMO_MAX_DAYS = 64
 def bhavcopy_url(d: date) -> str:
     """Archive URL for one session's full bhavcopy (UDiFF layout, verified 2026-07-28)."""
     return f"{BASE_URL}/BhavCopy_NSE_CM_0_0_0_{d:%Y%m%d}_F_0000.csv.zip"
+
+
+def legacy_bhavcopy_url(d: date) -> str:
+    """Pre-mid-2024 archive URL (verified against 2021-07-23 on 2026-07-29).
+
+    Months are spelled out rather than taken from ``%b``: that directive is locale-dependent, and
+    a non-English locale would silently build URLs that 404 forever.
+    """
+    mon = _MONTH_ABBR[d.month - 1]
+    return f"{ARCHIVE_URL}/{d.year}/{mon}/cm{d.day:02d}{mon}{d.year}bhav.csv.zip"
 
 
 class NseBhavcopySource:
@@ -105,6 +157,17 @@ class NseBhavcopySource:
     def supports(self, asset_class: AssetClass) -> bool:
         return asset_class is AssetClass.EQUITY
 
+    @property
+    def prices_are_split_adjusted(self) -> bool:
+        """False — the bhavcopy reports what actually traded that session, unadjusted.
+
+        This is the series that *must* go through
+        :func:`icarus.agents.data.corpactions.back_adjust`, and it is why the bhavcopy is our
+        equity price of record: an unadjusted source can be adjusted correctly, whereas an
+        already-adjusted one cannot be un-adjusted.
+        """
+        return False
+
     async def daily_bars(self, symbol: str, frm: date, to: date) -> list[Candle]:
         """Bars for ``symbol`` over ``[frm, to]``, assembled from one day-file per session.
 
@@ -114,15 +177,18 @@ class NseBhavcopySource:
         ticker = symbol.removesuffix(".NS").upper()
         candles: list[Candle] = []
         for day in _trading_days(frm, to):
-            rows = await self._day(day)
+            rows = await self.day_rows(day)
             row = rows.get(ticker)
             if row is None:
                 continue  # not listed / not traded that session — absence of a row is real data
             candles.append(_to_candle(day, row, ticker))
         return candles
 
-    async def _day(self, day: date) -> dict[str, list[str]]:
-        """One session's equity rows as ``ticker -> [o, h, l, c, v]``, memoized then disk-cached.
+    async def day_rows(self, day: date) -> dict[str, list[str]]:
+        """One session's equity rows as ``ticker -> [o,h,l,c,volume,turnover]``, memoized+cached.
+
+        Public because the point-in-time universe builder (1.1c) needs whole sessions, not single
+        symbols: one file already holds every name that traded that day.
 
         Disk and CPU work is pushed to a worker thread: a bhavcopy holds ~3,400 rows, and unzip +
         CSV parse on the event loop would stall every other agent — including the kill-line poll.
@@ -152,14 +218,27 @@ class NseBhavcopySource:
         return rows
 
     async def _download(self, day: date) -> bytes:
-        """Fetch one session's archive. A missing file for a trading day is a gap, not a holiday."""
-        response = await get_or_raise(
-            self._client,
-            bhavcopy_url(day),
-            # Names the day so a SourceUnavailableError points at the exact missing session (§29.4).
-            what=f"nse bhavcopy missing for trading day {day}",
-            limiter=self._limiter,
-        )
+        """Fetch one session's archive, trying the current layout then the legacy one.
+
+        Falling back on absence means the mid-2024 cutover never has to be hard-coded. Only a day
+        missing from *both* archives is a real gap, and that still raises — a silent skip would
+        leave a hole indistinguishable from a holiday (§29.4).
+        """
+        try:
+            response = await get_or_raise(
+                self._client,
+                bhavcopy_url(day),
+                what=f"nse bhavcopy {day}",
+                limiter=self._limiter,
+            )
+        except SourceUnavailableError:
+            response = await get_or_raise(
+                self._client,
+                legacy_bhavcopy_url(day),
+                # Names the day so the error points at the exact missing session (§29.4).
+                what=f"nse bhavcopy missing from both archives for trading day {day}",
+                limiter=self._limiter,
+            )
         return response.content
 
 
@@ -175,7 +254,12 @@ def _trading_days(frm: date, to: date) -> list[date]:
 
 
 def _parse_bhavcopy(raw: bytes, day: date) -> dict[str, list[str]]:
-    """Extract the cash-equity rows from a bhavcopy ZIP. Any layout surprise is ``SchemaError``."""
+    """Extract cash-equity rows from a bhavcopy ZIP, in either archive layout.
+
+    Dispatches on the header actually present rather than on the date, so a file cached from
+    either era decodes the same way. A header matching neither layout is ``SchemaError``: an
+    unrecognised format must halt the feed, never be parsed hopefully (invariant #10).
+    """
     try:
         archive = zipfile.ZipFile(io.BytesIO(raw))
         names = archive.namelist()
@@ -186,15 +270,19 @@ def _parse_bhavcopy(raw: bytes, day: date) -> dict[str, list[str]]:
         raise SchemaError(f"nse bhavcopy {day}: unreadable archive ({exc})") from exc
 
     reader = csv.DictReader(io.StringIO(text))
-    columns = reader.fieldnames or []
-    missing = [c for c in _REQUIRED_COLUMNS if c not in columns]
-    if missing:
-        raise SchemaError(
-            f"nse bhavcopy {day}: missing columns {missing}",
-            expected=str(_REQUIRED_COLUMNS),
-            got=str(columns),
-        )
+    columns = set(reader.fieldnames or [])
+    if set(_UDIFF_COLUMNS) <= columns:
+        return _rows_from_udiff(reader)
+    if set(_LEGACY_COLUMNS) <= columns:
+        return _rows_from_legacy(reader)
+    raise SchemaError(
+        f"nse bhavcopy {day}: header matches neither archive layout",
+        expected=f"{_UDIFF_COLUMNS} or {_LEGACY_COLUMNS}",
+        got=str(sorted(columns)),
+    )
 
+
+def _rows_from_udiff(reader: csv.DictReader[str]) -> dict[str, list[str]]:
     rows: dict[str, list[str]] = {}
     for row in reader:
         if row.get("SctySrs") != _EQUITY_SERIES or row.get("FinInstrmTp") != _EQUITY_INSTRUMENT:
@@ -207,13 +295,33 @@ def _parse_bhavcopy(raw: bytes, day: date) -> dict[str, list[str]]:
                 row["LwPric"],
                 row["ClsPric"],
                 row["TtlTradgVol"],
+                row["TtlTrfVal"],
+            ]
+    return rows
+
+
+def _rows_from_legacy(reader: csv.DictReader[str]) -> dict[str, list[str]]:
+    """Pre-mid-2024 layout. It has no instrument-type column; SERIES alone carries the filter."""
+    rows: dict[str, list[str]] = {}
+    for row in reader:
+        if (row.get("SERIES") or "").strip() != _EQUITY_SERIES:
+            continue
+        ticker = (row.get("SYMBOL") or "").strip().upper()
+        if ticker:
+            rows[ticker] = [
+                row["OPEN"],
+                row["HIGH"],
+                row["LOW"],
+                row["CLOSE"],
+                row["TOTTRDQTY"],
+                row["TOTTRDVAL"],
             ]
     return rows
 
 
 def _to_candle(day: date, row: list[str], ticker: str) -> Candle:
     try:
-        open_, high, low, close, volume = (Decimal(v) for v in row)
+        open_, high, low, close, volume = (Decimal(v) for v in row[:5])
     except (InvalidOperation, ValueError) as exc:
         raise SchemaError(f"nse bhavcopy {day}: non-numeric price for {ticker}: {row}") from exc
     return Candle(

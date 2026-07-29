@@ -86,6 +86,18 @@ data_quality:
   stale_sessions_symbol_veto: 2            # no bar for N expected sessions -> veto that symbol (§37)
   stale_plane_halt_ratio: 0.5              # this share of a plane's feeds stale -> venue dead -> halt (§29.4)
 
+# Tradable equity universe (task 1.1c, PRD §29.1-29.3). Point-in-time: a name qualifies on a
+# date using only data available on that date. Bhavcopy series EQ already excludes BE/BZ, which
+# is how NSE marks trade-to-trade and surveillance names, so §29.2's "non-surveillance" filter
+# holds by construction. NSE's F&O and equity master lists are deliberately NOT used as filters:
+# they are today's snapshots, and applying them to past dates is look-ahead (§29.1).
+universe:
+  min_avg_turnover_inr: 500000000          # Rs 50cr, 20-session average — honest-fill floor
+  turnover_window_sessions: 20
+  min_close_inr: 30                        # penny ban (§29.2), low enough to size at seed capital
+  dividend_convention: price_return        # §29.3 — ONE convention in signal, cost and tax
+  history_years: 5
+
 execution_realism:
   fill_requires_trade_through: true        # touch != fill (invariant #12)
   queue_volume_multiple_k: 2.0             # bar vol must exceed k x order size to fill

@@ -175,9 +175,11 @@ class DataQualityGate:
         if state.last_close is None:
             return Assessment(Verdict.ACCEPT)
 
-        # A >50% bar is far more likely an unadjusted split/bonus than a real move (§29.3).
+        # A >=50% bar is far more likely an unadjusted split/bonus than a real move (§29.3).
+        # The comparison is inclusive on purpose: a textbook 1:2 split lands on exactly -50.000%,
+        # so a strict ">" would miss the single most common corporate action there is.
         move = abs(ohlcv.close - state.last_close) / state.last_close
-        if move > Decimal(str(self._cfg.max_single_bar_move)):
+        if move >= Decimal(str(self._cfg.max_single_bar_move)):
             return Assessment(
                 Verdict.QUARANTINE,
                 Reason.PROBABLE_CORPORATE_ACTION,
