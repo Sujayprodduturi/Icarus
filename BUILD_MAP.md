@@ -5,7 +5,7 @@
 
 **Verdict:** The docs are genuinely excellent — top ~5% of solo trading specs — and **build-ready**. But *build-ready ≠ profitable*. There is one issue (C1) that could quietly stall the self-learning premise, and a short fix list below. Current direction: **equity-delivery-first** (crypto deferred).
 
-**Build state (30 Jul 2026):** Phase 0 ✅ complete. Phase 1 in progress — data layer done (1.1, 1.1b, 1.1c), CostModel done (1.5). 250 unit tests, ruff + mypy clean. **C1 is now measured, not argued** — see §6.1.
+**Build state (30 Jul 2026):** Phase 0 ✅ complete. Phase 1 in progress — data layer (1.1, 1.1b, 1.1c), CostModel (1.5) and TaxModel (1.6) done. 291 unit tests, ruff + mypy clean. **C1 is now measured, not argued** — see §6.1.
 
 ---
 
@@ -168,6 +168,7 @@ Viable — **especially now that we're equity-first**, because the live plane on
 | **D3** | DECISION | Kite ₹500/mo: amortize into the per-strategy hurdle (PRD §7.1) or treat as capital? | ✅ **DECIDED: capital investment** (Sujay, 30 Jul) — same bucket as the PC. Metrics are *before* infra cost; the ₹500 gets its own reported line, never netted into strategy P&L |
 | **D4** | DECISION | NSE cash txn charge: 0.00297% raw vs 0.00307% all-in incl. IPFT (Appendix B: "don't double-count"). | ✅ **RESOLVED, not chosen** (1.5, 29 Jul) — they are the *same total*. NSE circular 27 Feb 2026 (eff. 1 Mar) cut IPFT to ₹0.01/crore and raised txn charges to match. Use all-in **0.00307%**, never add IPFT separately |
 | **D5** | DECISION | Dividend adjustment convention (§29.3 requires exactly one, applied in signal + cost + tax). | ✅ **DECIDED: price-return** (Sujay, 29 Jul) — adjust splits/bonus/rights, **not** dividends. The ex-date drop is real and a price strategy eats it. Consequence: Yahoo `adjclose` is banned |
+| **D6** | DECISION | Equity delivery: business income or capital gains? (§6.1 "per classification".) Worth ~10pp of tax on every rupee. | ⚠️ **DEFAULTED, needs a CA** (1.6, 30 Jul) — set to **non-speculative business income**: the likelier reading for a frequently-trading algo *and* the costlier of the two (30% slab vs 20% STCG), so the gate is never flattered. New operator item **O7**. Flip `tax.equity_delivery` only on advice |
 
 ---
 

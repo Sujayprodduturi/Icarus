@@ -6,7 +6,7 @@ Phase-by-phase tasks for Claude Code. **Build in order.** Each task lists accept
 
 Legend: `[ ]` todo · `[x]` done (AC demonstrated, tests green) · `MUST`/`SHOULD` per PRD · **V:** = how to verify.
 
-**Progress:** Phase 0 ✅ complete (17/17 incl. v2 hardening) · Phase 1 in progress — data layer done (1.1, 1.1b, 1.1c) + CostModel (1.5). 250 unit tests, ruff + mypy clean. Next: 1.6 TaxModel, then 1.4 DSL / 1.7 backtester.
+**Progress:** Phase 0 ✅ complete (17/17 incl. v2 hardening) · Phase 1 in progress — data layer (1.1, 1.1b, 1.1c) + CostModel (1.5) + TaxModel (1.6) done. 291 unit tests, ruff + mypy clean. Next: 1.4 DSL, then 1.7 backtester + 1.7b fill model.
 
 ---
 
@@ -17,7 +17,8 @@ Legend: `[ ]` todo · `[x]` done (AC demonstrated, tests green) · `MUST`/`SHOUL
 - [ ] **O3. Delta Exchange India** — create account + API keys + **testnet** access; whitelist VM IP; **disable withdrawals** on the trading key. *(Blocks Phase 1 crypto sim + Phase 2 crypto live.)*
 - [ ] **O4. AWS Mumbai VM** — provision `t4g.small` (ap-south-1) + **Elastic IP**; lock security group (inbound SSH from operator IP only); register that one static IP with all three venues. *(Blocks Phase 2.)*
 - [ ] **O5. Daily auth approach** — decide operator one-tap vs TOTP automation (own risk) for the daily token. *(Blocks Phase 2.)*
-- [ ] **O6. CA confirmation** — confirm INR-settled crypto-derivative tax treatment (contested — PRD §6). *(Blocks scaling the crypto leg, not initial micro-canary.)*
+- [ ] **O6. CA confirmation (crypto)** — confirm INR-settled crypto-derivative tax treatment (contested — PRD §6). *(Blocks scaling the crypto leg, not initial micro-canary.)*
+- [ ] **O7. CA confirmation (equity delivery classification)** — is systematic delivery trading **business income** or **capital gains**? Worth ~10 percentage points of tax on every rupee of profit (30% slab vs 20% STCG), and it changes the loss-relief rules too. Icarus defaults to the costlier business-income reading (`goal.yaml` `tax.equity_delivery`) so the gate is never flattered; flip it only on a CA's advice. *(Does not block the build — affects the honesty of the Phase-1 metric sheet and real tax at Phase 2.)*
 
 ---
 
@@ -60,7 +61,7 @@ Legend: `[ ]` todo · `[x]` done (AC demonstrated, tests green) · `MUST`/`SHOUL
 
 **Goal:** backtest and sim-forward any DSL strategy and produce an honest metric sheet. **No live order path.**
 
-**Done so far:** the data layer is trustworthy end-to-end — bars arrive from two cross-checked free sources (1.1), bad/stale data is rejected rather than smoothed (1.1b), and the universe and prices are honest point-in-time with survivorship and splits handled (1.1c). Costs are now modelled exactly (1.5). **Still needed for the stop gate:** a way to express a strategy (1.4), what tax takes (1.6), and the backtester + fill model that ties them together (1.7, 1.7b).
+**Done so far:** the data layer is trustworthy end-to-end — bars arrive from two cross-checked free sources (1.1), bad/stale data is rejected rather than smoothed (1.1b), and the universe and prices are honest point-in-time with survivorship and splits handled (1.1c). Costs (1.5) and taxes (1.6) are modelled exactly, so an after-cost-after-tax rupee figure is now computable. **Still needed for the stop gate:** a way to express a strategy (1.4), and the backtester + fill model that ties it all together (1.7, 1.7b).
 
 - [x] **1.1 Data Ingestion agents.** Canonical `MarketData{symbol,ts,ohlcv,depth,schema_version}`; retry 3× exp-backoff; schema drift → `SchemaError` + halt feed; aggressive local caching (respect Zerodha quote 1/s, historical 3/s).
   **AC:** clean normalized stream for equities + crypto; cache hit-rate measured. **V:** replay test; induced schema drift halts the feed.
@@ -73,8 +74,10 @@ Legend: `[ ]` todo · `[x]` done (AC demonstrated, tests green) · `MUST`/`SHOUL
 - [x] **1.5 CostModel — equity** (`engine/costmodel.py`). Exact PRD §7 rates (post-Apr-2026 STT; brokerage incl. ₹0 delivery / ₹20 intraday-futures / flat ₹20 options; DP ₹15.34; SEBI fee; 18% GST; stamp duty). **Crypto costs moved to 1.5b**, where the crypto economics already live — Delta's schedule needs live verification and crypto is deferred (D1), so the model raises on crypto rather than returning a guess.
   **AC:** round-trip cost matches a hand-worked example within tolerance. **V:** unit test vs a manually computed trade. ✅ *Done 2026-07-29: hand-computed contract note checked line by line; 46 tests.*
   **Decisions made here:** (a) **NSE txn / IPFT convention RESOLVED** — use the all-in 0.00307%, never add IPFT separately. NSE circular 27 Feb 2026 (eff. 1 Mar) cut IPFT to ₹0.01/crore and raised txn charges to match, so `0.00297% + ₹10/cr` and `0.00307% + ₹0.01/cr` are the same total, split differently. Closes the Appendix-B open item. (b) **Kite ₹500/mo is NOT amortized into cost** (operator, 2026-07-30) — treated as capital investment in the business; strategy metrics are therefore *before* infrastructure cost and the ₹500 is reported as its own line. (c) Charges only — slippage/fill-probability stay in 1.7b so friction is never double-counted.
-- [ ] **1.6 TaxModel** (`engine/taxmodel.py`). Equity intraday=speculative, delivery=per-classification, F&O=non-speculative; crypto INR-derivatives=speculative (default) + **reclassification stress (30% flat VDA)** scenario; spot=30% (never traded).
-  **AC:** after-tax P&L differs correctly between default and stress scenarios. **V:** unit test on both scenarios.
+- [x] **1.6 TaxModel** (`engine/taxmodel.py`). Equity intraday=speculative, delivery=per-classification, F&O=non-speculative; crypto INR-derivatives=speculative (default) + **reclassification stress (30% flat VDA)** scenario; spot=30% (never traded).
+  **AC:** after-tax P&L differs correctly between default and stress scenarios. **V:** unit test on both scenarios. ✅ *Done 2026-07-30: same crypto ledger → 31.2% effective under the default reading vs **66.9%** under VDA; 42 tests.*
+  **Shape:** tax is **annual on the aggregate**, not per trade, so the model consumes a ledger of closed trades and returns one bill per financial year (1 Apr–31 Mar, resolved in **IST** — a UTC-date reading misfiles trades near the boundary). Carry-forward is threaded across years inside one call: 4y speculative, 8y non-speculative/capital, **0 for VDA**.
+  **Decisions made here:** (a) **equity delivery defaults to non-speculative business income** — it is the likelier classification for a frequently-trading algo *and* the costlier of the two (30% slab vs 20% STCG), so the gate is never flattered. **Needs CA confirmation (O7).** (b) **VDA is taxed on winning trades alone**, not the year's net — a loss cannot offset even another VDA gain, which is what makes the stress bite. (c) **No inter-bucket loss set-off** — conservative by construction (the computed bill is always ≥ the true one) and the loss still carries forward within its bucket.
 - [ ] **1.7 Backtester** (`engine/backtest.py`). Walk-forward + OOS with **purge/embargo**; single-use **lockbox**; cost+tax applied inside. No single train/test split.
   **AC:** lockbox touched exactly once; leakage test passes. **V:** assertion that lockbox is read once; purge/embargo unit test.
 - [ ] **1.8 Metrics battery** (`engine/metrics.py`). Sharpe, Sortino, Calmar, max DD, profit factor, expectancy/avg R:R, OOS-vs-IS decay, regime stability, cost-stress survival — all net of cost+tax, all on OOS.

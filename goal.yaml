@@ -55,13 +55,51 @@ compliance:
   limit_orders_only: true          # NSE bars market orders via algo (invariant #5)
   algo_id_tagging_required: true
 
+# Tax (task 1.6, PRD §6). Tax is ANNUAL and applies to the aggregate, not per trade: the bill
+# depends on the whole financial year (1 Apr - 31 Mar IST), so the model consumes a ledger of
+# closed trades and returns a per-year bill.
+#
+# SOURCES, all re-verified 2026-07-30 (FY 2026-27 is the FIRST year under the new Income-tax Act,
+# 2025, so section numbers changed — speculative business moved from s.43(5) of the 1961 Act to
+# s.66 of the 2025 Act; VDA provisions still cited as s.115BBH in current commentary):
+#   * STCG listed equity w/ STT 20% (raised from 15% on 23 Jul 2024); LTCG 12.5% above Rs 1.25L,
+#     12-month holding, no indexation. Budget 2026 changed NEITHER for FY 2026-27.
+#   * Slabs unchanged for FY 2026-27; top marginal 30% above Rs 24L.
+#   * Health & education cess 4% on the tax amount — unchanged since FY 2018-19.
+#   * VDA: flat 30%, no deduction but cost of acquisition, NO set-off of any loss.
 tax:
-  equity_intraday: speculative_business
-  equity_delivery: per_classification
-  equity_fno: nonspeculative_business
-  crypto_inr_derivatives: speculative_business   # DEFAULT (contested - see PRD §6)
+  # -- Settled law. These are NOT preferences; the loader asserts them so a bad edit cannot
+  # -- quietly reclassify income into a cheaper bucket than the statute allows.
+  equity_intraday: speculative_business          # s.66 (was s.43(5)) — settled
+  equity_fno: nonspeculative_business            # recognised-stock-exchange carve-out — settled
+  crypto_inr_derivatives: speculative_business   # DEFAULT (contested — PRD §6.2)
   crypto_reclassification_stress: vda_30_flat    # gate stress scenario
-  operator_slab_rate: 0.30         # conservative default; operator sets actual
+
+  # -- The one genuine choice (PRD §6.1 marks delivery "per classification"): is systematic
+  # -- delivery trading a business, or investing? A CA question. Defaulted to business income
+  # -- because (a) a frequently-trading algo looks like a business and (b) at a 30% slab it is the
+  # -- WORSE of the two (30% vs 20% STCG), so the gate is never flattered. Flip to capital_gains
+  # -- only on a CA's advice.
+  equity_delivery: nonspeculative_business       # or: capital_gains
+
+  operator_slab_rate: 0.30         # MARGINAL rate, excl. cess. Trading income sits on top of the
+                                   # operator's other income, so the marginal rate is what an extra
+                                   # rupee actually costs — a slab computation from zero would give
+                                   # the average rate and UNDERSTATE the tax.
+  cess_rate: 0.04                  # health & education cess, applied to the tax amount
+  stcg_rate: 0.20                  # s.111A equivalent, listed equity with STT
+  ltcg_rate: 0.125                 # s.112A equivalent
+  ltcg_exemption_inr: 125000       # PER TAXPAYER PER YEAR across ALL equity holdings — not per
+                                   # strategy. Reduce this if other investments already consume it;
+                                   # a backtest cannot know, so it must not be assumed free.
+  ltcg_holding_months: 12          # above this, delivery gains are long-term
+  vda_flat_rate: 0.30              # stress scenario only; no offsets, no carry-forward
+
+  # Loss carry-forward, in years, per bucket. VDA is deliberately absent: VDA losses cannot be
+  # carried forward at all, and modelling that as "0 years" is the point, not an omission.
+  carry_forward_years_speculative: 4
+  carry_forward_years_nonspeculative: 8
+  carry_forward_years_capital: 8
 
 # --------------------------------------------------------------------------------------
 # v2 additions (PRD §39.3) — these WIN on conflict with the blocks above.

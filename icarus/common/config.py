@@ -25,6 +25,10 @@ _PosInt = Annotated[int, Field(gt=0)]
 # Hard ceiling from invariant #7 — the leverage cap NEVER loosens with tier.
 CRYPTO_LEVERAGE_ABSOLUTE_CEILING = 2.0
 
+# Statutory LTCG exemption ceiling, s.112A equivalent (verified 2026-07-30, unchanged by Budget
+# 2026). Config may set LESS (the operator's other holdings may already consume it) but never more.
+_LTCG_EXEMPTION_STATUTORY_CEILING_INR = 125_000.0
+
 
 class _Strict(BaseModel):
     """Base: immutable + reject unknown keys (catch typos in goal.yaml)."""
@@ -120,12 +124,58 @@ class Compliance(_Strict):
 
 
 class Tax(_Strict):
+    """Tax rates + classification policy (task 1.6, PRD §6).
+
+    The classification keys are **settled law**, not preferences, so they are asserted here rather
+    than merely typed: a well-meaning edit must not be able to move income into a cheaper bucket
+    than the statute allows. ``equity_delivery`` is the one genuine choice (§6.1).
+    """
+
     equity_intraday: str
     equity_delivery: str
     equity_fno: str
     crypto_inr_derivatives: str
     crypto_reclassification_stress: str
     operator_slab_rate: _Fraction
+    cess_rate: _Fraction
+    stcg_rate: _Fraction
+    ltcg_rate: _Fraction
+    ltcg_exemption_inr: _NonNegative
+    ltcg_holding_months: _PosInt
+    vda_flat_rate: _Fraction
+    carry_forward_years_speculative: _PosInt
+    carry_forward_years_nonspeculative: _PosInt
+    carry_forward_years_capital: _PosInt
+
+    @model_validator(mode="after")
+    def _classifications_match_the_statute(self) -> Tax:
+        settled = {
+            "equity_intraday": "speculative_business",
+            "equity_fno": "nonspeculative_business",
+            "crypto_inr_derivatives": "speculative_business",
+            "crypto_reclassification_stress": "vda_30_flat",
+        }
+        for key, lawful in settled.items():
+            if getattr(self, key) != lawful:
+                raise ValueError(
+                    f"tax.{key} must be {lawful!r} (settled law / PRD §6 — not a tunable); "
+                    f"got {getattr(self, key)!r}"
+                )
+        if self.equity_delivery not in {"nonspeculative_business", "capital_gains"}:
+            raise ValueError(
+                f"tax.equity_delivery must be 'nonspeculative_business' or 'capital_gains' "
+                f"(§6.1 per-classification), got {self.equity_delivery!r}"
+            )
+        # A zero slab rate would make every business-income strategy look tax-free. §6 requires a
+        # conservative default precisely so the gate is not flattered by an optimistic slab.
+        if self.operator_slab_rate == 0:
+            raise ValueError("tax.operator_slab_rate must be > 0 (§6: never flatter the gate)")
+        if self.ltcg_exemption_inr > _LTCG_EXEMPTION_STATUTORY_CEILING_INR:
+            raise ValueError(
+                f"tax.ltcg_exemption_inr={self.ltcg_exemption_inr} exceeds the statutory "
+                f"Rs {_LTCG_EXEMPTION_STATUTORY_CEILING_INR:,.0f}/year (verified 2026-07-30)"
+            )
+        return self
 
 
 class Data(_Strict):

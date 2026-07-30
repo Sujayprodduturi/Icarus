@@ -43,13 +43,15 @@ The goal of this phase is to be able to test a strategy on history and get a num
 | Data quality gate (1.1b) | Catches data that is *broken* — nonsense prices are rejected (never smoothed over), a frozen feed halts the system rather than trading on stale prices | ✅ |
 | Honest history (1.1c) | Catches data that *lies* — see below | ✅ |
 | **Cost model (1.5)** | Works out exactly what the government and broker take on every trade, to the paisa | ✅ |
-| Tax model (1.6) | What's left after tax — different for same-day vs held trades | ⏳ next |
-| Strategy language (1.4) | A restricted vocabulary strategies must be written in, so they're always human-readable | ⏳ |
+| **Tax model (1.6)** | What's actually left after tax — and it depends on *how* you traded, not just how much you made | ✅ |
+| Strategy language (1.4) | A restricted vocabulary strategies must be written in, so they're always human-readable | ⏳ next |
 | Backtester + fill model (1.7, 1.7b) | Replays history honestly: a limit order only fills if the price actually traded *through* it, and today's signal can only trade tomorrow | ⏳ |
 | Metrics + overfitting guards (1.8, 1.9) | Scores a strategy, and works out how likely the score is luck | ⏳ |
 | Validation gate (1.11) | Runs a strategy through all the checks and issues a verdict with evidence | ⏳ |
 
 **Two ways data lies, and what we did about them (1.1c).** First, **survivorship**: if you test on today's list of companies, every company that went bust in between is missing, so your strategy is quietly being graded on winners only. We fixed this by building the tradable list *out of the exchange's own end-of-day files*, so a company that hadn't listed yet simply isn't there, and one that got delisted just stops appearing. Second, **share splits**: when a company splits its shares 1-for-2, the price halves overnight while nothing real changes — but to a strategy that looks like a 50% crash, and it triggers every stop. We rescale old prices so the series is continuous.
+
+**Why tax needed its own model (1.6).** Cost is per-trade: you buy, you pay, done. **Tax is annual and applies to your total** — you can't know the tax on one trade without knowing how the rest of the year went. And Indian law taxes the *manner* of trading, not just the profit: same-day trades, held trades, and F&O all land in different buckets with different rates *and* different rules about whether your losses count for anything. The extreme case is crypto under the "VDA" reading, where losses count for **nothing at all** — tax lands on your winning trades alone. Same crypto ledger, two readings: a **31.2%** effective tax rate under the favourable reading, **66.9%** under VDA. That's why a strategy which only survives the optimistic reading gets flagged rather than promoted.
 
 **What the cost model told us (1.5).** In India there's a flat ₹15.34 fee every time you sell shares you were holding. Flat means it doesn't shrink with your position, so it hurts small accounts specifically. Measured out: at a ₹2,000–3,000 starting pot, a trade has to earn back **1.6–2.4× the amount it was risking** before it makes a single rupee — no strategy survives that. At ₹25,000–30,000 it's about **0.3×**, which is comfortably absorbable. That's why the seed-capital floor is roughly ₹25–30k: not a preference, just where the arithmetic stops fighting us. Full table in `BUILD_MAP.md` §6.1.
 
@@ -130,6 +132,7 @@ Each blocks the noted phase. Phases 0–1 need **no capital and no static IP**.
 | O4 | **Host + static IP** (cloud Elastic IP or home ISP static IP); register it with every venue | Phase 2 |
 | O5 | **Daily-auth approach** — operator one-tap (default) vs TOTP automation (own risk) | Phase 2 |
 | O6 | **CA confirmation** of INR-settled crypto-derivative tax treatment (contested — PRD §6) | Scaling crypto |
+| O7 | **CA confirmation**: is systematic delivery trading *business income* or *capital gains*? ~10 percentage points of tax either way. Icarus defaults to the costlier reading so results are never flattered | Honesty of the Phase-1 metric sheet; real tax at Phase 2 |
 
 **Open decisions** (don't block Phases 0–1):
 
