@@ -126,8 +126,15 @@ costs:
                                            # Rs 9.5 Zerodha + Rs 2.34 GST — ALREADY GST-inclusive.
                                            # Fixed rupees, so it dominates below ~Rs 10k notional:
                                            # this single line is most of the seed-tier C1 problem.
-  subscription_monthly_inr: 500            # Kite Connect. Amortized into the hurdle (§7.1), never
-                                           # charged per trade — see costmodel.amortised_subscription
+  # DELIBERATELY ABSENT: the Kite Connect Rs 500/mo subscription. PRD §7.1 suggests amortizing it
+  # into the per-strategy hurdle; the operator decided (2026-07-30) to treat it as a capital
+  # investment in the business instead — the same bucket as the PC, not a cost of a trade.
+  # Rationale: it is fixed and independent of whether Icarus trades at all, so charging it against
+  # a strategy's edge makes every per-trade number depend on an assumed monthly trade count.
+  # CONSEQUENCE, stated so it is not lost: strategy metrics are therefore *before* infrastructure
+  # cost. The cash still leaves the account — it is tracked in BUILD_MAP §5 (operating cost) and
+  # must appear as its own line in the daily report and the Phase-1 metric sheet, never netted
+  # silently into strategy P&L.
   segments:
     # brokerage = flat + min(pct x turnover, cap). Covers all three real shapes:
     # zero (delivery), lower-of (intraday/futures), flat-per-order (options).

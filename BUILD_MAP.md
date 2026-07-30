@@ -1,9 +1,11 @@
 # Project Icarus — Build Map & Doc Review
 
-> Companion reference to `PRD.md`, `TASKS.md`, `CLAUDE.md`. Reviewed & compiled 24 Jul 2026.
-> A one-file map of what Claude Code is about to build, the operating cost of running it, and the open decisions.
+> Companion reference to `PRD.md`, `TASKS.md`, `CLAUDE.md`. Compiled 24 Jul 2026 · **last updated 30 Jul 2026**.
+> A one-file map of what Claude Code is building, the operating cost of running it, and the open decisions.
 
 **Verdict:** The docs are genuinely excellent — top ~5% of solo trading specs — and **build-ready**. But *build-ready ≠ profitable*. There is one issue (C1) that could quietly stall the self-learning premise, and a short fix list below. Current direction: **equity-delivery-first** (crypto deferred).
+
+**Build state (30 Jul 2026):** Phase 0 ✅ complete. Phase 1 in progress — data layer done (1.1, 1.1b, 1.1c), CostModel done (1.5). 250 unit tests, ruff + mypy clean. **C1 is now measured, not argued** — see §6.1.
 
 ---
 
@@ -93,15 +95,15 @@ Data → Regime → Signal (rules fire → TradeIntent)
 
 ## 4. The build sequence (Claude Code follows `TASKS.md` in order)
 
-| Phase | What | Needs capital? |
-|---|---|---|
-| **0** | Skeleton & safety rails — bus, Postgres, BrokerAdapter, Compliance, kill-line. Authenticates, streams data, **can place nothing**. | No |
-| **1** | Data + sim + metrics — CostModel + TaxModel, walk-forward backtester, metrics + DSR, testnet/sim runner. | No |
-| 🛑 | **PHASE-1 STOP GATE** — produce a metric sheet for ONE hand-written strategy, hand to operator, **pause**. No live-order code before this review. | — |
-| **2** | Live execution — Risk + Execution + Portfolio + all kill-switches + Telegram kill. Micro-live, real money, tiny. Does **not** self-modify yet. | **Yes — first capital + static IP here** |
-| **3** | Learning loop — Inventor + gate wired end-to-end. Versioning + hypothesis meta-learning. | Yes |
-| **4** | Oversight + harden — full daily report, rollback, reconciliation hardening, chaos tests, tax-ledger export. | Yes |
-| **5** | Scale — only on live evidence. Widen universe, raise tiers, expand primitives. **Leverage cap never loosens.** | Yes |
+| Phase | What | Needs capital? | Status |
+|---|---|---|---|
+| **0** | Skeleton & safety rails — bus, Postgres, BrokerAdapter, Compliance, kill-line. Authenticates, streams data, **can place nothing**. | No | ✅ complete |
+| **1** | Data + sim + metrics — CostModel + TaxModel, walk-forward backtester, metrics + DSR, testnet/sim runner. | No | 🔨 data layer + CostModel done; DSL, TaxModel, backtester, metrics, DSR to go |
+| 🛑 | **PHASE-1 STOP GATE** — produce a metric sheet for ONE hand-written strategy, hand to operator, **pause**. No live-order code before this review. | — | ⏳ not reached |
+| **2** | Live execution — Risk + Execution + Portfolio + all kill-switches + Telegram kill. Micro-live, real money, tiny. Does **not** self-modify yet. | **Yes — first capital + static IP here** | ⏳ not started |
+| **3** | Learning loop — Inventor + gate wired end-to-end. Versioning + hypothesis meta-learning. | Yes | ⏳ not started |
+| **4** | Oversight + harden — full daily report, rollback, reconciliation hardening, chaos tests, tax-ledger export. | Yes | ⏳ requirements level |
+| **5** | Scale — only on live evidence. Widen universe, raise tiers, expand primitives. **Leverage cap never loosens.** | Yes | ⏳ requirements level |
 
 ---
 
@@ -120,7 +122,11 @@ Three buckets: **infrastructure, the data-API subscription, and the LLM/agent ca
 - **Realistic all-in, live: ~₹2,500–3,500/month.** Hard ceiling ~₹8,000/mo only if the LLM budget runs flat-out.
 - **Phases 0–1 (build/backtest, no live orders): ~₹700–1,200/month** — just Kite ₹500 + a little LLM. The ~₹1,400 AWS layer only switches on at Phase 2, the same moment the seed capital does.
 
-**The hard truth:** this cost is *fixed, independent of your capital or trade size.* At a ₹25–30k seed, ~₹3,000/mo is 10–12% of the whole account every month before a single trade; at ₹2–3k it's economically absurd. **The system cannot out-earn its own hosting bill at seed scale** — the operating cost is part of the tuition, not a profit centre.
+**Accounting decision (Sujay, 30 Jul — D3):** this bucket is **capital investment in the business**, not a cost of a trade. The CostModel therefore does *not* amortize the Kite ₹500 into per-trade cost or the strategy hurdle, which PRD §7.1 had suggested. The reasoning: it is fixed whether or not Icarus ever trades, and charging it against a strategy's edge would make every per-trade figure depend on an assumed monthly trade count.
+
+**The consequence, stated so it cannot get lost:** every strategy metric Icarus reports is **before infrastructure cost**. The cash still leaves the account, so this table is the accounting home for it, and the ₹500 must appear as its own explicit line in the daily Telegram report and in the Phase-1 metric sheet — never netted silently into strategy P&L. A strategy that clears its gate is not the same thing as a month that made money.
+
+**The hard truth (unchanged by the accounting choice):** this cost is *fixed, independent of your capital or trade size.* At a ₹25–30k seed, ~₹3,000/mo is 10–12% of the whole account every month before a single trade; at ₹2–3k it's economically absurd. **The system cannot out-earn its own hosting bill at seed scale** — the operating cost is part of the tuition, not a profit centre. Calling it capital rather than cost changes which ledger it sits in, not whether it has to be paid.
 
 ### Model routing (control the biggest variable cost)
 
@@ -145,11 +151,11 @@ Viable — **especially now that we're equity-first**, because the live plane on
 
 ---
 
-## 6. Enhancement register (status as of 24 Jul 2026)
+## 6. Enhancement register (status as of 30 Jul 2026)
 
 | ID | Sev | Finding | Status |
 |---|---|---|---|
-| **C1** | CRITICAL | Seed-tier order math may never produce a placeable trade → system idles, never hits the ≥30 live trades needed to learn/tier-up. Equity at ₹2–3k fails hardest (share-price lumps + ₹15.34 DP charge). | **HELD** — pending seed decision (Claude: ~₹25–30k floor for equity delivery) |
+| **C1** | CRITICAL | Seed-tier order math may never produce a placeable trade → system idles, never hits the ≥30 live trades needed to learn/tier-up. Equity at ₹2–3k fails hardest (share-price lumps + ₹15.34 DP charge). | ✅ **MEASURED** (1.5, 29 Jul) — confirmed *and bounded*: fatal below ~₹10k, workable at ₹25–30k. See §6.1. Seed number still the operator's call. |
 | **H1** | HIGH | Banned `liquid_lowprice_nse` universe still in §20 example strategy.yaml (§29.2 bans it). | ✅ **APPLIED** → `liquid_largecap_nse` |
 | **H3** | HIGH | Delta cancel-on-disconnect is load-bearing for the 24/7 crypto plane but only "verify at build". | **HELD** — deferred with crypto; make it a hard Phase-2 gate when crypto is enabled |
 | **M1** | MED | §9.5 state-machine diagram omitted RECOVERY (invariant #16 requires it). | ✅ **APPLIED** |
@@ -159,14 +165,41 @@ Viable — **especially now that we're equity-first**, because the live plane on
 | **M5** | LOW | 2 GiB VM may OOM on walk-forward/CPCV backtests. | Open — benchmark memory in Phase 1 (moot if home PC has more RAM) |
 | **D1** | DECISION | Crypto-first was a single point of fragility (contested tax + leverage + only viable seed surface). | ✅ **DECIDED: equity-first**, crypto deferred (revises locked decisions #5/#6) |
 | **D2** | DECISION | 12-agent × sub-agent mesh is heavier than ≤2 OPS justifies. | Open — keep plane isolation + single writer; consider leaner Phases 0–2, defer full mesh |
+| **D3** | DECISION | Kite ₹500/mo: amortize into the per-strategy hurdle (PRD §7.1) or treat as capital? | ✅ **DECIDED: capital investment** (Sujay, 30 Jul) — same bucket as the PC. Metrics are *before* infra cost; the ₹500 gets its own reported line, never netted into strategy P&L |
+| **D4** | DECISION | NSE cash txn charge: 0.00297% raw vs 0.00307% all-in incl. IPFT (Appendix B: "don't double-count"). | ✅ **RESOLVED, not chosen** (1.5, 29 Jul) — they are the *same total*. NSE circular 27 Feb 2026 (eff. 1 Mar) cut IPFT to ₹0.01/crore and raised txn charges to match. Use all-in **0.00307%**, never add IPFT separately |
+| **D5** | DECISION | Dividend adjustment convention (§29.3 requires exactly one, applied in signal + cost + tax). | ✅ **DECIDED: price-return** (Sujay, 29 Jul) — adjust splits/bonus/rights, **not** dividends. The ex-date drop is real and a price strategy eats it. Consequence: Yahoo `adjclose` is banned |
+
+---
+
+## 6.1 C1, measured — the seed-capital floor
+
+The CostModel (1.5) turns C1 from an argument into arithmetic. Everything scales with position size **except** the ₹15.34 DP charge on every delivery sell — a flat rupee fee, so it punishes small accounts specifically. On an ₹11,000 delivery sell it alone exceeds every other charge combined.
+
+The honest way to read it is as a fraction of the risk budget **R** — how much of a trade's risk is eaten by cost before it earns anything. At `per_trade_risk_r: 0.005` with a 3% stop (so position = capital × 0.005 ÷ 0.03) and the 1.5× cost hurdle:
+
+| Seed | Position | Breakeven move | Need (1.5× hurdle) | as R | Verdict |
+|---|---|---|---|---|---|
+| ₹2,000 | ₹333 | 4.83% | 7.24% | **2.41R** | dead on arrival |
+| ₹3,000 | ₹500 | 3.29% | 4.94% | **1.65R** | dead on arrival |
+| ₹10,000 | ₹1,667 | 1.14% | 1.72% | 0.57R | marginal |
+| ₹25,000 | ₹4,167 | 0.59% | 0.89% | **0.30R** | workable |
+| ₹30,000 | ₹5,000 | 0.53% | 0.79% | **0.26R** | workable |
+
+**Reading:** at ₹2–3k a trade must clear ~1.6–2.4R in cost *before it earns a rupee* — no strategy survives that, and the system would idle exactly as C1 predicted. At ₹25–30k it is 0.26–0.30R, which a 1.5–2R target absorbs comfortably. Indivisibility compounds the problem at the bottom: a ₹333 position cannot buy even 11 shares of a ₹30 stock, the universe's price floor.
+
+So **C1 is real and bounded**. The ~₹25–30k floor is not a preference — it is where the arithmetic stops being hostile. Reproduce with `CostModel.breakeven_move`.
 
 ---
 
 ## 7. Current decisions & open items
 
 - ✅ **Equity-delivery-first** to prove the machine; crypto stays in the architecture but deferred (Sujay, 24 Jul).
-- ⏳ **Seed number — OPEN.** Sujay leaned ₹2–3k; Claude flagged that won't place cost-clearing equity trades (cold-start trap) and recommends **~₹25–30k** as the Phase-2 seed floor. Phases 0–1 need no capital, so this doesn't block the build — resolve it at the Phase-1 stop gate.
+- ✅ **Kite ₹500/mo = capital investment**, not a trading cost (Sujay, 30 Jul — D3). Strategy metrics are therefore *before* infrastructure cost; the ₹500 must appear as its own line in the daily report and the Phase-1 metric sheet so it is never silently absorbed.
+- ✅ **Universe filters** (Sujay, 29 Jul): ₹50cr 20-session average turnover, ₹30 close floor. The price floor is *not* about returns — profit is capital × percent move — it is a crude second liquidity filter, held deliberately low because indivisible shares make a high floor unsizable at seed.
+- ✅ **Price-return convention** for corporate actions (Sujay, 29 Jul — D5).
+- ⏳ **Seed number — OPEN, now with evidence.** Sujay leaned ₹2–3k; §6.1 shows that costs ~1.65–2.41R at that size, i.e. structurally unable to trade. **₹25–30k** brings it to 0.26–0.30R. Phases 0–1 need no capital, so it still doesn't block the build — decide at the Phase-1 stop gate.
 - ⏳ **Hosting — OPEN.** AWS VM (~₹1,400/mo) vs home PC + ISP static IP (~₹200–500/mo). Equity-first makes the home PC viable (no 24/7). Decide at Phase 2.
-- ⏳ Once seed + hosting are set: apply C1 + H3 + the equity-first rewrite of §2/§5/§22 + locked decisions #5/#6 in one clean pass.
+- ⏳ Once seed + hosting are set: apply H3 + the equity-first rewrite of §2/§5/§22 + locked decisions #5/#6 in one clean pass. (C1 is now discharged by §6.1.)
+- ⏳ **Verify before live capital:** re-pull the NSE transaction-charge circular from the primary source. The 1.5 rates rest on a circular summary plus Zerodha's live page (independent and arithmetically consistent) because the NSE PDFs would not extract.
 
-*Docs: `PRD.md` (v2.0, 1079 lines) · `TASKS.md` (phased, incl. 0.1b) · `CLAUDE.md` (22 invariants) · `goal.yaml` (all thresholds). Build map compiled 24 Jul 2026.*
+*Docs: `PRD.md` (v2.0, 1079 lines) · `TASKS.md` (phased, with progress) · `CLAUDE.md` (22 invariants) · `goal.yaml` (all thresholds + rate schedule). Build map compiled 24 Jul 2026, last updated 30 Jul 2026.*

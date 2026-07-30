@@ -23,7 +23,7 @@ Icarus is split into two halves that are walled off from each other:
 
 The only connection between the two halves is a **versioned list of approved strategies**, and a strategy only gets on that list by passing an automated, numeric quality gate. A bad idea in the research half physically cannot reach real money except by passing that gate. *This separation is the whole point of the design.*
 
-### "Can place nothing" — the Phase-0 guarantee
+### "Can place nothing" — the guarantee that still holds
 
 Right now the system can log in and read market data, but it **cannot place a single order**. This isn't a setting — every order-placing function in the code raises an error, in one central place, and automated tests prove it. We are building the brakes, seatbelts, and dashboard *before* connecting the engine. No live-order code exists before Phase 2, and a human reviews the evidence at the end of Phase 1 first.
 
@@ -31,7 +31,31 @@ Right now the system can log in and read market data, but it **cannot place a si
 
 ## Current build status
 
-**Phase 0 — Skeleton & safety rails.** Goal: the system authenticates, streams data, and can place nothing. **✅ Complete (18 of 18 pieces).** Everything below is built, tested, and green (99 automated tests; formatter + type-checker clean). Next: operator reviews, then Phase 1 (data + backtesting).
+**250 automated tests; formatter + type-checker clean.** Phase 0 ✅ complete · Phase 1 🔨 in progress.
+
+### Phase 1 — Data + backtesting + an honest metric sheet (current)
+
+The goal of this phase is to be able to test a strategy on history and get a number we can *believe*, then hand it to a human and stop. Most of the work here is about making the data honest, because a backtest built on flattering data is worse than no backtest — it produces false confidence.
+
+| Piece | What it does (plain English) | Status |
+|---|---|---|
+| Data ingestion (1.1) | Pulls daily price bars from two independent free sources and cross-checks them against each other | ✅ |
+| Data quality gate (1.1b) | Catches data that is *broken* — nonsense prices are rejected (never smoothed over), a frozen feed halts the system rather than trading on stale prices | ✅ |
+| Honest history (1.1c) | Catches data that *lies* — see below | ✅ |
+| **Cost model (1.5)** | Works out exactly what the government and broker take on every trade, to the paisa | ✅ |
+| Tax model (1.6) | What's left after tax — different for same-day vs held trades | ⏳ next |
+| Strategy language (1.4) | A restricted vocabulary strategies must be written in, so they're always human-readable | ⏳ |
+| Backtester + fill model (1.7, 1.7b) | Replays history honestly: a limit order only fills if the price actually traded *through* it, and today's signal can only trade tomorrow | ⏳ |
+| Metrics + overfitting guards (1.8, 1.9) | Scores a strategy, and works out how likely the score is luck | ⏳ |
+| Validation gate (1.11) | Runs a strategy through all the checks and issues a verdict with evidence | ⏳ |
+
+**Two ways data lies, and what we did about them (1.1c).** First, **survivorship**: if you test on today's list of companies, every company that went bust in between is missing, so your strategy is quietly being graded on winners only. We fixed this by building the tradable list *out of the exchange's own end-of-day files*, so a company that hadn't listed yet simply isn't there, and one that got delisted just stops appearing. Second, **share splits**: when a company splits its shares 1-for-2, the price halves overnight while nothing real changes — but to a strategy that looks like a 50% crash, and it triggers every stop. We rescale old prices so the series is continuous.
+
+**What the cost model told us (1.5).** In India there's a flat ₹15.34 fee every time you sell shares you were holding. Flat means it doesn't shrink with your position, so it hurts small accounts specifically. Measured out: at a ₹2,000–3,000 starting pot, a trade has to earn back **1.6–2.4× the amount it was risking** before it makes a single rupee — no strategy survives that. At ₹25,000–30,000 it's about **0.3×**, which is comfortably absorbable. That's why the seed-capital floor is roughly ₹25–30k: not a preference, just where the arithmetic stops fighting us. Full table in `BUILD_MAP.md` §6.1.
+
+### Phase 0 — Skeleton & safety rails ✅ complete (17 of 17)
+
+Goal: the system authenticates, streams data, and can place nothing. **Met.**
 
 | Piece | What it does (plain English) | Status |
 |---|---|---|
@@ -50,7 +74,7 @@ Right now the system can log in and read market data, but it **cannot place a si
 | Daily-auth agent (0.11) | Logs in each morning; only enters TRADING on success, else stays safe and alerts | ✅ |
 | Phase-0 exit + Hermes handoff (18) | A codebase scan proving no order path exists; deploy runbook + systemd for the second PC | ✅ |
 
-**Later phases** (not started): Phase 1 = data + backtesting + honest metric sheet → **STOP for human review** → Phase 2 = first live trading (tiny, real money) → Phase 3 = the self-learning loop → Phase 4 = hardening → Phase 5 = scaling.
+**Later phases** (not started): after Phase 1 there's a **🛑 STOP for human review** → Phase 2 = first live trading (tiny, real money) → Phase 3 = the self-learning loop → Phase 4 = hardening → Phase 5 = scaling.
 
 ---
 
@@ -107,7 +131,12 @@ Each blocks the noted phase. Phases 0–1 need **no capital and no static IP**.
 | O5 | **Daily-auth approach** — operator one-tap (default) vs TOTP automation (own risk) | Phase 2 |
 | O6 | **CA confirmation** of INR-settled crypto-derivative tax treatment (contested — PRD §6) | Scaling crypto |
 
-**Open decisions** (don't block Phases 0–1): seed capital amount (resolve at the Phase-1 review) and live hosting (cloud vs home PC, decide at Phase 2).
+**Open decisions** (don't block Phases 0–1):
+
+- **Seed capital** — now has hard evidence rather than opinion: below ~₹10k the trading costs are structurally larger than the edge, so **~₹25–30k is the floor**. Decide at the Phase-1 review. (`BUILD_MAP.md` §6.1)
+- **Live hosting** — cloud VM (~₹1,400/mo) vs home PC + ISP static IP (~₹200–500/mo). Decide at Phase 2.
+
+**Decided since Phase 0:** the Kite ₹500/mo API fee is treated as a **capital investment in the business**, not a per-trade cost — so every strategy number Icarus reports is *before* infrastructure cost, and the ₹500 gets its own line in the daily report rather than being quietly absorbed.
 
 ---
 
@@ -136,7 +165,7 @@ icarus/
 │                   #   news_sentiment, macro, research, validation, compliance, oversight
 ├── brokers/        # the universal broker plug-shape + Zerodha / Upstox / Delta connectors
 ├── strategy/       # the strategy language, the approved-strategy registry (future phases)
-├── engine/         # backtesting, cost/tax models, metrics, simulation (Phase 1)
+├── engine/         # costmodel.py (built); tax model, backtester, metrics, simulation to come
 ├── state/          # the database models + migrations
 └── common/         # shared vocabulary: message types, config, logging, clock, calendar, halt flag
 deploy/             # docker-compose for Postgres+Valkey, systemd units, the Hermes runbook

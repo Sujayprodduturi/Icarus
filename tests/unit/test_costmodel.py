@@ -223,12 +223,17 @@ def test_hurdle_requires_edge_to_clear_cost_with_margin() -> None:
     assert clears_hurdle(Decimal(120), cost, 1.5) is False  # profitable but not enough
 
 
-def test_subscription_is_amortised_not_charged_per_trade(model: CostModel) -> None:
-    assert model.amortised_subscription(50) == Decimal(10)
-    assert model.amortised_subscription(500) == Decimal(1)
-    # It must not appear in per-trade charges, or every trade's cost would depend on an assumption.
-    c = model.charges(Segment.EQUITY_DELIVERY, OrderSide.BUY, Decimal(1000), Decimal(10))
-    assert c.total < Decimal(500)
+def test_the_kite_subscription_is_not_a_trading_cost(model: CostModel, costs: Costs) -> None:
+    """Operator decision 2026-07-30: the Rs 500/mo API fee is a capital investment in the business,
+    not a cost of a trade. PRD §7.1 suggests amortizing it into the hurdle, so this test exists to
+    stop someone re-adding it from the PRD without re-opening the decision.
+
+    Strategy metrics are therefore *before* infrastructure cost — the Rs 500 is reported as its own
+    line (BUILD_MAP §5), never netted into strategy P&L.
+    """
+    assert "subscription_monthly_inr" not in type(costs).model_fields
+    charged = model.charges(Segment.EQUITY_DELIVERY, OrderSide.BUY, Decimal(1000), Decimal(10))
+    assert charged.total < Decimal(20)  # nowhere near a Rs 500/mo fee in any amortised form
 
 
 # --------------------------------------------------------------------------------------
@@ -244,11 +249,6 @@ def test_non_positive_inputs_raise(model: CostModel, price: int, quantity: int) 
 def test_non_positive_stress_multiplier_raises(costs: Costs, bad: object) -> None:
     with pytest.raises(ValueError, match="stress_multiplier must be positive"):
         CostModel(costs, stress_multiplier=bad)  # type: ignore[arg-type]
-
-
-def test_zero_trades_cannot_amortise(model: CostModel) -> None:
-    with pytest.raises(ValueError, match="must be positive"):
-        model.amortised_subscription(0)
 
 
 def test_crypto_raises_rather_than_guessing_a_fee(model: CostModel) -> None:

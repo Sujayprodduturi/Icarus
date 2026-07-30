@@ -247,7 +247,6 @@ class Costs(_Strict):
     gst_rate: _Fraction
     sebi_turnover_pct: _NonNegative
     dp_charge_inr: _NonNegative
-    subscription_monthly_inr: _NonNegative
     segments: SegmentSchedules
 
 

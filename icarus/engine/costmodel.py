@@ -26,6 +26,13 @@ by under ₹1 per side, in either direction. That is deliberately *not* modelled
 belongs in ``stress_multiplier`` (§13 re-runs the gate at 1.5x modelled cost), where it is visible,
 rather than hidden in a rounding rule that quietly biases every number.
 
+**The Kite subscription is not here.** PRD §7.1 suggests amortizing the ₹500/month API fee into
+the per-strategy hurdle. The operator decided (2026-07-30) to treat it as a capital investment in
+the business — the same bucket as the PC — because it is fixed whether or not Icarus ever trades,
+and charging it against a strategy's edge makes every per-trade figure depend on an assumed
+monthly trade count. So the numbers here are **before infrastructure cost**; the ₹500 is tracked
+in BUILD_MAP §5 and reported as its own line, never netted into strategy P&L.
+
 **Crypto is not here.** Delta's fee schedule needs live verification and crypto is deferred
 (BUILD_MAP D1); funding accrual and futures roll are task 1.5b (§33). Asking this model for a
 crypto cost raises rather than returning a plausible-looking guess.
@@ -191,17 +198,6 @@ class CostModel:
             cost = self.round_trip(segment, price, price * (1 + move), quantity).total
             move = cost / notional
         return move
-
-    def amortised_subscription(self, trades_per_month: int) -> Decimal:
-        """The Kite ₹500/month fee spread over a month's trades (§7.1).
-
-        Kept out of :meth:`charges` on purpose: it is not levied per trade, and folding a fixed
-        monthly fee into a per-trade cost would make every per-trade number depend on an assumed
-        trade count. The gate applies it to a strategy's *monthly* P&L, where it belongs.
-        """
-        if trades_per_month <= 0:
-            raise ValueError(f"trades_per_month must be positive, got {trades_per_month}")
-        return _dec(self._cfg.subscription_monthly_inr) / Decimal(trades_per_month)
 
     def _schedule(self, segment: Segment) -> SegmentSchedule:
         schedule: SegmentSchedule = getattr(self._cfg.segments, segment.value)
