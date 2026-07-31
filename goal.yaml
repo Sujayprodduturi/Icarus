@@ -76,11 +76,14 @@ tax:
   crypto_reclassification_stress: vda_30_flat    # gate stress scenario
 
   # -- The one genuine choice (PRD §6.1 marks delivery "per classification"): is systematic
-  # -- delivery trading a business, or investing? A CA question. Defaulted to business income
-  # -- because (a) a frequently-trading algo looks like a business and (b) at a 30% slab it is the
-  # -- WORSE of the two (30% vs 20% STCG), so the gate is never flattered. Flip to capital_gains
-  # -- only on a CA's advice.
-  equity_delivery: nonspeculative_business       # or: capital_gains
+  # -- delivery trading a business, or investing? A CA question. OPERATOR DECISION (31 Jul 2026):
+  # -- capital gains. Icarus places the same delivery trades the operator would have placed
+  # -- personally; automating the execution of one's own investment decisions does not by itself
+  # -- convert investing into a business. Note this is the CHEAPER of the two readings (20% STCG /
+  # -- 12.5% LTCG vs a 30% slab), so unlike the rest of this block it does NOT err against us —
+  # -- operator item O7 (CA confirmation) stays open, and holding period + trade frequency, not
+  # -- the fact that software presses the button, are what a CA will actually look at.
+  equity_delivery: capital_gains                 # or: nonspeculative_business
 
   operator_slab_rate: 0.30         # MARGINAL rate, excl. cess. Trading income sits on top of the
                                    # operator's other income, so the marginal rate is what an extra

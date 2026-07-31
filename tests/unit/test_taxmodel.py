@@ -350,29 +350,36 @@ def test_intraday_and_fno_classification_is_fixed_law(model: TaxModel) -> None:
     assert model.bucket_for(Segment.EQUITY_OPTIONS, holding_days=400) is Bucket.NONSPECULATIVE
 
 
-def test_delivery_as_business_ignores_holding_period(model: TaxModel) -> None:
-    """Under the default (business-income) classification there is no STCG/LTCG split at all."""
-    assert model.bucket_for(Segment.EQUITY_DELIVERY, holding_days=1) is Bucket.NONSPECULATIVE
-    assert model.bucket_for(Segment.EQUITY_DELIVERY, holding_days=500) is Bucket.NONSPECULATIVE
+def test_delivery_as_capital_gains_splits_on_holding_period(model: TaxModel) -> None:
+    """The configured default (operator decision, 31 Jul 2026): delivery is an investment, so the
+    holding period is what decides the rate."""
+    assert model.bucket_for(Segment.EQUITY_DELIVERY, holding_days=30) is Bucket.STCG
+    assert model.bucket_for(Segment.EQUITY_DELIVERY, holding_days=400) is Bucket.LTCG
 
 
-def test_delivery_as_capital_gains_splits_on_holding_period(tax_cfg: TaxConfig) -> None:
-    cg = TaxModel(tax_cfg.model_copy(update={"equity_delivery": "capital_gains"}))
-    assert cg.bucket_for(Segment.EQUITY_DELIVERY, holding_days=30) is Bucket.STCG
-    assert cg.bucket_for(Segment.EQUITY_DELIVERY, holding_days=400) is Bucket.LTCG
+def test_delivery_as_business_ignores_holding_period(tax_cfg: TaxConfig) -> None:
+    """The alternative reading stays reachable in one config edit: under business income there is no
+    STCG/LTCG split at all. O7 (CA confirmation) may yet flip us here."""
+    business = TaxModel(tax_cfg.model_copy(update={"equity_delivery": "nonspeculative_business"}))
+    assert business.bucket_for(Segment.EQUITY_DELIVERY, holding_days=1) is Bucket.NONSPECULATIVE
+    assert business.bucket_for(Segment.EQUITY_DELIVERY, holding_days=500) is Bucket.NONSPECULATIVE
 
 
-def test_business_classification_is_the_costlier_default(tax_cfg: TaxConfig) -> None:
-    """The default must not be the cheaper reading. Business income at a 30% slab costs more than
-    20% STCG, so defaulting to it means the gate is never flattered by an unconfirmed choice."""
-    business = TaxModel(tax_cfg)
-    capital = TaxModel(tax_cfg.model_copy(update={"equity_delivery": "capital_gains"}))
-    ledger_bucket_business = business.bucket_for(Segment.EQUITY_DELIVERY, holding_days=30)
-    ledger_bucket_capital = capital.bucket_for(Segment.EQUITY_DELIVERY, holding_days=30)
+def test_capital_gains_is_the_cheaper_reading_so_o7_still_matters(tax_cfg: TaxConfig) -> None:
+    """Unlike every other default in §6, this one does NOT err against us: 20% STCG is cheaper than
+    a 30% slab. That is exactly why the CA confirmation (O7) stays an open operator item — if it
+    comes back the other way, every after-tax metric gets worse, not better."""
+    capital = TaxModel(tax_cfg)
+    business = TaxModel(tax_cfg.model_copy(update={"equity_delivery": "nonspeculative_business"}))
+    short_hold = 30
 
-    [as_business] = business.annual_tax([_trade(ledger_bucket_business, "10000")])
-    [as_capital] = capital.annual_tax([_trade(ledger_bucket_capital, "10000")])
-    assert as_business.total_tax > as_capital.total_tax
+    [as_capital] = capital.annual_tax(
+        [_trade(capital.bucket_for(Segment.EQUITY_DELIVERY, holding_days=short_hold), "10000")]
+    )
+    [as_business] = business.annual_tax(
+        [_trade(business.bucket_for(Segment.EQUITY_DELIVERY, holding_days=short_hold), "10000")]
+    )
+    assert as_capital.total_tax < as_business.total_tax
 
 
 # --------------------------------------------------------------------------------------
