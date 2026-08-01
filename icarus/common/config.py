@@ -10,6 +10,7 @@ edit to ``goal.yaml`` cannot loosen them — e.g. the crypto leverage ceiling ca
 
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 from typing import Annotated
 
@@ -28,6 +29,11 @@ CRYPTO_LEVERAGE_ABSOLUTE_CEILING = 2.0
 # Statutory LTCG exemption ceiling, s.112A equivalent (verified 2026-07-30, unchanged by Budget
 # 2026). Config may set LESS (the operator's other holdings may already consume it) but never more.
 _LTCG_EXEMPTION_STATUTORY_CEILING_INR = 125_000.0
+
+# The date the Phase-1 stop gate was fixed, before any backtest existed. Pinned in CODE rather
+# than read from config so that re-dating the block in goal.yaml fails at startup instead of
+# quietly laundering a lowered bar (LLM council finding, 2026-07-31).
+_STOP_GATE_PRE_REGISTERED_ON = date(2026, 8, 1)
 
 
 class _Strict(BaseModel):
@@ -76,6 +82,9 @@ class Risk(_Strict):
     cost_hurdle_multiplier: _Positive
     crypto_max_leverage_hard: _Positive
     crypto_max_leverage_seed: _Positive
+    stagnation_check_after_trades: _PosInt
+    stagnation_requires_positive_net: bool
+    stagnation_ci_level: _Fraction
 
     @model_validator(mode="after")
     def _enforce_leverage_ceiling(self) -> Risk:
@@ -94,6 +103,16 @@ class Risk(_Strict):
         if self.daily_derisk_trigger >= self.daily_loss_limit:
             raise ValueError(
                 "daily_derisk_trigger must be < daily_loss_limit (de-risk before halt, §14)"
+            )
+        # Position count and heat cap are two controls over the same quantity and can silently
+        # disagree. Filling every slot at full per-trade risk must not breach the heat budget.
+        implied_heat = self.max_open_positions * self.per_trade_risk_r
+        if implied_heat > self.max_portfolio_heat:
+            raise ValueError(
+                f"max_open_positions={self.max_open_positions} x per_trade_risk_r="
+                f"{self.per_trade_risk_r} = {implied_heat:.4f} heat, which exceeds "
+                f"max_portfolio_heat={self.max_portfolio_heat} (§14 — the heat cap is the "
+                f"binding control; a full book may not breach it)"
             )
         return self
 
@@ -418,10 +437,87 @@ class LearningBudgets(_Strict):
     thrash_guard_hours: _PosInt
 
 
+class StopGate(_Strict):
+    """The pre-registered Phase-1 falsification criteria (operator, 2026-08-01).
+
+    These were fixed **before any backtest existed**, which is the only thing that gives them
+    force: a threshold written after seeing results is a rationalisation. The loader asserts the
+    pre-registration date has not been quietly moved forward, because silently re-dating this
+    block would be the easiest way to launder a lowered bar.
+    """
+
+    pre_registered_on: date
+    require_sharpe_lower_bound_above: float
+    sharpe_confidence_level: _Fraction
+    net_of_cost_and_tax: bool
+    max_pbo: _Fraction
+    trade_count_promote: _PosInt
+    trade_count_needs_more_data: _PosInt
+    min_oos_calendar_years: _Positive
+    require_benchmark_drawdown_pct: _Fraction
+    require_crypto_vda_stress: bool
+    require_equity_business_income_stress: bool
+
+    @model_validator(mode="after")
+    def _gate_is_coherent(self) -> StopGate:
+        if self.pre_registered_on != _STOP_GATE_PRE_REGISTERED_ON:
+            raise ValueError(
+                f"stop_gate.pre_registered_on must remain {_STOP_GATE_PRE_REGISTERED_ON} — the "
+                f"date is the commitment. Got {self.pre_registered_on}. If the gate genuinely "
+                f"must change, record why and what was already known when it changed."
+            )
+        if self.trade_count_needs_more_data >= self.trade_count_promote:
+            raise ValueError(
+                "stop_gate.trade_count_needs_more_data must be < trade_count_promote "
+                "(NEEDS_MORE_DATA is the band below PROMOTE, not above it)"
+            )
+        if not self.net_of_cost_and_tax:
+            raise ValueError(
+                "stop_gate.net_of_cost_and_tax cannot be false — gross-only metrics are a bug "
+                "(CLAUDE.md §5), not a configuration choice"
+            )
+        return self
+
+
+class DataSplit(_Strict):
+    """Point-in-time train/validate/lockbox boundaries (operator, 2026-08-01).
+
+    ``lockbox_end: null`` means open-ended — everything at or after ``lockbox_start``.
+    """
+
+    walk_forward_start: date
+    walk_forward_end: date
+    lockbox_start: date
+    lockbox_end: date | None
+    lockbox_uses_allowed: _PosInt
+
+    @model_validator(mode="after")
+    def _windows_do_not_overlap(self) -> DataSplit:
+        # An overlap silently turns the lockbox into training data — the exact failure the
+        # single-use rule exists to prevent, and one that leaves no trace in any metric.
+        if self.walk_forward_end >= self.lockbox_start:
+            raise ValueError(
+                f"data_split.walk_forward_end ({self.walk_forward_end}) must be strictly before "
+                f"lockbox_start ({self.lockbox_start}) — an overlap contaminates the lockbox"
+            )
+        if self.walk_forward_start >= self.walk_forward_end:
+            raise ValueError("data_split.walk_forward_start must precede walk_forward_end")
+        if self.lockbox_end is not None and self.lockbox_end <= self.lockbox_start:
+            raise ValueError("data_split.lockbox_end must be after lockbox_start, or null")
+        if self.lockbox_uses_allowed != 1:
+            raise ValueError(
+                "data_split.lockbox_uses_allowed must be 1 (PRD §13: the lockbox is consumed "
+                "exactly once; a second look makes it training data)"
+            )
+        return self
+
+
 class GoalConfig(_Strict):
     """Root config — every top-level block in goal.yaml, all required."""
 
     objective: Objective
+    stop_gate: StopGate
+    data_split: DataSplit
     learning: Learning
     risk: Risk
     compliance: Compliance

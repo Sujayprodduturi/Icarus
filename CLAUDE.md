@@ -34,6 +34,13 @@ Icarus is a **fully-autonomous, self-learning trading system that places real-mo
 21. **Edge ≠ beta.** Every strategy is gated on positive **alpha after cost/tax** vs its benchmark (Nifty / BTC-hold); high benchmark-R² is flagged (§31.5).
 22. **All timestamps stored UTC tz-aware**; convert to IST only at session/calendar/tax boundaries (§29.5). **Research never preempts the live execution plane** (§39.1).
 
+**Added 2026-08-01 after an LLM council review of Phases 0–2 (see `docs/reviews/`):**
+
+23. **Halt on stagnation, not just on loss.** Every other kill-switch fires on a *fast* loss (−3% daily, −10% drawdown). Nothing fired on a slow, perfectly-compliant bleed — which the PRD itself (§23) names as the most likely outcome. After `risk.stagnation_check_after_trades` closed live trades, if cumulative **net-of-cost-and-tax** P&L is ≤ 0 **and** the confidence interval on mean R includes zero → **HALT all strategies, demote to re-validation, alert the operator.** A system that is not losing fast and not winning either must stop and say so.
+24. **The trial ledger counts *human* attempts too.** DSR and PBO correct for multiple testing using the effective trial count. In Phase 1 the operator is the only searcher — every hand-authored strategy, every re-tuned parameter, every re-run is a trial. Counting only Inventor-generated candidates leaves the overfitting guard blind during the exact phase it exists to protect. **Log every evaluation against the trial ledger regardless of who or what originated it.**
+25. **The pre-registered gate is not renegotiated after results are seen.** `goal.yaml → stop_gate` was fixed on 2026-08-01, before any backtest existed; the loader asserts the date has not moved. A strategy that fails does not receive money. If *every* candidate fails, the response is to change the **input** — intraday data, a different strategy class, the India-specific feeds — **never to lower the bar.** A threshold edited after seeing the metric sheet is a rationalisation, and it converts the whole validation apparatus into ceremony.
+26. **The lockbox is consumed exactly once, and its boundary is config, not judgement.** `data_split.lockbox_start` (2023-01-01) is fixed; everything before it is fair game for development and iteration. The moment the lockbox is evaluated a second time it is training data and any number from it is meaningless. The loader rejects a walk-forward window that overlaps it.
+
 If a requested change would violate any of these, **stop and flag it** rather than implementing it.
 
 ---
