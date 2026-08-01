@@ -1078,4 +1078,69 @@ Agent count is unchanged (12 domain agents) but each is now explicitly decompose
 
 ---
 
-*End of PRD v2.0. See `CLAUDE.md` for engineering conventions + safety invariants and `TASKS.md` for the phase-by-phase build checklist with acceptance criteria.*
+---
+
+# PART III — Post-review amendments (authoritative where they extend Parts I & II)
+
+*Added 2026-08-01. Source: an LLM council review of Phases 0–2 (`docs/reviews/council-2026-07-31-prd-phases-0-1-2.md`), a measured trade-count study (`docs/reviews/trade-count-feasibility.md`), and a strategy-primitive survey (`docs/strategy-research/primitive-catalogue.md`). Every finding below was verified against the repo before being adopted; two of the council's most forceful claims **failed** verification and are recorded as failures in §41.6 rather than quietly dropped.*
+
+## 41. Amendments
+
+### 41.1 The Phase-1 stop gate is pre-registered (supersedes §22's Phase-1 deliverable)
+
+§22 defined the Phase-1 exit as *"produce an honest metric sheet… operator reviews Phase-1 evidence before Phase 2."* That is a **deliverable, not a threshold** — the only gate in the plan with no acceptance criteria, and one that could not be failed. All five council advisors reached this independently.
+
+**Amendment.** The gate's numbers live in `goal.yaml → stop_gate`, fixed **2026-08-01 before any backtest existed**, with the pre-registration date pinned in `common/config.py` so re-dating the block fails at startup. Gating is on the **Sharpe lower confidence bound**, never the point estimate; PBO ≤ 0.50; trade-count tiers 100/30 where `NEEDS_MORE_DATA` may never decay into `PROMOTED`; ≥3y OOS spanning a ≥15% benchmark drawdown; and **both** tax stress scenarios (crypto VDA *and* equity business-income — §6 previously stressed only the crypto reading).
+
+**The governing rule (CLAUDE.md invariant #25):** a failing strategy receives no money, and **the gate is not renegotiated after results are seen.** If every candidate fails, change the *input* — intraday data, a different strategy class, the India-specific feeds — never the bar.
+
+### 41.2 The trial ledger counts human attempts (extends §31)
+
+§31's overfitting ledger counted Inventor-generated candidates. **In Phase 1 the operator is the only searcher**: every hand-authored strategy, re-tuned parameter and re-run is a trial. Counting only machine trials leaves DSR/PBO blind during the exact phase they exist to protect. Now CLAUDE.md invariant #24.
+
+### 41.3 Sim forward-running is split into replay and live modes (supersedes §22 / task 1.10)
+
+The ≥30-trade sim requirement applied a **statistical** threshold to a test whose real jobs are **operational**. Measured trade rates (§41.7) put the cost at 4–20 months of pure waiting.
+
+The three questions are separable:
+
+| Question | Mechanism | Calendar cost |
+|---|---|---|
+| Does the edge exist? | Walk-forward + single-use lockbox on history | **zero** |
+| Is there a look-ahead bug? | **Replay mode** — historical bars through the *live* path, future bars physically absent | **zero** |
+| Does the machine work? | **Live mode** — real clock, real data, no broker write | ~3–4 weeks |
+
+A backtest cannot detect its own look-ahead bug, because the bug and the test share one dataset. Replay can, and adds a stronger check: **replay must reproduce the backtester's signals bar-for-bar**, or one of them is cheating. Live-mode acceptance is **event coverage** (one auth cycle, one restart-with-open-position, one reconciliation, one disconnect/reconnect), not trade count.
+
+**And the canary is the real live test.** At 0.125% risk on ₹25k a canary trade risks **₹31**. Four months of simulation to avoid risking ₹31 per trade is a bad exchange of calendar for confidence.
+
+### 41.4 Data split fixed (extends §13, §29)
+
+Walk-forward **2011-01-01 → 2022-12-31**; lockbox **2023-01-01 → open-ended** (882 sessions; verified to contain two ≥15% drawdowns: Sep-24→Mar-25 at 15.8%, Jan-26→Mar-26 at 15.2%). Loader-asserted non-overlapping and single-use. **The price, stated plainly:** all iteration happens on the walk-forward window; a second look at the lockbox makes it training data.
+
+### 41.5 Risk amendments (extend §14)
+
+- **`max_open_positions` 3 → 4.** *Derived, not chosen*: `max_portfolio_heat / per_trade_risk_r` = 2% / 0.5% = 4. The old 3 was stricter than any risk limit required. The loader now asserts `positions × per-trade-risk ≤ heat` so the two controls cannot contradict.
+- **Stagnation halt (invariant #23).** Every §14 kill-switch fires on a *fast* loss; nothing fired on a slow compliant bleed — which §23 itself calls the most likely outcome. After 50 closed live trades, if net-of-cost-and-tax P&L ≤ 0 **and** the CI on mean R includes zero → halt, demote, alert.
+- **Position quantisation (new task 2.1b).** Equities trade in whole shares and the seed-tier risk model cannot express itself in them: at ₹25k/0.5% the rounding error is 4% at ₹500/share, **36% at ₹2,000**, and above ~₹3,000 the position is **inexpressible**. No lot/rounding logic existed anywhere in the repo. Sizing must round, report the induced risk error, and **veto** rather than silently round. Note this implies an unwritten *price ceiling* to sit alongside §29.2's written floor.
+
+### 41.6 Council claims that failed verification
+
+Recorded because a review that is never wrong is a review that was not thinking.
+
+- **"D3 hides the infrastructure cost."** ✗ `BUILD_MAP.md` §5 already states, unprompted, that ~₹3,000/mo is 10–12% of a ₹25–30k account monthly and that *"the system cannot out-earn its own hosting bill at seed scale."* D3 also *requires* the ₹500 as its own line in the metric sheet. Phases 0–1 cost ₹700–1,200/mo, not ₹3,000.
+- **"SEBI algo approval may be per-strategy, forbidding Phase 3."** ✗ §8 already establishes that below the 10 OPS ceiling no full per-algo registration is required — a *generic* algo-ID via the broker suffices, which is why the governor is pinned at ≤2 OPS. Worth re-confirming with Zerodha (O1); not a structural hole.
+
+### 41.7 Measured facts adopted into the spec
+
+- **Trade count is arithmetic, not an emergent property:** `trades/year = max_open_positions × 252 / median_holding_days`. Signals never bind — a 20-symbol universe yields ~50 signals/yr against 18–84 slot-turnovers. Measured: MA(20/50) cross **18/yr**, Donlevey sweep **84/yr**, monthly cross-sectional momentum **36/yr**.
+- **Three India-only NSE feeds are free, daily and historical** (verified live 2026-07-31): security-wise delivery qty/% (2011→ via legacy `MTO`, 2019→ via `sec_bhavdata_full`), participant-wise F&O OI/volume split FII/DII/pro/client (2015→), and the daily F&O ban list. New task **1.1d**. These are the only inputs in the primitive catalogue the global quant industry has not mined, because they exist only in India.
+- **The DSL carries cross-sectional primitives from the outset** (§12.1 extended), which obliges the backtester to be **universe-parallel rather than symbol-serial** — cross-sectional rank at bar *t* needs every symbol's bar *t*.
+
+### 41.8 Claude Agent SDK: not for the runtime
+
+Evaluated and declined for Icarus's runtime. The money path must be deterministic and replayable for the audit log, and an LLM loop with filesystem/bash capability near broker credentials contradicts invariants #1, #2 and #9. The research plane is the one architecturally safe home (it holds no credentials by invariant #1), but the Inventor's actual job — structured input → one `StrategyCandidate` + hypothesis — is a few **Messages API** calls with a JSON schema and needs no shell. In a system whose founding principle is capability minimalism, **extra capability is a cost, not a feature.** Revisit at Phase 3+ if multi-step diagnosis outgrows single calls.
+
+---
+
+*End of PRD v2.1. See `CLAUDE.md` for engineering conventions + safety invariants and `TASKS.md` for the phase-by-phase build checklist with acceptance criteria.*

@@ -31,7 +31,9 @@ Right now the system can log in and read market data, but it **cannot place a si
 
 ## Current build status
 
-**250 automated tests; formatter + type-checker clean.** Phase 0 ✅ complete · Phase 1 🔨 in progress.
+**298 automated tests; formatter + type-checker clean.** Phase 0 ✅ complete · Phase 1 🔨 in progress.
+
+**🗓️ Target: code-complete 30 Sep 2026 · live-mode sim Oct 2026 · first real trade Nov 2026.**
 
 ### Phase 1 — Data + backtesting + an honest metric sheet (current)
 
@@ -44,10 +46,19 @@ The goal of this phase is to be able to test a strategy on history and get a num
 | Honest history (1.1c) | Catches data that *lies* — see below | ✅ |
 | **Cost model (1.5)** | Works out exactly what the government and broker take on every trade, to the paisa | ✅ |
 | **Tax model (1.6)** | What's actually left after tax — and it depends on *how* you traded, not just how much you made | ✅ |
-| Strategy language (1.4) | A restricted vocabulary strategies must be written in, so they're always human-readable | ⏳ next |
+| **The pass mark (1.0g)** | The numbers a strategy must hit to be allowed real money — written down *before* we ran anything. See below | ✅ |
+| India-only data (1.1d) | Three free feeds that exist nowhere else in the world — see below | ⏳ next |
+| Strategy language (1.4) | A restricted vocabulary strategies must be written in, so they're always human-readable | ⏳ |
 | Backtester + fill model (1.7, 1.7b) | Replays history honestly: a limit order only fills if the price actually traded *through* it, and today's signal can only trade tomorrow | ⏳ |
 | Metrics + overfitting guards (1.8, 1.9) | Scores a strategy, and works out how likely the score is luck | ⏳ |
+| Practice runs (1.10) | Two modes: replay old data through the live machinery to catch cheating, then run on real live data to prove the plumbing works | ⏳ |
 | Validation gate (1.11) | Runs a strategy through all the checks and issues a verdict with evidence | ⏳ |
+
+**We wrote down the pass mark before we ran anything (1.0g).** This one is worth explaining, because it's the change we're most glad we made. The plan used to say: *"produce a metric sheet and give it to the operator."* That sounds responsible, and it is completely empty — it says what to **produce**, not what would count as **failing**. We had it reviewed by a panel of five AI advisors with deliberately different outlooks, and all five independently said the same thing: that's not a gate, it's a ceremony. You cannot fail it.
+
+Why it matters is human, not technical. Imagine the result comes back mediocre. A voice says: *"well, that threshold was arbitrary anyway… and this stretch of history was unusual… and it's positive, which is something… let's just go live small and see."* That reasoning isn't stupid. It's just unfalsifiable — you'd have used it at any number. So the numbers are now fixed in the config file, dated, and **the code refuses to start if you change the date to make an edit look like it was always there**. If every strategy fails, the answer is to change what we feed it — better data, a different kind of strategy — and never to lower the bar.
+
+**Three free data feeds that only exist in India (1.1d).** Every indicator in every trading book has been tested by thousands of people with better data than us. But NSE publishes three things daily, for free, going back to 2011, that have no Western equivalent — so nobody outside India has mined them. **Delivery percentage**: how much of a day's trading was people actually *buying* shares versus day-traders passing them around — a direct read on conviction. **Participant-wise positioning**: how foreign institutions, domestic institutions, professionals and ordinary retail traders are *each* positioned, separately. And the daily **ban list**. That second one is the interesting one — "smart money versus everyone else" is usually a story people tell about squiggles on a chart; here it's a published number. If Icarus has an edge anywhere, this is where to look first.
 
 **Two ways data lies, and what we did about them (1.1c).** First, **survivorship**: if you test on today's list of companies, every company that went bust in between is missing, so your strategy is quietly being graded on winners only. We fixed this by building the tradable list *out of the exchange's own end-of-day files*, so a company that hadn't listed yet simply isn't there, and one that got delisted just stops appearing. Second, **share splits**: when a company splits its shares 1-for-2, the price halves overnight while nothing real changes — but to a strategy that looks like a 50% crash, and it triggers every stop. We rescale old prices so the series is continuous.
 
@@ -128,18 +139,27 @@ Each blocks the noted phase. Phases 0–1 need **no capital and no static IP**.
 |---|------|--------|
 | O1 | **Zerodha** Kite Connect plan active; register the deploy host's static IP | Phase 2 (equity live) |
 | O2 | **Upstox** account + API app (free data); whitelist the host IP | Phase 4 failover (data usable earlier) |
-| O3 | **Delta Exchange India** account + keys + **testnet**; **disable withdrawals** | Phase 1 crypto sim / Phase 2 crypto live |
-| O4 | **Host + static IP** (cloud Elastic IP or home ISP static IP); register it with every venue | Phase 2 |
-| O5 | **Daily-auth approach** — operator one-tap (default) vs TOTP automation (own risk) | Phase 2 |
+| O3 | **Delta Exchange India** account + keys + **testnet**; **disable withdrawals** | 🔴 **Phase 1** — the live-mode practice run needs testnet |
+| O4 | **Host + static IP** (cloud Elastic IP or home ISP static IP); register it with every venue | 🔴 **Phase 1** — same reason; live market data must come from the registered IP |
+| O5 | **Daily-auth approach** — operator one-tap (default) vs TOTP automation (own risk) | Phase 2 — but **decide early**, it changes what gets built |
 | O6 | **CA confirmation** of INR-settled crypto-derivative tax treatment (contested — PRD §6) | Scaling crypto |
-| O7 | **CA confirmation**: is systematic delivery trading *business income* or *capital gains*? ~10 percentage points of tax either way. Icarus defaults to the costlier reading so results are never flattered | Honesty of the Phase-1 metric sheet; real tax at Phase 2 |
+| O7 | **CA confirmation**: is systematic delivery trading *business income* or *capital gains*? ~10 percentage points of tax either way. Icarus now uses **capital gains** (operator decision) — the *cheaper* reading, and the only assumption in the tax model that errs in our favour, which is exactly why it needs checking | Honesty of the Phase-1 metric sheet; real tax at Phase 2 |
+| O8 | **Set the minimum Sharpe** — config says 1.3, and 0.70 was proposed as the realistic floor. Buying and holding the Nifty is about 0.5–0.7, so 0.70 means "beat doing nothing." A bar nobody can clear is a veto, not a bar | 🔴 Must be settled **before the first result exists** |
+
+> **⚠️ O3 and O4 moved from Phase 2 to Phase 1.** They were mislabelled. The live-mode practice run is a Phase-1 task and it needs a testnet account and a registered static IP — so roughly two hours of admin is currently holding up weeks of calendar time.
 
 **Open decisions** (don't block Phases 0–1):
 
 - **Seed capital** — now has hard evidence rather than opinion: below ~₹10k the trading costs are structurally larger than the edge, so **~₹25–30k is the floor**. Decide at the Phase-1 review. (`BUILD_MAP.md` §6.1)
 - **Live hosting** — cloud VM (~₹1,400/mo) vs home PC + ISP static IP (~₹200–500/mo). Decide at Phase 2.
 
-**Decided since Phase 0:** the Kite ₹500/mo API fee is treated as a **capital investment in the business**, not a per-trade cost — so every strategy number Icarus reports is *before* infrastructure cost, and the ₹500 gets its own line in the daily report rather than being quietly absorbed.
+**Decided since Phase 0:**
+
+- The Kite ₹500/mo API fee is a **capital investment in the business**, not a per-trade cost — so every strategy number Icarus reports is *before* infrastructure cost, and the ₹500 gets its own line in the daily report rather than being quietly absorbed.
+- **Equity delivery is taxed as capital gains**, not business income — Icarus places the trades the operator would have placed personally, and automating your own investing doesn't by itself make it a business. Still needs a CA's sign-off (O7).
+- **The pass mark is pre-registered and can't be renegotiated afterwards** (`goal.yaml → stop_gate`). If everything fails, we change the input, not the bar.
+- **How long until we know if this works** was measured, not guessed. It turned out a strategy that holds positions for 42 days would take **20 months** to produce enough live evidence to judge — so the practice run was split in two: replaying old history through the live machinery catches cheating instantly and for free, while only the "does the plumbing work" question needs real waiting. That took the first-real-trade date from April 2027 to **November 2026 without relaxing a single standard.** (`BUILD_MAP.md` §6.2)
+- **We're not using the Claude Agent SDK for Icarus's runtime.** It's excellent for *building* this, and wrong for *being* it: the trading path has to be deterministic and replayable, and an AI loop with shell access near broker credentials is precisely what the safety rules forbid.
 
 ---
 
@@ -155,6 +175,8 @@ Full list in `CLAUDE.md` §0. The load-bearing ones:
 6. **No money-movement capability** is ever wired in. Trading only.
 7. **Fail safe, not silent** — on any doubt, halt and alert.
 8. **No live order path before Phase 2**, and a human reviews the Phase-1 evidence first.
+9. **Halt on going nowhere, not just on losing.** Every other stop-loss reacts to a *fast* loss. After 50 live trades, if we're not actually up after costs and tax, the system stops and says so — because the likeliest way to fail here isn't a crash, it's bleeding away slowly while every safety check passes.
+10. **The pass mark doesn't move after we see the score.** It was written down first, and the code refuses to start if the date on it is edited.
 
 ---
 

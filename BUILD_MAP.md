@@ -161,10 +161,18 @@ Viable — **especially now that we're equity-first**, because the live plane on
 | **M1** | MED | §9.5 state-machine diagram omitted RECOVERY (invariant #16 requires it). | ✅ **APPLIED** |
 | **M2** | MED | No explicit pytest/CI scaffold task in Phase 0. | ✅ **APPLIED** → TASKS 0.1b |
 | **M3** | MED | Reflection cadence (N=5) vs belief threshold (≥30 trades) mismatch → early reflection chases noise. | ✅ **RESOLVED** — `reflection_every_trades` locked at 15 (per-strategy) at seed |
-| **M4** | MED | Time-to-first-evidence is months and isn't stated. | Open — set expectation in PRD |
-| **M5** | LOW | 2 GiB VM may OOM on walk-forward/CPCV backtests. | Open — benchmark memory in Phase 1 (moot if home PC has more RAM) |
+| **M4** | MED | Time-to-first-evidence is months and isn't stated. | ✅ **MEASURED + RESOLVED** (1 Aug) — see §6.2. It was not a documentation gap but a near-design-falsifier: `trades/yr = max_open_positions × 252 / hold_days` gives **18/yr** for an MA cross. Fixed by splitting 1.10 into replay + live modes (statistical vs operational) and by 3→4 slots. Verdict moves Apr-2027 → **Nov-2026** with no standard lowered |
+| **M5** | LOW | 2 GiB VM may OOM on walk-forward/CPCV backtests. | Open — benchmark memory in Phase 1. **Now larger:** 1.7 must be universe-parallel for cross-sectional primitives, so peak memory scales with universe size, not one symbol |
+| **M6** | MED | `max_open_positions` and `max_portfolio_heat` are two controls over one quantity and can silently disagree (3 proven at 0.5% + 4 canaries at 0.125% is also exactly 2%). | Open — loader now **asserts** `positions × per_trade_risk ≤ heat` so they cannot contradict. Deriving the count from the heat budget is a later refactor |
+| **M7** | HIGH | Position sizing is inexpressible in whole shares at seed capital, and no lot/rounding/quantisation logic exists anywhere in the repo (verified 1 Aug). At ₹25k/0.5% risk: 4% rounding error at ₹500/share, **36% at ₹2,000**, **impossible above ~₹3,000**. | Open → **TASKS 2.1b**. Compounds with `min_close_inr: 30`: a floor is written down, the implied ceiling is not |
+| **M8** | HIGH | Every kill-switch is drawdown-triggered. Nothing halted a slow, perfectly-compliant bleed — the outcome PRD §23 itself calls most likely. | ✅ **RESOLVED** (1 Aug) — stagnation halt, **invariant #23**. Flatness-triggered, not drawdown-triggered |
+| **M9** | HIGH | The DSR/PBO trial ledger counted Inventor candidates but not hand-authored ones. In Phase 1 the operator is the *only* searcher, so the multiple-testing guard was blind exactly where it mattered. | ✅ **RESOLVED** (1 Aug) — **invariant #24**; TASKS 1.9 AC now requires a hand re-run to increment the ledger |
 | **D1** | DECISION | Crypto-first was a single point of fragility (contested tax + leverage + only viable seed surface). | ✅ **DECIDED: equity-first**, crypto deferred (revises locked decisions #5/#6) |
-| **D2** | DECISION | 12-agent × sub-agent mesh is heavier than ≤2 OPS justifies. | Open — keep plane isolation + single writer; consider leaner Phases 0–2, defer full mesh |
+| **D2** | DECISION | 12-agent × sub-agent mesh is heavier than ≤2 OPS justifies. | Open — keep plane isolation + single writer; consider leaner Phases 0–2, defer full mesh. **Council (31 Jul) split three ways and did not settle it:** trim to the three boundaries that carry credentials; *or* the shape is fine but is pre-committed to a trade frequency the capital can't afford; *or* marginal cost per agent is one supervised task, so it's cheap optionality. Two of three reviewers held that the binding constraint is operator calendar, not capability |
+| **D7** | DECISION | The Phase-1 stop gate had no numbers — a deliverable, not a threshold, and the only task with no AC. | ✅ **DECIDED + PRE-REGISTERED 2026-08-01** — `goal.yaml → stop_gate`, fixed before any backtest existed, date pinned in code. **Invariant #25: the gate is not renegotiated after results are seen.** On a total failure the response is to change the *input*, never lower the bar |
+| **D8** | DECISION | Where does the lockbox start, and can held-out history replace a live-clock sim forward-run? | ✅ **DECIDED** (Sujay, 1 Aug) — walk-forward **2011→2022**, lockbox **2023→now** (882 sessions; verified to contain two ≥15% drawdowns). Held-out history answers *"does the edge exist"*; **replay mode** answers *"is there a look-ahead bug"* at zero calendar cost; only *"does the machine work"* needs wall-clock, and that needs event coverage, not 30 trades |
+| **D9** | DECISION | `max_open_positions` 3 → 4. | ✅ **DECIDED** (Sujay, 1 Aug) — **derived, not chosen**: heat cap ÷ per-trade risk = 2% ÷ 0.5% = 4. The old 3 was stricter than any risk limit required and cost 33% of the evidence rate for nothing. No limit loosened |
+| **D10** | DECISION | Claude Agent SDK for Icarus's runtime? | ✅ **DECIDED: no, not yet** (1 Aug) — the money path must be deterministic and reproducible; an LLM loop with filesystem+bash near broker credentials contradicts invariants #1/#2/#9, and a non-deterministic decision can't be replayed for the audit log. The research plane is the one architecturally safe home (no credentials by invariant #1), but the Inventor's real job — structured input → one `StrategyCandidate` + hypothesis — is a few **Messages API** calls with a JSON schema. It needs no bash. Where capability minimalism is the founding principle, extra capability is a cost. Revisit at Phase 3+ if multi-step diagnosis outgrows single calls |
 | **D3** | DECISION | Kite ₹500/mo: amortize into the per-strategy hurdle (PRD §7.1) or treat as capital? | ✅ **DECIDED: capital investment** (Sujay, 30 Jul) — same bucket as the PC. Metrics are *before* infra cost; the ₹500 gets its own reported line, never netted into strategy P&L |
 | **D4** | DECISION | NSE cash txn charge: 0.00297% raw vs 0.00307% all-in incl. IPFT (Appendix B: "don't double-count"). | ✅ **RESOLVED, not chosen** (1.5, 29 Jul) — they are the *same total*. NSE circular 27 Feb 2026 (eff. 1 Mar) cut IPFT to ₹0.01/crore and raised txn charges to match. Use all-in **0.00307%**, never add IPFT separately |
 | **D5** | DECISION | Dividend adjustment convention (§29.3 requires exactly one, applied in signal + cost + tax). | ✅ **DECIDED: price-return** (Sujay, 29 Jul) — adjust splits/bonus/rights, **not** dividends. The ex-date drop is real and a price strategy eats it. Consequence: Yahoo `adjclose` is banned |
@@ -192,6 +200,48 @@ So **C1 is real and bounded**. The ~₹25–30k floor is not a preference — it
 
 ---
 
+## 6.2 M4, measured — how long until we know anything
+
+*Measured 1 Aug 2026 on real NSE daily bars (19 liquid names, 10.4 years). Full method:
+`docs/reviews/trade-count-feasibility.md`.*
+
+| Strategy archetype | Median hold | **Trades/yr** (3 slots) | Time to a 30-trade sim verdict |
+|---|---|---|---|
+| SMA(20/50) cross | 42 bars | **18** | **20 months** |
+| Sweep + reclaim (Donlevey distillation) | 9 bars | **84** | 4.3 months |
+| Cross-sectional momentum, monthly | ~21 bars | **36** | 10 months |
+
+**Signals are never the constraint — slots are.** Even 20 symbols generate ~50 signals/year against
+18–84 available slot-turnovers; at 500 symbols it is ~1,340. Universe size is irrelevant to trade
+count. What decides it is arithmetic:
+
+```
+portfolio trades/year = max_open_positions × 252 / median_holding_days
+```
+
+Every term is a config value or a strategy property. **This needed no backtester and should have
+been computed before the validation machinery was designed** — that is the process lesson, and it
+is the reason this section exists rather than a note in the PRD.
+
+**What it changed:**
+
+1. The MA-cross baseline is **barred from live sim and canary** and kept as a backtest-only engine
+   control. A 20-month wait to learn that a control strategy has no edge is not a trade worth making.
+2. **Task 1.10 split into replay + live modes.** The ≥30-trade rule applied a *statistical*
+   threshold to a test whose real jobs are *operational* (look-ahead detection, plumbing). Replay
+   does the first at zero calendar cost; live-mode sim does the second in ~3 weeks on event
+   coverage. Verdict moves from Apr-2027 to Nov-2026 **without lowering a single standard.**
+3. **`max_open_positions` 3 → 4** (D9), lifting every count by 33% within the existing heat cap.
+4. The operator's chosen direction survives on *structural* grounds: the sweep clears comfortably
+   because it holds 9 days rather than 42 — independent of whether it has any edge.
+
+**And the argument that settled the calendar question:** the canary *is* the live forward test. At
+0.125% risk on ₹25k a canary trade risks **₹31**. Spending four months of simulation to avoid
+risking ₹31 per trade is a bad trade — real fills, real slippage, real broker behaviour and real
+auth gaps are things no modelled fill can tell you.
+
+---
+
 ## 7. Current decisions & open items
 
 - ✅ **Equity-delivery-first** to prove the machine; crypto stays in the architecture but deferred (Sujay, 24 Jul).
@@ -202,5 +252,10 @@ So **C1 is real and bounded**. The ~₹25–30k floor is not a preference — it
 - ⏳ **Hosting — OPEN.** AWS VM (~₹1,400/mo) vs home PC + ISP static IP (~₹200–500/mo). Equity-first makes the home PC viable (no 24/7). Decide at Phase 2.
 - ⏳ Once seed + hosting are set: apply H3 + the equity-first rewrite of §2/§5/§22 + locked decisions #5/#6 in one clean pass. (C1 is now discharged by §6.1.)
 - ⏳ **Verify before live capital:** re-pull the NSE transaction-charge circular from the primary source. The 1.5 rates rest on a circular summary plus Zerodha's live page (independent and arithmetically consistent) because the NSE PDFs would not extract.
+- ✅ **The Phase-1 stop gate is pre-registered** (Sujay, 1 Aug — D7). Numbers fixed *before* any backtest existed and enforced in `goal.yaml → stop_gate`; the pre-registration date is pinned in code so re-dating it fails at startup. **Invariant #25: if every candidate fails, change the input — never the bar.**
+- ✅ **Data split fixed** (Sujay, 1 Aug — D8): walk-forward 2011→2022, lockbox 2023→now, single-use, loader-asserted non-overlapping. **The real price:** all iteration happens on the walk-forward window. The lockbox is opened once, at the end. A second look makes it training data and any number from it means nothing.
+- ✅ **Three stop-gate strategies** (Sujay, 1 Aug): MA-cross as engine control (backtest only), the Donlevey sweep, and a **reproduction of the 2026 SSRN cross-sectional-momentum claim** (~133% annualised / Sharpe 2.90 OOS on Nifty-50). Sharpe 2.9 from free data in India's 50 most-analysed stocks is ~3× what the best systematic equity funds sustain; survivorship, a 5× bull market, an optimistic cost model and a ±0.6 standard error are each likelier than a discovery. **Reproduce it in our own gate or don't cite it** — a survivorship-free reproduction returning 0.6 is *more* valuable than a pass, because it proves the engine catches what a paper got wrong.
+- ⏳ **O8 — `objective.min_sharpe` 1.3 vs 0.70. OPEN, and must be closed before the first metric sheet exists.** 1.3 net of cost and tax on daily-bar retail equity is very demanding; Nifty buy-and-hold is ~0.5–0.7, so 0.70 means "beat doing nothing." The stricter 1.3 stays active until the operator rules. Resolving it *after* seeing a result would violate invariant #25.
+- ⏳ **New feed work — TASKS 1.1d.** Delivery %, participant-wise F&O OI (FII/DII/pro/client) and the F&O ban list, all verified free and live 2026-07-31, historical to 2011/2015. The one class of input in the whole primitive catalogue that the global quant industry has *not* mined, because it only exists in India.
 
 *Docs: `PRD.md` (v2.0, 1079 lines) · `TASKS.md` (phased, with progress) · `CLAUDE.md` (22 invariants) · `goal.yaml` (all thresholds + rate schedule). Build map compiled 24 Jul 2026, last updated 30 Jul 2026.*
