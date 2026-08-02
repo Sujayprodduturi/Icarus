@@ -31,7 +31,7 @@ Right now the system can log in and read market data, but it **cannot place a si
 
 ## Current build status
 
-**367 automated tests; formatter + type-checker clean.** Phase 0 ✅ complete · Phase 1 🔨 in progress.
+**421 automated tests; formatter + type-checker clean.** Phase 0 ✅ complete · Phase 1 🔨 in progress.
 
 **🗓️ Target: code-complete 30 Sep 2026 · live-mode sim Oct 2026 · first real trade Nov 2026.**
 
@@ -48,7 +48,8 @@ The goal of this phase is to be able to test a strategy on history and get a num
 | **Tax model (1.6)** | What's actually left after tax — and it depends on *how* you traded, not just how much you made | ✅ |
 | **The pass mark (1.0g)** | The numbers a strategy must hit to be allowed real money — written down *before* we ran anything. See below | ✅ |
 | India-only data (1.1d) | Three free feeds that exist nowhere else in the world — see below | ✅ |
-| Strategy language (1.4a/b/c) | A restricted vocabulary strategies must be written in, so they're always human-readable | ⏳ next |
+| Strategy language (1.4a) | A restricted vocabulary strategies must be written in — 97 words, see below | ✅ |
+| SMC + cross-sectional words (1.4b/c) | Market structure, liquidity sweeps, and ranking across the whole universe | ⏳ next |
 | Backtester + fill model (1.7, 1.7b) | Replays history honestly: a limit order only fills if the price actually traded *through* it, and today's signal can only trade tomorrow | ⏳ |
 | Metrics + overfitting guards (1.8, 1.9) | Scores a strategy, and works out how likely the score is luck | ⏳ |
 | Practice runs (1.10) | Two modes: replay old data through the live machinery to catch cheating, then run on real live data to prove the plumbing works | ⏳ |
@@ -57,6 +58,25 @@ The goal of this phase is to be able to test a strategy on history and get a num
 **We wrote down the pass mark before we ran anything (1.0g).** This one is worth explaining, because it's the change we're most glad we made. The plan used to say: *"produce a metric sheet and give it to the operator."* That sounds responsible, and it is completely empty — it says what to **produce**, not what would count as **failing**. We had it reviewed by a panel of five AI advisors with deliberately different outlooks, and all five independently said the same thing: that's not a gate, it's a ceremony. You cannot fail it.
 
 Why it matters is human, not technical. Imagine the result comes back mediocre. A voice says: *"well, that threshold was arbitrary anyway… and this stretch of history was unusual… and it's positive, which is something… let's just go live small and see."* That reasoning isn't stupid. It's just unfalsifiable — you'd have used it at any number. So the numbers are now fixed in the config file, dated, and **the code refuses to start if you change the date to make an edit look like it was always there**. If every strategy fails, the answer is to change what we feed it — better data, a different kind of strategy — and never to lower the bar.
+
+**The pass mark now has its final number, and a way to change it honestly (O8).** The Sharpe ratio a strategy must hit was set to **1.0** on 2 Aug 2026 — before any backtest existed. A lower bar of 0.70 was proposed and rejected, for a reason worth recording: a *separate* rule already requires the result to be statistically distinguishable from zero, and over the three-year minimum test window that alone demands roughly 0.95. So 0.70 would have been a dial connected to nothing — a bar that cannot fail anything, which is exactly the flaw the review panel found last time.
+
+The operator also asked that the number stay changeable in future, and that's a fair ask — a threshold you can never revisit is its own kind of trap. The resolution: it's changeable, but **never quietly**. Every change is a dated, reasoned entry in an append-only log, the code refuses to start if the live number doesn't match the newest entry, and any change made *after* results exist must explicitly tick a box saying so. That doesn't block you from lowering the bar after a disappointing result — it's your call — it just makes it impossible to do so unnoticed. Which is the part that actually protects us: a threshold must never be able to pretend it was always there.
+
+**A restricted language for writing strategies (1.4a).** A strategy could just be Python code — but then three things become impossible: you couldn't read it at a glance, the compliance checks couldn't verify it's explainable, and the strategy-inventing agent we build later could write *anything*, including something that quietly ignores a risk limit. So strategies are written in a fixed vocabulary of **97 allowed words** — like a form with dropdowns instead of a blank page. If a word isn't in the list, it cannot be said.
+
+The interesting part isn't what the language accepts, it's what it **refuses**:
+
+- An unknown word is rejected, never ignored. A typo'd setting is rejected too — otherwise the strategy silently runs a different rule than the one written down.
+- A setting outside its allowed range is **rejected, not quietly corrected** to the nearest legal value. Correcting it would run a strategy nobody wrote and report the result under its name.
+- Words that only make sense on minute-by-minute data **refuse to run** on daily data rather than approximating themselves.
+- Words that need a data feed we haven't built yet **refuse** rather than returning a harmless-looking default. This is the most dangerous case of all: a news filter that quietly answers "nothing to worry about" produces a backtest showing profit that depended on a filter *which was never actually running* — and it looks like a great result.
+- A strategy asking to risk more than the config allows is rejected, not shrunk. Silently shrinking it would teach the future strategy-inventing agent that asking for too much is free.
+- A strategy with **no stop-loss** is rejected outright. A take-profit and a time limit leave the downside open.
+
+**We found a real bug in our own code, and only one kind of test could have caught it.** Nearly every one of these calculations needs a "warm-up" — a 14-day average has no honest value on day 3. Our first version filled in that gap with the next available number so the maths would start sooner. That sounds harmless. It isn't: it *invents a data point that never existed*, which shifts the whole calculation one day early and double-counts the first real reading. Checked against the textbook worked example, our RSI was off by about **3.5 points** — easily enough to change whether a signal fires. No amount of eyeballing would have caught it, because every number looked perfectly reasonable. What caught it was writing the formula a *second* time, independently, straight from the definition, and demanding the two agree.
+
+The other test worth mentioning runs every one of the 97 words twice: once over the full price history, and once over a truncated copy with the last stretch deleted. If any word secretly peeks at future prices, its answers for the *past* change when the future is removed — so the two runs disagree and the test names the culprit. It covers words nobody thought to check by hand, and it fails if that coverage ever quietly shrinks.
 
 **Three free data feeds that only exist in India (1.1d).** Every indicator in every trading book has been tested by thousands of people with better data than us. But NSE publishes three things daily, for free, going back to 2011, that have no Western equivalent — so nobody outside India has mined them. **Delivery percentage**: how much of a day's trading was people actually *buying* shares versus day-traders passing them around — a direct read on conviction. **Participant-wise positioning**: how foreign institutions, domestic institutions, professionals and ordinary retail traders are *each* positioned, separately. And the daily **ban list**. That second one is the interesting one — "smart money versus everyone else" is usually a story people tell about squiggles on a chart; here it's a published number. If Icarus has an edge anywhere, this is where to look first.
 

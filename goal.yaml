@@ -15,12 +15,38 @@ objective:
                                    # a strategy whose own backtest drawdown is 25% would trip
                                    # risk.max_drawdown_killswitch almost immediately and is
                                    # therefore unrunnable regardless of its Sharpe.
-  min_sharpe: 1.3                  # ⚠️ OPEN (O8): 1.3 net of cost+tax on daily-bar retail equity
-                                   # is very demanding — a bar nobody can clear is a veto, not a
-                                   # bar. 0.70 was proposed as the realistic minimum (Nifty
-                                   # buy-and-hold is ~0.5-0.7, so 0.70 = "beat doing nothing").
-                                   # The STRICTER 1.3 stays active until the operator rules.
-                                   # Do NOT resolve this after seeing a metric sheet.
+  min_sharpe: 1.0                  # RESOLVED 2026-08-02 (O8) — see min_sharpe_amendments below.
+  # The live value above must always equal the LAST entry here; the loader asserts it. This is
+  # how O8 stays changeable (operator requirement, 2026-08-02) without becoming deniable.
+  #
+  # Invariant #25 says the gate is not renegotiated after results are seen. It does NOT say the
+  # number can never move — it says a number that moves must not be able to pretend it was always
+  # there. So changing min_sharpe is permitted at any time, and every change is a dated, reasoned,
+  # append-only record. The one piece of friction: an amendment made once results exist must set
+  # `acknowledged_post_hoc: true`, which the loader requires. You can still lower the bar after
+  # seeing a bad metric sheet — but you cannot do it without signing your name to the fact.
+  min_sharpe_amendments:
+    - value: 1.3
+      set_on: 2026-07-28
+      results_existed: false
+      reason: >
+        Initial figure, carried from the PRD objective table. Flagged OPEN (O8) on 2026-08-01:
+        1.3 net of cost and tax on daily-bar retail equity is at the ceiling of what systematic
+        equity sustains anywhere, and a bar nobody can clear is a veto rather than a bar.
+    - value: 1.0
+      set_on: 2026-08-02
+      results_existed: false
+      reason: >
+        Operator decision, before any backtest existed. 0.70 was proposed and REJECTED as
+        unreachable-by-construction: stop_gate.require_sharpe_lower_bound_above already implies a
+        point Sharpe of ~0.95 over the 3.0-year minimum OOS window, because the standard error of
+        an annualised Sharpe over T years is ~sqrt(1/T) and the 95% one-sided bound therefore
+        needs S > 1.645/sqrt(T) (T=3.0 -> 0.95; T=3.6, the actual lockbox -> 0.87; T=12, the
+        walk-forward window -> 0.48). Any figure below that floor is a knob wired to nothing, and
+        a gate that cannot fail anything is the exact flaw the 2026-07-31 council review found.
+        1.0 sits just above the floor at the minimum window, so min_sharpe and the lower-bound
+        gate agree instead of one silently dominating the other. It is ~2x Nifty buy-and-hold
+        after cost and tax, and being wrong is cheap: anything promoted starts at canary size.
   min_sortino: 1.5
   min_calmar: 1.0
   min_profit_factor: 1.3

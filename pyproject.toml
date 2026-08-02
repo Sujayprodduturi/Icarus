@@ -20,6 +20,12 @@ dependencies = [
   "structlog>=24.1,<25",      # structured logging (0.12)
   "kiteconnect>=5.2,<6",      # Zerodha — PyPI name is `kiteconnect`, NOT pykiteconnect (PRD §11.2, §21)
   "httpx>=0.27,<1",           # async HTTP for Delta/Upstox read paths
+  "numpy>=2.0,<2.2",          # DSL primitive maths + backtester (1.4a onward). Ruff NPY201 is
+                              # already enabled for this. Upper bound is a TOOLCHAIN pin, not a
+                              # numpy one: mypy is held at 1.11.2 (see below) and cannot read the
+                              # stubs numpy >=2.2 ships, which turns every ndarray into `Any` and
+                              # silently disables type-checking across the whole strategy layer.
+                              # Lift both together.
 ]
 
 [project.optional-dependencies]

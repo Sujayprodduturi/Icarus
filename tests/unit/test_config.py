@@ -160,3 +160,77 @@ def test_shipped_position_count_exactly_saturates_the_heat_budget() -> None:
     number surfaces the interaction rather than silently wasting or breaching the budget."""
     cfg = load_goal(Path(__file__).resolve().parents[2] / "goal.yaml").risk
     assert cfg.max_open_positions * cfg.per_trade_risk_r == pytest.approx(cfg.max_portfolio_heat)
+
+
+# ------------------------------------------------------------------------------------------
+# min_sharpe amendment log (O8, resolved 2026-08-02).
+#
+# The operator asked that the bar stay changeable in future. Invariant #25 says the gate is not
+# renegotiated once results are seen. Both hold if the value is append-only rather than frozen:
+# it may move, but a move can never be invisible or backdated.
+# ------------------------------------------------------------------------------------------
+
+
+def test_min_sharpe_matches_the_latest_amendment(repo_root: Path) -> None:
+    cfg = load_goal(repo_root / "goal.yaml")
+    assert cfg.objective.min_sharpe == 1.0
+    assert cfg.objective.min_sharpe_amendments[-1].value == 1.0
+
+
+def test_editing_min_sharpe_without_logging_it_is_rejected(tmp_path: Path, repo_root: Path) -> None:
+    """The failure the log exists to prevent: a value with a provenance that is false."""
+    raw = _valid_raw(repo_root)
+    raw["objective"]["min_sharpe"] = 0.4
+    with pytest.raises(ConfigError, match="edit the log, not just the value"):
+        _load_dict(tmp_path, raw)
+
+
+def test_an_empty_amendment_log_is_rejected(tmp_path: Path, repo_root: Path) -> None:
+    raw = _valid_raw(repo_root)
+    raw["objective"]["min_sharpe_amendments"] = []
+    with pytest.raises(ConfigError, match="traceable to a dated decision"):
+        _load_dict(tmp_path, raw)
+
+
+def test_amendments_must_be_chronological(tmp_path: Path, repo_root: Path) -> None:
+    """Out-of-order entries would let a later decision be filed as if it came first."""
+    raw = _valid_raw(repo_root)
+    raw["objective"]["min_sharpe_amendments"] = list(
+        reversed(raw["objective"]["min_sharpe_amendments"])
+    )
+    with pytest.raises(ConfigError, match="chronological order"):
+        _load_dict(tmp_path, raw)
+
+
+def test_lowering_the_bar_after_results_must_be_signed(tmp_path: Path, repo_root: Path) -> None:
+    """The rationalisation guard: allowed, but only with the admission written down."""
+    raw = _valid_raw(repo_root)
+    raw["objective"]["min_sharpe"] = 0.5
+    raw["objective"]["min_sharpe_amendments"].append(
+        {
+            "value": 0.5,
+            "set_on": date(2027, 1, 1),
+            "results_existed": True,
+            "reason": "the metric sheet came back at 0.6 and that is nearly good enough",
+        }
+    )
+    with pytest.raises(ConfigError, match="must be signed, not slipped in"):
+        _load_dict(tmp_path, raw)
+
+
+def test_a_signed_post_hoc_change_is_permitted(tmp_path: Path, repo_root: Path) -> None:
+    """It is the operator's call to make. The log's job is to make it undeniable, not to veto it."""
+    raw = _valid_raw(repo_root)
+    raw["objective"]["min_sharpe"] = 0.5
+    raw["objective"]["min_sharpe_amendments"].append(
+        {
+            "value": 0.5,
+            "set_on": date(2027, 1, 1),
+            "results_existed": True,
+            "acknowledged_post_hoc": True,
+            "reason": "operator override with full knowledge that results were already seen",
+        }
+    )
+    cfg = _load_dict(tmp_path, raw)
+    assert cfg.objective.min_sharpe == 0.5
+    assert cfg.objective.min_sharpe_amendments[-1].acknowledged_post_hoc is True

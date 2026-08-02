@@ -42,11 +42,45 @@ class _Strict(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
 
+class SharpeAmendment(_Strict):
+    """One dated decision about ``objective.min_sharpe``.
+
+    O8 was left open specifically so the figure could be settled *before* any metric sheet
+    existed, and the operator asked (2026-08-02) that it stay changeable afterwards. Both are
+    honoured by making the value append-only rather than frozen: the bar may move, but a move
+    leaves a permanent, dated, reasoned record, so a future reader can always tell whether it
+    moved before or after the results were known.
+
+    ``acknowledged_post_hoc`` is the one piece of deliberate friction. Lowering a threshold after
+    seeing a disappointing result is precisely the rationalisation invariant #25 exists to stop,
+    and it is *always* defensible in the moment ("the window was unusual", "it's nearly positive").
+    Requiring the operator to write that admission into the file does not prevent the change — it
+    prevents the change from being invisible, which is the part that actually causes harm.
+    """
+
+    value: float
+    set_on: date
+    results_existed: bool
+    reason: str
+    acknowledged_post_hoc: bool = False
+
+    @model_validator(mode="after")
+    def _post_hoc_changes_must_be_signed(self) -> SharpeAmendment:
+        if self.results_existed and not self.acknowledged_post_hoc:
+            raise ValueError(
+                f"min_sharpe amendment on {self.set_on} declares results_existed: true but not "
+                f"acknowledged_post_hoc: true. Changing the bar after seeing a result is allowed, "
+                f"but it must be signed, not slipped in (invariant #25)."
+            )
+        return self
+
+
 class Objective(_Strict):
     account_currency: str
     target_return_30d: float
     max_drawdown: _Fraction
     min_sharpe: float
+    min_sharpe_amendments: tuple[SharpeAmendment, ...]
     min_sortino: float
     min_calmar: float
     min_profit_factor: float
@@ -55,6 +89,33 @@ class Objective(_Strict):
     oos_decay_max: _Fraction
     cost_stress_multiplier: _Positive
     dsr_confidence: _Fraction
+
+    @model_validator(mode="after")
+    def _min_sharpe_matches_its_history(self) -> Objective:
+        """The live figure must be the most recent recorded decision, and the record must be sane.
+
+        Without this the amendment log would be decorative: someone could edit ``min_sharpe`` and
+        leave the history untouched, which is worse than having no log at all — it would assert a
+        provenance that is false.
+        """
+        history = self.min_sharpe_amendments
+        if not history:
+            raise ValueError(
+                "objective.min_sharpe_amendments is empty — the live min_sharpe must be traceable "
+                "to a dated decision (O8)"
+            )
+        dates = [entry.set_on for entry in history]
+        if dates != sorted(dates):
+            raise ValueError(
+                f"objective.min_sharpe_amendments must be in chronological order, got {dates}"
+            )
+        if history[-1].value != self.min_sharpe:
+            raise ValueError(
+                f"objective.min_sharpe is {self.min_sharpe} but the latest amendment "
+                f"({history[-1].set_on}) records {history[-1].value} — edit the log, not just the "
+                f"value, or the history is a fiction"
+            )
+        return self
 
 
 class Learning(_Strict):
