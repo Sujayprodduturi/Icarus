@@ -72,6 +72,23 @@ _MONTH_ABBR = (
     "JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
 )  # fmt: skip
 
+
+def parse_month_name(name: str) -> int:
+    """Month number (1-12) for an NSE month spelling, matched on its three-letter prefix.
+
+    NSE is not consistent about this across feeds and years — the participant-wise F&O files alone
+    carry both ``Jul`` and ``July`` — so matching the prefix covers every spelling seen. Not
+    ``%b``, for the locale reason in :func:`legacy_bhavcopy_url`.
+
+    Raises :class:`ValueError` if ``name`` is not a month, which callers convert to a
+    ``SchemaError``: an unreadable date must halt the feed, never be guessed at.
+    """
+    try:
+        return _MONTH_ABBR.index(name[:3].upper()) + 1
+    except ValueError as exc:
+        raise ValueError(f"not an NSE month name: {name!r}") from exc
+
+
 # Columns we depend on per format. Any one missing means the layout changed -> halt, never guess.
 _UDIFF_COLUMNS = (
     "TradDt",

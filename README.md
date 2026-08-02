@@ -31,7 +31,7 @@ Right now the system can log in and read market data, but it **cannot place a si
 
 ## Current build status
 
-**298 automated tests; formatter + type-checker clean.** Phase 0 ✅ complete · Phase 1 🔨 in progress.
+**367 automated tests; formatter + type-checker clean.** Phase 0 ✅ complete · Phase 1 🔨 in progress.
 
 **🗓️ Target: code-complete 30 Sep 2026 · live-mode sim Oct 2026 · first real trade Nov 2026.**
 
@@ -47,8 +47,8 @@ The goal of this phase is to be able to test a strategy on history and get a num
 | **Cost model (1.5)** | Works out exactly what the government and broker take on every trade, to the paisa | ✅ |
 | **Tax model (1.6)** | What's actually left after tax — and it depends on *how* you traded, not just how much you made | ✅ |
 | **The pass mark (1.0g)** | The numbers a strategy must hit to be allowed real money — written down *before* we ran anything. See below | ✅ |
-| India-only data (1.1d) | Three free feeds that exist nowhere else in the world — see below | ⏳ next |
-| Strategy language (1.4) | A restricted vocabulary strategies must be written in, so they're always human-readable | ⏳ |
+| India-only data (1.1d) | Three free feeds that exist nowhere else in the world — see below | ✅ |
+| Strategy language (1.4a/b/c) | A restricted vocabulary strategies must be written in, so they're always human-readable | ⏳ next |
 | Backtester + fill model (1.7, 1.7b) | Replays history honestly: a limit order only fills if the price actually traded *through* it, and today's signal can only trade tomorrow | ⏳ |
 | Metrics + overfitting guards (1.8, 1.9) | Scores a strategy, and works out how likely the score is luck | ⏳ |
 | Practice runs (1.10) | Two modes: replay old data through the live machinery to catch cheating, then run on real live data to prove the plumbing works | ⏳ |
@@ -59,6 +59,16 @@ The goal of this phase is to be able to test a strategy on history and get a num
 Why it matters is human, not technical. Imagine the result comes back mediocre. A voice says: *"well, that threshold was arbitrary anyway… and this stretch of history was unusual… and it's positive, which is something… let's just go live small and see."* That reasoning isn't stupid. It's just unfalsifiable — you'd have used it at any number. So the numbers are now fixed in the config file, dated, and **the code refuses to start if you change the date to make an edit look like it was always there**. If every strategy fails, the answer is to change what we feed it — better data, a different kind of strategy — and never to lower the bar.
 
 **Three free data feeds that only exist in India (1.1d).** Every indicator in every trading book has been tested by thousands of people with better data than us. But NSE publishes three things daily, for free, going back to 2011, that have no Western equivalent — so nobody outside India has mined them. **Delivery percentage**: how much of a day's trading was people actually *buying* shares versus day-traders passing them around — a direct read on conviction. **Participant-wise positioning**: how foreign institutions, domestic institutions, professionals and ordinary retail traders are *each* positioned, separately. And the daily **ban list**. That second one is the interesting one — "smart money versus everyone else" is usually a story people tell about squiggles on a chart; here it's a published number. If Icarus has an edge anywhere, this is where to look first.
+
+Now that it's built, the live data does behave the way the idea predicts. On any given day the foreign institutions and the retail crowd sit on almost exactly opposite sides of the same bet — on 13 July 2015 foreign institutions were net long 289,350 index-futures contracts while retail was net short 290,219; on 28 July 2026 the two had swapped sides. That's not proof of anything profitable yet, but it is the raw material being real rather than theoretical.
+
+**What 11 years of real files taught us that no amount of planning would have.** We didn't write these parsers from the documentation — we ran them over actual archive files spanning 2015 to 2026, and three things turned up that would each have been a silent, expensive bug:
+
+- **The exchange spells its own dates four different ways** (`Jul 28, 2026`, `Mar 03,2021`, `July 02, 2018`, `Mar 20 2020`). Our first version handled the modern spelling perfectly and quietly refused *half of recorded history*. If we'd tested only on recent files, we'd have lost a decade of data and never known why.
+- **The exchange's own files sometimes don't add up.** Each file lists four groups of traders plus a total, so we check that the four add up to the total — a good way to notice if the format ever changes. Except NSE's own arithmetic is occasionally off by exactly one contract (11 of 48 files we sampled). The obvious strict check would have shut the feed down on the most recent real trading day. So the check allows a tiny discrepancy, and the size of that allowance is measured from real files rather than guessed.
+- **A safety check that looks strong can be weaker than it appears — so we wrote down its actual limits.** That "does it add up" test would *not* catch the columns being shuffled, because the total row shuffles too and the sums still agree. What really protects us is reading columns by name. We documented this in the code rather than letting a future reader assume the check covers more than it does.
+
+**One deliberate design choice on the ban list.** When too many traders crowd into one stock's derivatives, NSE bans new positions in it for a day. That's a legal boundary, not a trading opinion — so the code exposes only "is this banned, yes or no," and deliberately offers no *number* (like "how often has this been banned"). A number is something the learning loop could learn to chase; a boolean is something it can only obey. And if the file can't be read, the system refuses to answer rather than replying "nothing is banned" — because "I don't know what's banned" and "nothing is banned" must never come out as the same sentence.
 
 **Two ways data lies, and what we did about them (1.1c).** First, **survivorship**: if you test on today's list of companies, every company that went bust in between is missing, so your strategy is quietly being graded on winners only. We fixed this by building the tradable list *out of the exchange's own end-of-day files*, so a company that hadn't listed yet simply isn't there, and one that got delisted just stops appearing. Second, **share splits**: when a company splits its shares 1-for-2, the price halves overnight while nothing real changes — but to a strategy that looks like a 50% crash, and it triggers every stop. We rescale old prices so the series is continuous.
 
