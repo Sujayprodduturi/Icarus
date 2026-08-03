@@ -31,7 +31,7 @@ Right now the system can log in and read market data, but it **cannot place a si
 
 ## Current build status
 
-**421 automated tests; formatter + type-checker clean.** Phase 0 ✅ complete · Phase 1 🔨 in progress.
+**431 automated tests; formatter + type-checker clean.** Phase 0 ✅ complete · Phase 1 🔨 in progress.
 
 **🗓️ Target: code-complete 30 Sep 2026 · live-mode sim Oct 2026 · first real trade Nov 2026.**
 
@@ -75,6 +75,10 @@ The interesting part isn't what the language accepts, it's what it **refuses**:
 - A strategy with **no stop-loss** is rejected outright. A take-profit and a time limit leave the downside open.
 
 **We found a real bug in our own code, and only one kind of test could have caught it.** Nearly every one of these calculations needs a "warm-up" — a 14-day average has no honest value on day 3. Our first version filled in that gap with the next available number so the maths would start sooner. That sounds harmless. It isn't: it *invents a data point that never existed*, which shifts the whole calculation one day early and double-counts the first real reading. Checked against the textbook worked example, our RSI was off by about **3.5 points** — easily enough to change whether a signal fires. No amount of eyeballing would have caught it, because every number looked perfectly reasonable. What caught it was writing the formula a *second* time, independently, straight from the definition, and demanding the two agree.
+
+Then the more useful half: having found one, we went looking for the *same shape of mistake* everywhere else — and found it again, in two more calculations that filled their warm-up with the opening price. At a 5-day setting that **fabricated four days of output that had no basis at all**. So the rule now is: fix the bug, then hunt the class.
+
+There's a subtlety worth recording, because it nearly cost us. We already had a test that catches calculations peeking at *future* prices — and it passed with both of these bugs present. It had to: both bugs fabricated values from the *beginning* of the series, and deleting the end of the price history doesn't disturb something invented at the start. Two opposite mistakes, two different tests needed. The second one now pins, for each calculation, the exact first day it is allowed to produce a number — worked out from the arithmetic rather than from what the code happens to do. We confirmed it fails when the bug is put back, rather than just passing once the bug was gone; a test you've only ever seen pass hasn't been tested.
 
 The other test worth mentioning runs every one of the 97 words twice: once over the full price history, and once over a truncated copy with the last stretch deleted. If any word secretly peeks at future prices, its answers for the *past* change when the future is removed — so the two runs disagree and the test names the culprit. It covers words nobody thought to check by hand, and it fails if that coverage ever quietly shrinks.
 

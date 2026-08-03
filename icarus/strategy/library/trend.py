@@ -95,14 +95,25 @@ def _hma(bars: Bars, *, n: int, **_: object) -> Column:
 
 
 def _dema(bars: Bars, *, n: int, **_: object) -> Column:
+    """Double EMA. First honest value at bar ``2n-2`` — the second pass needs ``n`` real inputs.
+
+    The second EMA is fed the *first* EMA directly, warm-up ``nan``s and all, because
+    :func:`_ops.ema` skips them. An earlier version filled those with ``close[0]`` so the second
+    pass could start sooner; that fabricated four values outright at ``n=5`` and shifted four more,
+    by feeding a *price* into a series of averages — two different quantities.
+    """
     first = _ops.ema(bars.close, n)
-    return 2.0 * first - _ops.ema(np.nan_to_num(first, nan=bars.close[0]), n)
+    return 2.0 * first - _ops.ema(first, n)
 
 
 def _tema(bars: Bars, *, n: int, **_: object) -> Column:
+    """Triple EMA. First honest value at bar ``3n-3``.
+
+    See :func:`_dema` for why the warm-up is passed through rather than filled.
+    """
     e1 = _ops.ema(bars.close, n)
-    e2 = _ops.ema(np.nan_to_num(e1, nan=bars.close[0]), n)
-    e3 = _ops.ema(np.nan_to_num(e2, nan=bars.close[0]), n)
+    e2 = _ops.ema(e1, n)
+    e3 = _ops.ema(e2, n)
     return 3.0 * e1 - 3.0 * e2 + e3
 
 

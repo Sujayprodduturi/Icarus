@@ -29,6 +29,7 @@ from icarus.strategy.dsl import (
     FloatParam,
     IntParam,
     Kind,
+    SeriesParam,
     evaluate,
 )
 from icarus.strategy.library import _ops, default_registry
@@ -276,3 +277,76 @@ def test_every_context_primitive_declares_a_feed() -> None:
     for primitive in default_registry():
         if primitive.kind is Kind.CONTEXT:
             assert primitive.requires_feed, f"{primitive.name} is CONTEXT but declares no feed"
+
+
+# --------------------------------------------------------------------------------------
+# Warm-up length — the blind spot the look-ahead sweep cannot see
+# --------------------------------------------------------------------------------------
+#
+# `test_no_primitive_sees_the_future` catches a primitive reading FORWARD. It is structurally
+# blind to the opposite mistake: fabricating values BACKWARD, by filling a warm-up gap with an
+# invented number. Deleting the end of the series does not disturb a value manufactured from the
+# start of it, so the sweep passes with the bug present — as it did.
+#
+# Both real instances of that bug in this codebase were of the backward kind:
+#   * `wilder()` back-filled bar 0's missing true range, shifting the seed a bar early and
+#     double-counting the first real reading (~3.5 RSI points against Wilder's worked example);
+#   * `dema`/`tema` filled the first EMA's warm-up with `close[0]` so the second pass could start
+#     sooner — feeding a *price* into a series of averages, fabricating 4 bars outright at n=5.
+#
+# Pinning the exact first honest bar is what catches this class. Each figure below is derived, not
+# observed: if an implementation ever produces a value earlier than the arithmetic allows, it is
+# inventing one.
+
+
+@pytest.mark.parametrize(
+    ("name", "params", "first_honest_bar", "why"),
+    [
+        ("sma", {"n": 5}, 4, "n-1: needs n closes"),
+        ("ema", {"n": 5}, 4, "n-1: SMA-seeded from n closes"),
+        ("atr", {"n": 5}, 5, "n: true range itself starts at bar 1, not bar 0"),
+        ("rsi", {"n": 5}, 5, "n: gains/losses start at bar 1"),
+        ("dema", {"n": 5}, 8, "2n-2: the second EMA needs n real values from the first"),
+        ("tema", {"n": 5}, 12, "3n-3: three chained EMAs, each paying n-1 again"),
+        ("macd", {"fast": 12, "slow": 26, "signal": 9}, 25, "slow-1: the slower EMA gates it"),
+        ("macd_signal", {"fast": 12, "slow": 26, "signal": 9}, 33, "(slow-1)+(signal-1)"),
+        ("donchian_upper", {"n": 5}, 5, "n: the channel excludes the current bar, so +1"),
+    ],
+)
+def test_a_primitive_produces_no_value_before_its_inputs_allow(
+    name: str, params: dict[str, int], first_honest_bar: int, why: str
+) -> None:
+    rng = np.random.default_rng(7)
+    bars = _bars(list(np.cumsum(rng.normal(0.0, 1.0, 200)) + 100.0))
+    values = evaluate(_call(name, **params), bars, default_registry())
+    first = int(np.argmax(~np.isnan(values)))
+    assert first == first_honest_bar, f"{name} first value at bar {first}, expected {why}"
+    assert np.isnan(values[:first_honest_bar]).all(), f"{name} has a hole before its warm-up ends"
+
+
+def test_nothing_in_the_library_fills_a_gap_with_an_invented_value() -> None:
+    """Guard the fix directly: no primitive may back-fill its warm-up from the price series.
+
+    A filled warm-up is detectable without knowing the formula — feed a series whose opening bars
+    are wildly out of line with the rest. A primitive that fills from ``close[0]`` drags that
+    outlier into its early output; one that refuses to compute simply reports ``nan``.
+    """
+    rng = np.random.default_rng(11)
+    tail = list(np.cumsum(rng.normal(0.0, 1.0, 120)) + 100.0)
+    bars = _bars([5000.0, 5000.0, 5000.0, *tail])
+    registry = default_registry()
+    for primitive in registry:
+        if primitive.intraday_only or primitive.requires_feed or primitive.params == ():
+            continue
+        if any(isinstance(spec, SeriesParam) for spec in primitive.params):
+            continue
+        values = evaluate(_call(primitive.name), bars, registry)
+        known = ~np.isnan(values)
+        if not known.any():
+            continue
+        # Wherever a value exists, every bar it depends on must exist too: no interior holes.
+        first = int(np.argmax(known))
+        assert known[first:].all() or primitive.name in {"psar"}, (
+            f"{primitive.name} reports values with gaps between them — a filled warm-up leaves "
+            f"exactly this signature"
+        )

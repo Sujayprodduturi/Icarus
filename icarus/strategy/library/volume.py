@@ -69,6 +69,13 @@ def _traded_value(bars: Bars, *, n: int, **_: object) -> Column:
 
 
 def _obv(bars: Bars, **_: object) -> Column:
+    """On-balance volume.
+
+    The ``nan`` fills below are 0.0, and that is a different act from filling with a *value*: zero
+    means "this bar contributes nothing to the running total", which is exactly true when there is
+    no previous close to compare against. Bar 0 is then masked back to ``nan`` so no reader mistakes
+    an empty total for a real one.
+    """
     direction = np.sign(np.diff(bars.close, prepend=np.nan))
     signed = np.nan_to_num(direction, nan=0.0) * bars.volume
     out: Column = np.cumsum(signed)
@@ -77,6 +84,11 @@ def _obv(bars: Bars, **_: object) -> Column:
 
 
 def _ad_line(bars: Bars, **_: object) -> Column:
+    """Accumulation/distribution line.
+
+    The multiplier is ``nan`` only on a zero-range bar (high == low), where the standard treatment
+    is no accumulation. Filling with 0.0 states exactly that; it invents no price.
+    """
     multiplier = _ops.safe_divide(
         (bars.close - bars.low) - (bars.high - bars.close), bars.high - bars.low
     )
@@ -84,6 +96,7 @@ def _ad_line(bars: Bars, **_: object) -> Column:
 
 
 def _cmf(bars: Bars, *, n: int, **_: object) -> Column:
+    """Chaikin money flow. Zero-range bars contribute no flow — see :func:`_ad_line`."""
     multiplier = _ops.safe_divide(
         (bars.close - bars.low) - (bars.high - bars.close), bars.high - bars.low
     )
