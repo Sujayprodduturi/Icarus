@@ -54,6 +54,27 @@ def _bars(closes: list[float] | None = None) -> Bars:
     )
 
 
+def _bodied_bars(closes: list[float]) -> Bars:
+    """Like :func:`_bars` but with a real candle body — ``open`` is the previous close.
+
+    The hand-worked fixtures above deliberately set ``open == close``, which is fine for an average
+    or an oscillator but leaves every *body*-dependent word (order blocks, mitigation blocks,
+    imbalance ratio) computing on zero-height candles and returning all-``nan``. An all-``nan``
+    column passes the look-ahead sweep trivially, so those words would have been listed as covered
+    while never actually being exercised. This builder is what the sweep runs on.
+    """
+    close = np.array(closes, dtype=np.float64)
+    open_ = np.concatenate([close[:1], close[:-1]])
+    return Bars(
+        ts=np.arange(close.size).astype("datetime64[D]").astype("datetime64[ns]"),
+        open=open_,
+        high=np.maximum(open_, close) + 0.5,
+        low=np.minimum(open_, close) - 0.5,
+        close=close,
+        volume=np.full(close.size, 1000.0),
+    )
+
+
 def _fallback(spec: object) -> int | float | str:
     """A legal value for a required parameter, so the sweep can exercise every primitive."""
     if isinstance(spec, IntParam):
@@ -228,32 +249,49 @@ def test_no_primitive_sees_the_future() -> None:
     This is the only check here that can catch a look-ahead bug in a primitive nobody thought to
     test by hand. A word that peeks at bar t+1 produces a *different* value at bar t once the
     future is taken away — so the two runs disagree, and the disagreement names the culprit.
+
+    **Why many cut points and not one.** The test can only see a disagreement *at the cut*: a word
+    that peeks three bars ahead differs from the truncated run only in the last three bars, and if
+    nothing interesting happens there the two runs agree and the bug walks. Measured on the 1.4b
+    structure set with the confirmation lag deliberately removed, a single cut at bar 90 caught
+    **6 of 33** affected words; sweeping every cut from bar 40 on caught **27 of 33**. Same test,
+    same bug, four times the detection — the cost is a fifth of a second.
+
+    It is still not a proof: six words survived even the full sweep, because their output happened
+    not to change near any cut on this series. That is why the structure primitives additionally
+    carry hand-computed fixtures pinning the exact bar each swing may first appear on
+    (``test_dsl_structure.py``). The sweep is the net for words nobody hand-checked, not a
+    substitute for checking them.
     """
     rng = np.random.default_rng(20260802)
     closes = list(np.cumsum(rng.normal(0.0, 1.0, 120)) + 100.0)
-    full = _bars(closes)
-    truncated = _bars(closes[:90])
+    full = _bodied_bars(closes)
     registry = default_registry()
+    cuts = range(40, len(closes), 4)
 
     checked = 0
     for primitive in registry:
         if primitive.name in _NEEDS_ARGUMENTS or primitive.intraday_only or primitive.requires_feed:
             continue
-        whole = evaluate(_call(primitive.name), full, registry)[:90]
-        prefix = evaluate(_call(primitive.name), truncated, registry)
-        both_known = ~np.isnan(whole) & ~np.isnan(prefix)
-        np.testing.assert_allclose(
-            whole[both_known],
-            prefix[both_known],
-            rtol=1e-9,
-            atol=1e-9,
-            err_msg=f"{primitive.name} changes its own past when the future is removed",
-        )
-        assert np.array_equal(np.isnan(whole), np.isnan(prefix)), (
-            f"{primitive.name} knows a value earlier when more future data is present"
-        )
+        whole = evaluate(_call(primitive.name), full, registry)
+        for cut in cuts:
+            prefix = evaluate(_call(primitive.name), _bodied_bars(closes[:cut]), registry)
+            seen = whole[:cut]
+            assert np.array_equal(np.isnan(seen), np.isnan(prefix)), (
+                f"{primitive.name} knows a value earlier when more future data is present "
+                f"(cut at bar {cut})"
+            )
+            both_known = ~np.isnan(seen) & ~np.isnan(prefix)
+            np.testing.assert_allclose(
+                seen[both_known],
+                prefix[both_known],
+                rtol=1e-9,
+                atol=1e-9,
+                err_msg=f"{primitive.name} changes its own past when the future is removed "
+                f"(cut at bar {cut})",
+            )
         checked += 1
-    assert checked > 60, f"only {checked} primitives were swept — the guard has gone slack"
+    assert checked > 90, f"only {checked} primitives were swept — the guard has gone slack"
 
 
 # --------------------------------------------------------------------------------------
@@ -330,15 +368,21 @@ def test_nothing_in_the_library_fills_a_gap_with_an_invented_value() -> None:
     A filled warm-up is detectable without knowing the formula — feed a series whose opening bars
     are wildly out of line with the rest. A primitive that fills from ``close[0]`` drags that
     outlier into its early output; one that refuses to compute simply reports ``nan``.
+
+    The signature it leaves is a *hole*: a stretch of values, then ``nan`` again. The exemption is
+    the ``intermittent`` flag on the primitive itself, not a list of names kept in this file. A zone
+    word's ``nan`` can honestly mean "that gap has been filled, there is no level here now" — but
+    the word has to say so where it is defined, so that a genuinely broken new primitive cannot be
+    waved through by editing a test.
     """
     rng = np.random.default_rng(11)
     tail = list(np.cumsum(rng.normal(0.0, 1.0, 120)) + 100.0)
-    bars = _bars([5000.0, 5000.0, 5000.0, *tail])
+    bars = _bodied_bars([5000.0, 5000.0, 5000.0, *tail])
     registry = default_registry()
     for primitive in registry:
         if primitive.intraday_only or primitive.requires_feed or primitive.params == ():
             continue
-        if any(isinstance(spec, SeriesParam) for spec in primitive.params):
+        if primitive.intermittent or any(isinstance(s, SeriesParam) for s in primitive.params):
             continue
         values = evaluate(_call(primitive.name), bars, registry)
         known = ~np.isnan(values)

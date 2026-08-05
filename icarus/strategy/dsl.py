@@ -268,8 +268,17 @@ class SeriesParam:
 class Primitive:
     """One word in the vocabulary: its name, its parameter rules, and how it computes itself.
 
-    ``intraday_only`` and ``requires_feed`` are the honesty flags. They are declared here — beside
-    the computation — precisely so that adding a primitive cannot forget them.
+    ``intraday_only``, ``requires_feed`` and ``intermittent`` are the honesty flags. They are
+    declared here — beside the computation — precisely so that adding a primitive cannot forget
+    them.
+
+    ``intermittent`` says that ``nan`` in this word's output can mean *"no such level exists right
+    now"* and not only *"not knowable yet"*. Almost every primitive warms up once and then produces
+    a value on every subsequent bar, so a hole in the middle of its output is the fingerprint of a
+    filled warm-up (the bug fixed in 1.4a). Zone words break that rule honestly: a fair value gap
+    that price has traded through has *stopped existing*, and an order block price closed beyond
+    has been invalidated. Rather than let the warm-up test guess which is which, the word declares
+    it — so a genuinely broken new primitive cannot hide behind a heuristic exemption.
     """
 
     name: str
@@ -279,6 +288,7 @@ class Primitive:
     params: tuple[ParamSpec, ...] = ()
     intraday_only: bool = False
     requires_feed: str | None = None
+    intermittent: bool = False
 
     def spec(self, name: str) -> ParamSpec | None:
         return next((p for p in self.params if p.name == name), None)
@@ -692,7 +702,13 @@ def evaluate(node: Condition, bars: Bars, registry: Registry) -> npt.NDArray[np.
         terms = [evaluate(term, bars, registry) for term in node.terms]
         stacked = np.vstack(terms)
         unknown = np.isnan(stacked).any(axis=0)
-        combined = np.nanmin(stacked, axis=0) if node.op == "all" else np.nanmax(stacked, axis=0)
+        # Any unknown term makes the whole condition unknown, so the value substituted for `nan`
+        # below can never reach the output — it exists only to keep min/max defined on a column
+        # that is entirely `nan`. `np.nanmin` would warn on exactly that column, and a warning
+        # printed once per bar of a walk-forward sweep is how real errors get lost.
+        neutral = 1.0 if node.op == "all" else 0.0
+        filled = np.where(unknown, neutral, stacked)
+        combined = filled.min(axis=0) if node.op == "all" else filled.max(axis=0)
         return np.where(unknown, np.nan, combined)
 
     primitive = registry.get(node.primitive)

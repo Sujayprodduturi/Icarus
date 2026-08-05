@@ -159,6 +159,68 @@ def true_range(
     return out
 
 
+def atr(
+    high: npt.NDArray[np.float64],
+    low: npt.NDArray[np.float64],
+    close: npt.NDArray[np.float64],
+    n: int,
+) -> npt.NDArray[np.float64]:
+    """Wilder-smoothed true range. Lives here rather than in ``volatility`` because half the
+    structure and zone vocabulary measures distances in ATR, and two implementations of the unit
+    of risk would eventually disagree about what "1 ATR" means."""
+    return wilder(true_range(high, low, close), n)
+
+
+def forward_fill(a: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+    """Carry each value forward until the next one arrives. **Leading ``nan`` stays ``nan``.**
+
+    This looks like the back-fill bug the module docstring warns about, and it is its exact
+    opposite. Back-filling puts a *later* value on an *earlier* bar — the value was not knowable
+    then. Forward-filling puts an *earlier* value on a *later* bar, which is simply what "the last
+    confirmed swing low is still 412.30" means: it was knowable when it was set and nothing has
+    replaced it. Before the first value exists there is nothing honest to carry, so the leading
+    stretch is left ``nan``.
+    """
+    out = a.astype(np.float64, copy=True)
+    if out.size == 0:
+        return out
+    known = ~np.isnan(out)
+    idx = np.where(known, np.arange(out.size), 0)
+    np.maximum.accumulate(idx, out=idx)
+    return np.where(known[idx], out[idx], np.nan)
+
+
+def bars_since(flag: npt.NDArray[np.bool_]) -> npt.NDArray[np.float64]:
+    """Bars since ``flag`` was last true (0 on the bar itself), ``nan`` before it ever was."""
+    positions = np.arange(flag.size)
+    last = np.where(flag, positions, -1)
+    np.maximum.accumulate(last, out=last)
+    return np.where(last >= 0, (positions - last).astype(np.float64), np.nan)
+
+
+def previous_value(a: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+    """For a sparse column, put the *previous* non-``nan`` value where each value sits.
+
+    Used to compare a just-confirmed swing with the one before it without hunting backwards through
+    a mostly-empty array at every bar.
+    """
+    out = empty_like(a)
+    at = np.flatnonzero(~np.isnan(a))
+    if at.size > 1:
+        out[at[1:]] = a[at[:-1]]
+    return out
+
+
+def previous_bar(mask: npt.NDArray[np.bool_]) -> npt.NDArray[np.bool_]:
+    """``mask`` shifted one bar forward — "this was true on the previous bar".
+
+    Bar 0 is ``False``: nothing preceded it.
+    """
+    out = np.zeros_like(mask)
+    out[1:] = mask[:-1]
+    return out
+
+
 def crossed_above(
     a: npt.NDArray[np.float64], b: npt.NDArray[np.float64]
 ) -> npt.NDArray[np.float64]:

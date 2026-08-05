@@ -46,7 +46,7 @@ def _tr(bars: Bars, **_: object) -> Column:
 
 
 def _atr_values(bars: Bars, n: int) -> Column:
-    return _ops.wilder(_ops.true_range(bars.high, bars.low, bars.close), n)
+    return _ops.atr(bars.high, bars.low, bars.close, n)
 
 
 def _atr(bars: Bars, *, n: int, **_: object) -> Column:
