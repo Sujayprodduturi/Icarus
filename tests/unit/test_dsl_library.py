@@ -273,6 +273,11 @@ def test_no_primitive_sees_the_future() -> None:
     for primitive in registry:
         if primitive.name in _NEEDS_ARGUMENTS or primitive.intraday_only or primitive.requires_feed:
             continue
+        # Panel words cannot be evaluated against one symbol at all. They get the same sweep over
+        # a whole truncated universe in test_dsl_cross_sectional.py — skipping them here without
+        # that would silently drop fifteen words out of the look-ahead guard.
+        if primitive.needs_panel:
+            continue
         whole = evaluate(_call(primitive.name), full, registry)
         for cut in cuts:
             prefix = evaluate(_call(primitive.name), _bodied_bars(closes[:cut]), registry)
@@ -383,6 +388,8 @@ def test_nothing_in_the_library_fills_a_gap_with_an_invented_value() -> None:
         if primitive.intraday_only or primitive.requires_feed or primitive.params == ():
             continue
         if primitive.intermittent or any(isinstance(s, SeriesParam) for s in primitive.params):
+            continue
+        if primitive.needs_panel:  # covered over a panel in test_dsl_cross_sectional.py
             continue
         values = evaluate(_call(primitive.name), bars, registry)
         known = ~np.isnan(values)

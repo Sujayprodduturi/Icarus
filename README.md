@@ -31,7 +31,7 @@ Right now the system can log in and read market data, but it **cannot place a si
 
 ## Current build status
 
-**431 automated tests; formatter + type-checker clean.** Phase 0 ✅ complete · Phase 1 🔨 in progress.
+**505 automated tests; formatter + type-checker clean.** Phase 0 ✅ complete · Phase 1 🔨 in progress.
 
 **🗓️ Target: code-complete 30 Sep 2026 · live-mode sim Oct 2026 · first real trade Nov 2026.**
 
@@ -48,9 +48,9 @@ The goal of this phase is to be able to test a strategy on history and get a num
 | **Tax model (1.6)** | What's actually left after tax — and it depends on *how* you traded, not just how much you made | ✅ |
 | **The pass mark (1.0g)** | The numbers a strategy must hit to be allowed real money — written down *before* we ran anything. See below | ✅ |
 | India-only data (1.1d) | Three free feeds that exist nowhere else in the world — see below | ✅ |
-| Strategy language (1.4a, 1.4b) | A restricted vocabulary strategies must be written in — 207 words, see below | ✅ |
-| SMC + cross-sectional words (1.4b/c) | Market structure, liquidity sweeps, and ranking across the whole universe | ⏳ next |
-| Backtester + fill model (1.7, 1.7b) | Replays history honestly: a limit order only fills if the price actually traded *through* it, and today's signal can only trade tomorrow | ⏳ |
+| Strategy language (1.4a-c) | A restricted vocabulary strategies must be written in — 223 words, see below | ✅ |
+| SMC + cross-sectional words (1.4b/c) | Market structure, liquidity sweeps, and ranking across the whole universe | ✅ |
+| Backtester + fill model (1.7, 1.7b) | ⏳ **next.** Replays history honestly: a limit order only fills if the price actually traded *through* it, and today's signal can only trade tomorrow | ⏳ |
 | Metrics + overfitting guards (1.8, 1.9) | Scores a strategy, and works out how likely the score is luck | ⏳ |
 | Practice runs (1.10) | Two modes: replay old data through the live machinery to catch cheating, then run on real live data to prove the plumbing works | ⏳ |
 | Validation gate (1.11) | Runs a strategy through all the checks and issues a verdict with evidence | ⏳ |
@@ -63,7 +63,7 @@ Why it matters is human, not technical. Imagine the result comes back mediocre. 
 
 The operator also asked that the number stay changeable in future, and that's a fair ask — a threshold you can never revisit is its own kind of trap. The resolution: it's changeable, but **never quietly**. Every change is a dated, reasoned entry in an append-only log, the code refuses to start if the live number doesn't match the newest entry, and any change made *after* results exist must explicitly tick a box saying so. That doesn't block you from lowering the bar after a disappointing result — it's your call — it just makes it impossible to do so unnoticed. Which is the part that actually protects us: a threshold must never be able to pretend it was always there.
 
-**A restricted language for writing strategies (1.4a).** A strategy could just be Python code — but then three things become impossible: you couldn't read it at a glance, the compliance checks couldn't verify it's explainable, and the strategy-inventing agent we build later could write *anything*, including something that quietly ignores a risk limit. So strategies are written in a fixed vocabulary of **allowed words** — like a form with dropdowns instead of a blank page. If a word isn't in the list, it cannot be said. It started at 97 words and is now **207**.
+**A restricted language for writing strategies (1.4a).** A strategy could just be Python code — but then three things become impossible: you couldn't read it at a glance, the compliance checks couldn't verify it's explainable, and the strategy-inventing agent we build later could write *anything*, including something that quietly ignores a risk limit. So strategies are written in a fixed vocabulary of **allowed words** — like a form with dropdowns instead of a blank page. If a word isn't in the list, it cannot be said. It started at 97 words and is now **223**.
 
 The interesting part isn't what the language accepts, it's what it **refuses**:
 
@@ -89,6 +89,16 @@ Nearly all of them rest on one idea, and one hazard. A "swing high" is a peak �
 So every word here reports its answer on the day it became *knowable*, never the day it happened. To check that, we put the bug back on purpose and measured how much the existing safety net caught: **6 words out of 33**. The net could only see the problem right at the edge of the truncated history, and a word that peeks three days ahead differs only in the last three days. Cutting the history at many points instead of one took it to **27 of 33**, for a fifth of a second of extra runtime. Six still slipped through — so every one of these words also has a hand-worked example naming the exact day it is allowed to first produce a number. **A measured net beats an assumed one, and neither replaces checking by hand.**
 
 Two smaller things worth recording. A test can be *passing for the wrong reason*: our hand-made price examples had every day opening exactly where it closed, which meant every word that measures a candle's *body* was quietly computing on nothing and returning "no answer" — passing every test while being genuinely untested. And a code review (not a test) caught a level that never expired: an "order block" that failed and flipped into resistance was being reported forever, so the first one from 2011 would still be live in 2026, and a strategy would find one on every single day. Both are fixed; both are the kind of thing that looks like working code right up until it costs money.
+
+**Comparing stocks against each other, not just against their own past (1.4c).** Every word described so far asks a question about one stock in isolation: *is this one above its own average?* The last piece adds words that ask something with no answer for a single stock: *of the hundred I can trade today, which are the strongest ten?* Knowing this one is seventh-best requires having already looked at the other ninety-nine — **today**. That unlocks a whole family of strategy (buy the strongest tenth of the market each month, sell the weakest) which is among the two best-evidenced edges in the entire research survey, and demonstrably works on Indian stocks.
+
+It is the only piece that changed the shape of the machinery rather than adding to it, and that is why it had to come before the backtester. A backtester that walks one stock from start to finish, then the next, physically cannot compute a ranking — it has already forgotten the first stock by the time it reaches the second. It has to walk *dates* on the outside.
+
+**The way this lies to you is different, and worse.** The earlier hazard was reading tomorrow's price. Here it is reading *today's list of companies*. Rank 2013 using the hundred stocks that are liquid in 2026 and you have silently deleted every company that went bust in between — the survivors look magnificent, because you picked them by having survived. It is the most common way this kind of backtest manufactures an edge that isn't there, and no amount of hiding future *prices* detects it, because the cheating is happening on the list of companies rather than on the calendar. The defence is structural: the system now refuses to build a universe at all unless it is told which companies were genuinely tradable on each date, and refuses to rank fewer than twenty names, because "the top tenth" of four stocks is a coin toss that returns a confident-looking number.
+
+We proved the guards work by breaking them on purpose — six bugs reinserted one at a time, all six caught. One deserves a mention because it is so easy to write: ranking ties alphabetically instead of splitting them fairly would have handed every company starting with "A" a permanent, invisible advantage over every company starting with "Z".
+
+**And a gap that had been open since the very first version.** Building this surfaced that `RSI below 30` — probably the most common rule in all of technical trading — could not actually be written in our language. Comparisons took two calculations, and there was no way to say the number 30. Roughly sixty words were unusable in a rule because of it. It went unnoticed for two whole tasks because the words we happened to test with were self-contained sentences that needed no comparison. Fixed, and worth recording as the kind of hole that only shows up when you try to write something real.
 
 **Three free data feeds that only exist in India (1.1d).** Every indicator in every trading book has been tested by thousands of people with better data than us. But NSE publishes three things daily, for free, going back to 2011, that have no Western equivalent — so nobody outside India has mined them. **Delivery percentage**: how much of a day's trading was people actually *buying* shares versus day-traders passing them around — a direct read on conviction. **Participant-wise positioning**: how foreign institutions, domestic institutions, professionals and ordinary retail traders are *each* positioned, separately. And the daily **ban list**. That second one is the interesting one — "smart money versus everyone else" is usually a story people tell about squiggles on a chart; here it's a published number. If Icarus has an edge anywhere, this is where to look first.
 

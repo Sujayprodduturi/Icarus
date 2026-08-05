@@ -150,6 +150,101 @@ class Bars:
         return cls(ts=ts, **col)
 
 
+@dataclass(frozen=True, slots=True)
+class Panel:
+    """Every symbol's bars on one shared date axis, plus who was tradable on each date (1.4c).
+
+    **This exists because a ranking cannot be computed one symbol at a time.** "Is RELIANCE in the
+    strongest ten today?" needs every other symbol's bar *for today* before it can be answered for
+    RELIANCE — so the evaluator needs a way to see the whole universe at once, which :class:`Bars`
+    by construction cannot give it.
+
+    ``tradable`` is the load-bearing field and the reason this class validates rather than being a
+    plain dict. It is the **point-in-time** membership: which symbols the universe rules admitted on
+    each date, as known on that date. Ranking against a list of symbols chosen today is the classic
+    survivorship bug (PRD §29, invariant #14) — the winners look extraordinary because they were
+    picked by having survived, and it is invisible in the results. Having bars for a symbol is not
+    the same as it having been tradable: a name can trade and still fail the liquidity floor.
+
+    Bars must already be aligned to one date axis — a symbol with no session on a date carries
+    ``nan`` there. Alignment is the backtester's job (1.7); this class only refuses to hold a panel
+    that is not aligned, because a silently mis-aligned panel would rank Monday's RELIANCE against
+    Tuesday's TCS and nothing downstream could tell.
+    """
+
+    symbols: tuple[str, ...]
+    bars: tuple[Bars, ...]
+    tradable: npt.NDArray[np.bool_]
+    benchmark: Bars | None = None
+
+    @classmethod
+    def build(
+        cls,
+        bars: Mapping[str, Bars],
+        tradable: Mapping[str, npt.NDArray[np.bool_]],
+        *,
+        benchmark: Bars | None = None,
+    ) -> Panel:
+        """Validate and assemble. Raises rather than repairing anything it is handed."""
+        if not bars:
+            raise DslError("a Panel needs at least one symbol")
+        symbols = tuple(sorted(bars))
+        if set(tradable) != set(symbols):
+            # Symmetric on purpose. Missing membership is the survivorship hole; *extra* membership
+            # means the caller believes the universe contains a symbol whose bars it did not supply,
+            # and silently ranking without that name is the same bias arriving by a different door.
+            raise DslError(
+                f"membership and bars disagree about the universe: "
+                f"{sorted(set(symbols) ^ set(tradable))}. A Panel cannot be built without exact "
+                f"point-in-time membership, because ranking against a symbol list chosen today is "
+                f"survivorship bias (invariant #14)"
+            )
+        first = bars[symbols[0]]
+        columns = []
+        for symbol in symbols:
+            series = bars[symbol]
+            if len(series) != len(first) or not np.array_equal(series.ts, first.ts):
+                raise DslError(
+                    f"{symbol!r} is not aligned to the panel's date axis. Align before building; a "
+                    f"mis-aligned panel ranks one symbol's Monday against another's Tuesday."
+                )
+            if tradable[symbol].shape != (len(first),):
+                raise DslError(f"{symbol!r} membership has the wrong length for the date axis")
+            columns.append(series)
+        if benchmark is not None and not np.array_equal(benchmark.ts, first.ts):
+            raise DslError("the benchmark is not aligned to the panel's date axis")
+        mask = np.vstack([tradable[symbol] for symbol in symbols]).astype(np.bool_)
+        return cls(symbols=symbols, bars=tuple(columns), tradable=mask, benchmark=benchmark)
+
+    def __len__(self) -> int:
+        """Number of dates. The symbol count is ``len(panel.symbols)`` — deliberately not this."""
+        return len(self.bars[0])
+
+    @property
+    def ts(self) -> npt.NDArray[np.datetime64]:
+        return self.bars[0].ts
+
+    def index_of(self, symbol: str) -> int:
+        try:
+            return self.symbols.index(symbol)
+        except ValueError:
+            raise DslError(f"{symbol!r} is not in this panel") from None
+
+    def require_benchmark(self, where: str) -> Bars:
+        """The benchmark, or a refusal. Never a silent substitute for it.
+
+        A word that quietly fell back to the universe mean when the index was missing would report
+        an alpha that was measured against something else entirely.
+        """
+        if self.benchmark is None:
+            raise DslError(
+                f"{where} needs the benchmark series, which this panel does not carry. It refuses "
+                f"rather than substituting one — a relative-strength number measured against the "
+                f"wrong thing is worse than no number."
+            )
+        return self.benchmark
+
+
 # --------------------------------------------------------------------------------------
 # Parameter specifications
 # --------------------------------------------------------------------------------------
@@ -268,9 +363,16 @@ class SeriesParam:
 class Primitive:
     """One word in the vocabulary: its name, its parameter rules, and how it computes itself.
 
-    ``intraday_only``, ``requires_feed`` and ``intermittent`` are the honesty flags. They are
-    declared here — beside the computation — precisely so that adding a primitive cannot forget
-    them.
+    ``intraday_only``, ``requires_feed``, ``intermittent`` and ``needs_panel`` are the honesty
+    flags. They are declared here — beside the computation — precisely so that adding a primitive
+    cannot forget them.
+
+    ``needs_panel`` says the word cannot be computed from one symbol's bars at all: it is handed a
+    :class:`Panel` instead of :class:`Bars`, computes the whole universe at once, and returns either
+    one row per symbol or a single row when the answer is the same for everyone (market breadth,
+    the index's own trend). It is **separate from** ``kind`` on purpose — ``xs_top_n`` needs the
+    universe and is still an ``EVENT``, so a strategy can use it as a condition. Collapsing the two
+    would have forced every cross-sectional word into a kind that cannot be a condition.
 
     ``intermittent`` says that ``nan`` in this word's output can mean *"no such level exists right
     now"* and not only *"not knowable yet"*. Almost every primitive warms up once and then produces
@@ -289,6 +391,7 @@ class Primitive:
     intraday_only: bool = False
     requires_feed: str | None = None
     intermittent: bool = False
+    needs_panel: bool = False
 
     def spec(self, name: str) -> ParamSpec | None:
         return next((p for p in self.params if p.name == name), None)
@@ -372,10 +475,33 @@ class ExitRule(Node):
     literals: dict[str, int | float | str] = {}
 
 
+# How a basket is split across its members, once the strategy has chosen the members. Only
+# meaningful for a strategy that holds several names at once, which is why the vocabulary arrives
+# with the cross-sectional words (1.4c) rather than with the per-symbol ones.
+#
+# **Every one of these divides `risk_r`; none of them multiplies it.** A basket of ten names at
+# `risk_r` each would be ten times the intended exposure. The weights a scheme produces are a
+# partition of one unit of risk, and `assert_partitions_risk` below is what any consumer must call
+# to prove that before sizing anything (invariant #4 — sizing vocabulary may only reduce).
+WEIGHTING_SCHEMES = ("equal_weight", "inverse_vol_weight", "rank_weight")
+
+
 class Sizing(Node):
-    """How much to risk. Always subordinate to the Risk agent's caps — it may only reduce."""
+    """How much to risk, and how to split it across a basket.
+
+    ``weighting`` and ``vol_target_pct`` are **declarations only** in 1.4c: they parse, validate,
+    and are capped here, but nothing consumes them until the backtester builds portfolios (1.7).
+    They are declared now so that a strategy file written today still parses then — and so the
+    "may only reduce" refusal lives beside ``risk_r``, which is the number it constrains, rather
+    than being reinvented in the consumer.
+
+    Both are optional, so a strategy that names only ``risk_r`` is unchanged and no schema version
+    moves. A required key here would have broken every strategy file already written.
+    """
 
     risk_r: float
+    weighting: str = "equal_weight"
+    vol_target_pct: float | None = None
 
 
 class StrategyCandidate(Node):
@@ -668,12 +794,15 @@ def _exit_rule(node: object, *, where: str) -> ExitRule:
     return ExitRule(rule=name, literals=literals)
 
 
+_SIZING_KEYS = frozenset({"risk_r", "weighting", "vol_target_pct"})
+
+
 def _sizing(node: object, *, max_risk_r: float) -> Sizing:
     if not isinstance(node, dict):
         raise DslError(f"sizing must be a mapping, got {node!r}")
-    unknown = set(node) - {"risk_r"}
+    unknown = set(node) - _SIZING_KEYS
     if unknown:
-        raise DslError(f"sizing: unknown key(s) {sorted(unknown)}")
+        raise DslError(f"sizing: unknown key(s) {sorted(unknown)}; allowed: {sorted(_SIZING_KEYS)}")
     if "risk_r" not in node:
         raise DslError("sizing.risk_r is required — a strategy must state what it risks")
     risk_r = FloatParam("risk_r", 0.0001, 1.0).validate(node["risk_r"], where="sizing")
@@ -683,7 +812,40 @@ def _sizing(node: object, *, max_risk_r: float) -> Sizing:
             f"clamped. Silently shrinking an over-sized request teaches the Inventor that asking "
             f"for too much is free (invariant #4)."
         )
-    return Sizing(risk_r=risk_r)
+    weighting = ChoiceParam("weighting", WEIGHTING_SCHEMES, default="equal_weight").validate(
+        node.get("weighting", "equal_weight"), where="sizing"
+    )
+    target = node.get("vol_target_pct")
+    # The upper bound is not cosmetic. Volatility targeting works by scaling exposure up when
+    # realised vol is below target, so an unbounded target is a leverage request wearing a
+    # different word — and it would arrive at the Risk agent as a *multiplier* on risk_r, which
+    # invariant #4 forbids outright.
+    vol_target_pct = (
+        None
+        if target is None
+        else FloatParam("vol_target_pct", 0.01, 1.0).validate(target, where="sizing")
+    )
+    return Sizing(risk_r=risk_r, weighting=weighting, vol_target_pct=vol_target_pct)
+
+
+def assert_partitions_risk(weights: Sequence[float], sizing: Sizing, *, where: str) -> None:
+    """Refuse a weight vector that hands out more risk than the strategy declared.
+
+    The one guard that makes the sizing vocabulary safe to have shipped before its consumer exists.
+    Any future portfolio builder must call this before sizing anything: whatever scheme produced
+    the weights, they are a partition of **one** unit of ``risk_r`` and must sum to no more than 1.
+    A ten-name basket at full ``risk_r`` each is ten times the exposure the strategy asked for, and
+    nothing downstream would flag it — the per-trade number would look perfectly compliant.
+    """
+    total = sum(weights)
+    if any(w < 0.0 for w in weights):
+        raise DslError(f"{where}: a negative portfolio weight is not a size, it is a direction")
+    if total > 1.0 + 1e-9:
+        raise DslError(
+            f"{where}: weights sum to {total:.6f} under {sizing.weighting!r}, which spends "
+            f"{total:.2f}x the declared risk_r={sizing.risk_r}. Sizing vocabulary may only reduce "
+            f"(invariant #4) — rejected, not normalised."
+        )
 
 
 # --------------------------------------------------------------------------------------
@@ -691,28 +853,85 @@ def _sizing(node: object, *, max_risk_r: float) -> Sizing:
 # --------------------------------------------------------------------------------------
 
 
+def _combine(terms: Sequence[npt.NDArray[np.float64]], op: str) -> npt.NDArray[np.float64]:
+    """``all``/``any`` over already-evaluated terms. Works on columns and on panel matrices alike.
+
+    Any unknown term makes the whole condition unknown, so the value substituted for ``nan`` below
+    can never reach the output — it exists only to keep min/max defined on a slice that is entirely
+    ``nan``. ``np.nanmin`` would warn on exactly that slice, and a warning printed once per bar of a
+    walk-forward sweep is how real errors get lost.
+    """
+    stacked = np.stack(terms, axis=0)
+    unknown = np.isnan(stacked).any(axis=0)
+    neutral = 1.0 if op == "all" else 0.0
+    filled = np.where(unknown, neutral, stacked)
+    combined = filled.min(axis=0) if op == "all" else filled.max(axis=0)
+    return np.where(unknown, np.nan, combined)
+
+
 def evaluate(node: Condition, bars: Bars, registry: Registry) -> npt.NDArray[np.float64]:
-    """Compute one node over ``bars``.
+    """Compute one node over one symbol's ``bars``.
 
     Events and composites come back as 0.0/1.0 columns rather than a bool dtype, so every node has
     one uniform return type and ``nan`` (meaning "not computable yet on this bar" — the warm-up
     window of a 50-bar average) survives instead of silently becoming ``False``.
+
+    A cross-sectional word **raises** here rather than degrading to a one-symbol universe. "Rank
+    among one stock" would return 1.0 on every bar — a perfectly plausible column that means
+    nothing, and a strategy filtering on it would appear to have a working universe filter.
     """
     if isinstance(node, Composite):
-        terms = [evaluate(term, bars, registry) for term in node.terms]
-        stacked = np.vstack(terms)
-        unknown = np.isnan(stacked).any(axis=0)
-        # Any unknown term makes the whole condition unknown, so the value substituted for `nan`
-        # below can never reach the output — it exists only to keep min/max defined on a column
-        # that is entirely `nan`. `np.nanmin` would warn on exactly that column, and a warning
-        # printed once per bar of a walk-forward sweep is how real errors get lost.
-        neutral = 1.0 if node.op == "all" else 0.0
-        filled = np.where(unknown, neutral, stacked)
-        combined = filled.min(axis=0) if node.op == "all" else filled.max(axis=0)
-        return np.where(unknown, np.nan, combined)
+        return _combine([evaluate(term, bars, registry) for term in node.terms], node.op)
 
     primitive = registry.get(node.primitive)
+    if primitive.needs_panel:
+        raise DslError(
+            f"{node.primitive!r} needs the whole universe and was given one symbol. Evaluate it "
+            f"with evaluate_universe(); a rank computed against a universe of one is meaningless."
+        )
     params: dict[str, object] = dict(node.literals)
     for name, child in node.nested.items():
         params[name] = evaluate(child, bars, registry)
     return primitive.compute(bars, **params)
+
+
+def evaluate_universe(
+    node: Condition, panel: Panel, registry: Registry
+) -> dict[str, npt.NDArray[np.float64]]:
+    """Compute one node for every symbol in ``panel``, returning a column per symbol.
+
+    The whole tree is evaluated **matrix-wise** — every node produces a ``(symbols x dates)`` array
+    in one pass, rather than the tree being walked once per symbol. That is not only faster: a
+    cross-sectional node evaluated per-symbol would recompute the entire universe's ranking once for
+    every symbol it was asked about, which for a 100-name universe is a hundredfold waste on the
+    hottest path in the backtester.
+    """
+    matrix = _matrix(node, panel, registry)
+    return {symbol: matrix[i] for i, symbol in enumerate(panel.symbols)}
+
+
+def _matrix(node: Condition, panel: Panel, registry: Registry) -> npt.NDArray[np.float64]:
+    """One ``(symbols x dates)`` array for ``node``."""
+    if isinstance(node, Composite):
+        return _combine([_matrix(term, panel, registry) for term in node.terms], node.op)
+
+    primitive = registry.get(node.primitive)
+    nested = {name: _matrix(child, panel, registry) for name, child in node.nested.items()}
+    if primitive.needs_panel:
+        out = primitive.compute(panel, **node.literals, **nested)
+        # A word whose answer is the same for everyone (breadth, the index's own trend) returns one
+        # row; widening it here means such a word never has to know the universe size. The copy is
+        # deliberate: a broadcast view would make every symbol's row the *same* buffer, so a caller
+        # that wrote to one symbol's column would silently rewrite all of them — and every other
+        # node in this function hands back an independent row.
+        if out.ndim == 1:
+            return np.repeat(out[np.newaxis, :], len(panel.symbols), axis=0)
+        return out
+
+    rows = [
+        primitive.compute(
+            bars, **node.literals, **{name: values[i] for name, values in nested.items()}
+        )
+        for i, bars in enumerate(panel.bars)
+    ]
+    return np.vstack(rows)

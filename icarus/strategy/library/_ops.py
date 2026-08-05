@@ -203,6 +203,34 @@ def forward_fill(a: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
     return np.where(known[idx], out[idx], np.nan)
 
 
+def rolling_cov(
+    a: npt.NDArray[np.float64], b: npt.NDArray[np.float64], n: int
+) -> npt.NDArray[np.float64]:
+    """Sample covariance (``ddof=1``) over a trailing ``n``-bar window.
+
+    A bar where *either* series is unknown makes the whole window unknown, rather than being
+    skipped. Skipping would quietly compute a 60-bar beta from 43 observations and report it as a
+    60-bar beta.
+    """
+    out = empty_like(a)
+    if n > a.size or n < 2:
+        return out
+    wa, wb = _windows(a, n), _windows(b, n)
+    centred_a = wa - wa.mean(axis=1, keepdims=True)
+    centred_b = wb - wb.mean(axis=1, keepdims=True)
+    out[n - 1 :] = (centred_a * centred_b).sum(axis=1) / (n - 1)
+    return out
+
+
+def rolling_corr(
+    a: npt.NDArray[np.float64], b: npt.NDArray[np.float64], n: int
+) -> npt.NDArray[np.float64]:
+    """Pearson correlation over a trailing ``n``-bar window, ``nan`` where either series is flat."""
+    return safe_divide(
+        rolling_cov(a, b, n), sqrt(rolling_cov(a, a, n)) * sqrt(rolling_cov(b, b, n))
+    )
+
+
 def relative_to_average(a: npt.NDArray[np.float64], n: int) -> npt.NDArray[np.float64]:
     """Today's value against its own trailing ``n``-bar mean, **excluding today**.
 

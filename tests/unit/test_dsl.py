@@ -306,6 +306,25 @@ def test_the_registry_is_not_a_global(registry: Registry) -> None:
 
 def test_the_library_covers_all_five_kinds_it_claims(registry: Registry) -> None:
     kinds = {p.kind for p in registry}
-    assert {Kind.SERIES, Kind.LEVEL, Kind.EVENT, Kind.CONTEXT} <= kinds
-    # Cross-sectional is 1.4c; asserting its absence keeps this test honest about scope.
-    assert Kind.CROSS_SECTIONAL not in kinds
+    assert {
+        Kind.SERIES,
+        Kind.LEVEL,
+        Kind.EVENT,
+        Kind.CONTEXT,
+        Kind.CROSS_SECTIONAL,
+    } == kinds
+
+
+def test_needing_the_universe_is_separate_from_what_a_word_produces(registry: Registry) -> None:
+    """``needs_panel`` and ``kind`` are orthogonal, and the vocabulary depends on it.
+
+    ``xs_top_n`` needs the whole universe *and* is an ``EVENT``, so a strategy can use it directly
+    as a condition. Had "needs the universe" been folded into ``Kind.CROSS_SECTIONAL``, every
+    cross-sectional word would have produced a number rather than a yes/no, and none of them could
+    have appeared in an ``entry:`` block without a wrapper that does not exist.
+    """
+    panel_kinds = {p.kind for p in registry if p.needs_panel}
+    assert Kind.EVENT in panel_kinds
+    assert Kind.CROSS_SECTIONAL in panel_kinds
+    assert registry.get("xs_top_n").kind is Kind.EVENT
+    assert registry.get("xs_top_n").needs_panel

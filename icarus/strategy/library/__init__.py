@@ -13,6 +13,7 @@ from __future__ import annotations
 from icarus.strategy.dsl import Registry
 from icarus.strategy.library import (
     classics,
+    cross_sectional,
     oscillators,
     structure,
     trend,
@@ -21,7 +22,7 @@ from icarus.strategy.library import (
     zones,
 )
 
-MODULES = (trend, volatility, oscillators, volume, structure, zones, classics)
+MODULES = (trend, volatility, oscillators, volume, structure, zones, classics, cross_sectional)
 
 
 def default_registry() -> Registry:
