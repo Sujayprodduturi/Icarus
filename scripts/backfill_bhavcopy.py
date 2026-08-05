@@ -36,7 +36,7 @@ import httpx
 
 from icarus.agents.data import backfill
 from icarus.agents.data.nse import NseBhavcopySource
-from icarus.agents.data.source import TransientSourceError
+from icarus.agents.data.source import SourceUnavailableError, TransientSourceError
 from icarus.common.config import load_goal
 from icarus.common.logging import get_logger
 
@@ -61,6 +61,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--from", dest="frm", type=date.fromisoformat, default=None)
     parser.add_argument("--to", dest="to", type=date.fromisoformat, default=None)
+    parser.add_argument(
+        "--narrow-ok",
+        action="store_true",
+        help="allow this run to replace a calendar covering a WIDER range than it scans",
+    )
     args = parser.parse_args()
 
     goal = load_goal()
@@ -69,15 +74,52 @@ def main() -> None:
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     ARTIFACT.parent.mkdir(parents=True, exist_ok=True)
 
+    _refuse_to_narrow(frm, to, allowed=args.narrow_ok)
+
     log.info("backfill starting", frm=str(frm), to=str(to), cache=str(CACHE_DIR))
     result = asyncio.run(_scan_with_retries(frm, to))
+
+    # Validate BEFORE persisting. `register` is what applies the §29.4 sanity check — every
+    # complete year must hold 240-255 sessions, because NSE runs ~245-250 and a year outside that
+    # band means the archive had holes, not that the market took a month off. Saving first and
+    # checking later would leave a plausible-looking artifact on disk that no backtest could tell
+    # apart from a good one: the missing sessions would simply never be traded, silently.
+    backfill.register(result)
     backfill.save(result, ARTIFACT)
     log.info(
         "backfill complete",
         sessions=len(result.sessions),
         closures=len(result.closures),
+        complete_years=sorted(result.complete_years()),
         artifact=str(ARTIFACT),
     )
+
+
+def _refuse_to_narrow(frm: date, to: date, *, allowed: bool) -> None:
+    """Refuse to replace a wide calendar with a narrow one unless asked to.
+
+    Found the hard way: ``--from 2019-01-01 --to 2019-12-31``, run to check something, silently
+    replaced a fifteen-year calendar with a one-year one. Nothing failed and nothing looked wrong —
+    the artifact was perfectly valid, just missing fourteen years, and every backtest afterwards
+    would have quietly had no sessions to trade outside 2019.
+
+    The day-cache is untouched by this (files on disk are never deleted), so the damage is always
+    repairable by a full re-run. But "repairable once you notice" is not a guarantee, and the whole
+    point of the calendar is that nothing downstream second-guesses it.
+    """
+    if allowed or not ARTIFACT.exists():
+        return
+    try:
+        existing = backfill.load(ARTIFACT)
+    except SourceUnavailableError:
+        return  # unreadable or stale-schema: overwriting it is an improvement, not a loss
+    if existing.frm < frm or existing.to > to:
+        raise SystemExit(
+            f"refusing to overwrite {ARTIFACT}: it covers {existing.frm}..{existing.to} and this "
+            f"run only scans {frm}..{to}. The narrower calendar would look perfectly valid while "
+            f"silently missing sessions. Re-run without --from/--to to rebuild the full range "
+            f"(cached sessions cost no requests), or pass --narrow-ok if you really mean it."
+        )
 
 
 async def _scan_with_retries(frm: date, to: date) -> backfill.BackfillResult:
