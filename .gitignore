@@ -25,6 +25,9 @@ uv.lock.local
 # Leading slash anchors these to the repo root: an unanchored `data/` also matched the
 # `icarus/agents/data` source package and silently kept task 1.1 out of the repo.
 /data/
+# Downloaded archives + derived artifacts (bhavcopy day-cache, trading calendar). Re-derivable
+# from NSE by `scripts/backfill_bhavcopy.py`, and ~3,700 session files do not belong in git.
+/var/
 *.sqlite
 *.db
 /backups/

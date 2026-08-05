@@ -329,6 +329,13 @@ execution_realism:
   latency_ms: 750                          # conservative decision->fill latency
   model_partial_fills: true
   max_participation_of_depth: 0.05         # capacity/impact cap (<=5%)
+  # Spread paid by a marketable limit, per side, in basis points (task 1.7b, 2026-08-05).
+  # ASSUMPTION, not a measurement: daily bhavcopy carries no bid/ask, so this cannot be derived
+  # from the data and had to be chosen. 5bps is ~2-5x the quoted spread on the >=Rs 50cr-turnover
+  # universe the liquidity floor admits, which is the direction to be wrong in. VERIFY against
+  # real canary fills (PRD §30.5) and widen if live is worse -- never narrow it to fit a result.
+  slippage_bps: 5.0
+  tick_size_inr: 0.05                      # NSE equity tick; a fill price off-tick is not a price
 
 overfitting:
   lifetime_trial_ledger: true

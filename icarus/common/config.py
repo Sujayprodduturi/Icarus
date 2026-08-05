@@ -387,6 +387,8 @@ class ExecutionRealism(_Strict):
     latency_ms: _PosInt
     model_partial_fills: bool
     max_participation_of_depth: _Fraction
+    slippage_bps: _Positive
+    tick_size_inr: _Positive
 
     @model_validator(mode="after")
     def _enforce_realism_invariants(self) -> ExecutionRealism:
@@ -395,6 +397,10 @@ class ExecutionRealism(_Strict):
             raise ValueError("fill_requires_trade_through must be true (invariant #12)")
         if not self.next_bar_execution:
             raise ValueError("next_bar_execution must be true (invariant #13)")
+        # Zero slippage is the same class of lie as touch-equals-fill: it says a marketable order
+        # crosses the spread for free. `_Positive` already excludes zero; this states why.
+        if self.slippage_bps <= 0:
+            raise ValueError("slippage_bps must be positive — a free spread is not a market")
         return self
 
 
