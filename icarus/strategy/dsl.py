@@ -515,10 +515,24 @@ class StrategyCandidate(Node):
     entry: Condition
     exits: tuple[ExitRule, ...]
     sizing: Sizing
+    rank_by: Call | None = None
+    """Which candidate wins when more fire than there are open slots. Higher is preferred.
+
+    Optional, and the backtester records how often it *would* have been needed: a strategy on a
+    hundred-name universe with four slots will regularly have five names fire on one day, and with
+    no ranking the choice between them has to come from somewhere. Picking in symbol order is the
+    obvious default and is quietly alphabetical — every ADANI* name ahead of every ZEE* one, which
+    is the same bias the cross-sectional tie-breaking rule exists to avoid. So the ambiguity is
+    counted and surfaced rather than resolved silently, and a strategy that hits it often is one
+    whose author needs to say what "best" means.
+    """
 
     def primitives_used(self) -> frozenset[str]:
         """Every primitive name anywhere in the tree — what the audit log records."""
-        return frozenset(_walk_names(self.entry))
+        used = set(_walk_names(self.entry))
+        if self.rank_by is not None:
+            used |= set(_walk_names(self.rank_by))
+        return frozenset(used)
 
 
 def _walk_names(node: Condition) -> Iterator[str]:
@@ -564,7 +578,11 @@ PROTECTIVE_EXITS = frozenset({"stop_loss_atr", "stop_loss_pct", "trailing_stop_a
 # --------------------------------------------------------------------------------------
 
 _COMPOSITE_OPS = ("all", "any")
-_TOP_LEVEL_KEYS = frozenset({"name", "version", "timeframe", "universe", "entry", "exit", "sizing"})
+_REQUIRED_KEYS = frozenset({"name", "version", "timeframe", "universe", "entry", "exit", "sizing"})
+# Optional keys are listed separately so "unknown key" and "missing key" stay two different
+# refusals. Folding them into one set would make every optional key silently required.
+_OPTIONAL_KEYS = frozenset({"rank_by"})
+_TOP_LEVEL_KEYS = _REQUIRED_KEYS | _OPTIONAL_KEYS
 
 
 def parse_strategy(
@@ -592,7 +610,7 @@ def parse_strategy(
         raise DslError(
             f"unknown top-level keys {sorted(unknown)}; allowed: {sorted(_TOP_LEVEL_KEYS)}"
         )
-    missing = _TOP_LEVEL_KEYS - set(raw)
+    missing = _REQUIRED_KEYS - set(raw)
     if missing:
         raise DslError(f"strategy is missing required keys {sorted(missing)}")
 
@@ -606,7 +624,27 @@ def parse_strategy(
         entry=_condition(raw["entry"], context, where="entry"),
         exits=_exits(raw["exit"]),
         sizing=_sizing(raw["sizing"], max_risk_r=max_risk_r),
+        rank_by=_rank_by(raw.get("rank_by"), context),
     )
+
+
+def _rank_by(node: object, ctx: _Context) -> Call | None:
+    """A number per symbol, highest first. Must produce a number — an event cannot rank anything.
+
+    A yes/no here would sort every candidate into two buckets and leave the choice *within* the
+    winning bucket exactly as arbitrary as it was without a ranking, while looking like it had been
+    resolved.
+    """
+    if node is None:
+        return None
+    call = _call(node, ctx, where="rank_by")
+    if call.kind not in (Kind.SERIES, Kind.LEVEL, Kind.CROSS_SECTIONAL, Kind.CONTEXT):
+        raise DslError(
+            f"rank_by: {call.primitive!r} is a {call.kind} primitive, which produces a yes/no "
+            f"rather than a number. Ranking needs an ordering — a boolean only re-splits the "
+            f"candidates into two groups and leaves the choice inside the winning one arbitrary."
+        )
+    return call
 
 
 @dataclass(frozen=True, slots=True)
