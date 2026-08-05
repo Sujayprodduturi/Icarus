@@ -11,9 +11,17 @@ property the whole design exists to protect (see :mod:`icarus.strategy.dsl`).
 from __future__ import annotations
 
 from icarus.strategy.dsl import Registry
-from icarus.strategy.library import oscillators, structure, trend, volatility, volume
+from icarus.strategy.library import (
+    classics,
+    oscillators,
+    structure,
+    trend,
+    volatility,
+    volume,
+    zones,
+)
 
-MODULES = (trend, volatility, oscillators, volume, structure)
+MODULES = (trend, volatility, oscillators, volume, structure, zones, classics)
 
 
 def default_registry() -> Registry:

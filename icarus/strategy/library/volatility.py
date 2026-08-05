@@ -157,6 +157,13 @@ def _donchian_mid(bars: Bars, *, n: int, **_: object) -> Column:
     return (_donchian_upper(bars, n=n) + _donchian_lower(bars, n=n)) / 2.0
 
 
+# The intra-library API. `classics` builds the Turtle and Livermore breakouts on these levels, and
+# a breakout word that respelled `shift(rolling_max(...), 1)` for itself could end up disagreeing
+# with the channel it is supposed to be breaking — including about whether the current bar counts.
+donchian_upper = _donchian_upper
+donchian_lower = _donchian_lower
+
+
 def _squeeze_on(bars: Bars, *, n: int, k: float, mult: float, **_: object) -> Column:
     """Bollinger bands inside Keltner channels — the classic volatility-contraction trigger."""
     b_up, _mid, b_low = _bollinger(bars, n, k)

@@ -53,9 +53,9 @@ def _volume_sma(bars: Bars, *, n: int, **_: object) -> Column:
 
 
 def _relative_volume(bars: Bars, *, n: int, **_: object) -> Column:
-    """Today's volume against its own average. Excludes today from the average — otherwise a
-    genuine volume spike inflates the very baseline it is being measured against."""
-    return _ops.safe_divide(bars.volume, _ops.shift(_ops.rolling_mean(bars.volume, n), 1))
+    """Today's volume against its own average, excluding today — see
+    :func:`~icarus.strategy.library._ops.relative_to_average`."""
+    return _ops.relative_to_average(bars.volume, n)
 
 
 def _traded_value(bars: Bars, *, n: int, **_: object) -> Column:

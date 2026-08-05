@@ -190,6 +190,18 @@ def forward_fill(a: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
     return np.where(known[idx], out[idx], np.nan)
 
 
+def relative_to_average(a: npt.NDArray[np.float64], n: int) -> npt.NDArray[np.float64]:
+    """Today's value against its own trailing ``n``-bar mean, **excluding today**.
+
+    Excluding today is the whole point: a genuine spike included in its own baseline inflates the
+    number it is being measured against, so the bigger the spike the more it hides itself. Shared
+    rather than spelled out at each call site because three words here compare something to its own
+    average (relative volume, Wyckoff's effort-vs-result, Livermore's volume confirmation) and two
+    of them disagreeing about whether today counts would make a "volume spike" mean two things.
+    """
+    return safe_divide(a, shift(rolling_mean(a, n), 1))
+
+
 def bars_since(flag: npt.NDArray[np.bool_]) -> npt.NDArray[np.float64]:
     """Bars since ``flag`` was last true (0 on the bar itself), ``nan`` before it ever was."""
     positions = np.arange(flag.size)
