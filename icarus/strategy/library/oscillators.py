@@ -29,12 +29,7 @@ if TYPE_CHECKING:
 
     Column = npt.NDArray[np.float64]
 
-_MAX_PERIOD = 1000
 _RSI_MAX = 100.0
-
-
-def _period(name: str = "n", default: int | None = None) -> IntParam:
-    return IntParam(name, 2, _MAX_PERIOD, default=default)
 
 
 def _rsi_values(close: Column, n: int) -> Column:
@@ -173,13 +168,15 @@ def _ibs(bars: Bars, **_: object) -> Column:
 def primitives() -> tuple[Primitive, ...]:
     """Catalogue §4."""
     return (
-        Primitive("rsi", Kind.SERIES, "Wilder-smoothed RSI.", _rsi, (_period(default=14),)),
+        Primitive(
+            "rsi", Kind.SERIES, "Wilder-smoothed RSI.", _rsi, (_ops.period_param(default=14),)
+        ),
         Primitive(
             "stoch_k",
             Kind.SERIES,
             "Stochastic %K.",
             _stoch_k,
-            (_period(default=14), IntParam("smooth", 1, 100, default=3)),
+            (_ops.period_param(default=14), IntParam("smooth", 1, 100, default=3)),
         ),
         Primitive(
             "stoch_d",
@@ -187,7 +184,7 @@ def primitives() -> tuple[Primitive, ...]:
             "Stochastic %D — signal line of %K.",
             _stoch_d,
             (
-                _period(default=14),
+                _ops.period_param(default=14),
                 IntParam("smooth", 1, 100, default=3),
                 IntParam("signal", 1, 100, default=3),
             ),
@@ -197,10 +194,14 @@ def primitives() -> tuple[Primitive, ...]:
             Kind.SERIES,
             "Stochastic applied to RSI.",
             _stoch_rsi,
-            (_period(default=14),),
+            (_ops.period_param(default=14),),
         ),
-        Primitive("williams_r", Kind.SERIES, "Williams %R.", _williams_r, (_period(default=14),)),
-        Primitive("cci", Kind.SERIES, "Commodity Channel Index.", _cci, (_period(default=20),)),
+        Primitive(
+            "williams_r", Kind.SERIES, "Williams %R.", _williams_r, (_ops.period_param(default=14),)
+        ),
+        Primitive(
+            "cci", Kind.SERIES, "Commodity Channel Index.", _cci, (_ops.period_param(default=20),)
+        ),
         Primitive(
             "macd",
             Kind.SERIES,
@@ -246,21 +247,21 @@ def primitives() -> tuple[Primitive, ...]:
             Kind.SERIES,
             "(x - rolling mean) / rolling stdev of any series.",
             _zscore,
-            (SeriesParam("series"), _period(default=20)),
+            (SeriesParam("series"), _ops.period_param(default=20)),
         ),
         Primitive(
             "percentile_rank",
             Kind.SERIES,
             "Rank of any series within its own trailing window.",
             _percentile_rank,
-            (SeriesParam("series"), _period(default=100)),
+            (SeriesParam("series"), _ops.period_param(default=100)),
         ),
         Primitive(
             "distance_from_ma",
             Kind.SERIES,
             "(close - SMA) / ATR — ATR-normalised extension.",
             _distance_from_ma,
-            (_period(default=20), IntParam("atr_period", 2, 200, default=14)),
+            (_ops.period_param(default=20), IntParam("atr_period", 2, 200, default=14)),
         ),
         Primitive("up_streak", Kind.SERIES, "Consecutive higher closes.", _up_streak),
         Primitive("down_streak", Kind.SERIES, "Consecutive lower closes.", _down_streak),
@@ -270,7 +271,7 @@ def primitives() -> tuple[Primitive, ...]:
             "Composite short-term mean-reversion oscillator.",
             _connors_rsi,
             (
-                _period(default=3),
+                _ops.period_param(default=3),
                 IntParam("streak_n", 2, 100, default=2),
                 IntParam("rank_n", 2, 500, default=100),
             ),

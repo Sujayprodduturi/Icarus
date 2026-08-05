@@ -30,13 +30,6 @@ if TYPE_CHECKING:
 
     Column = npt.NDArray[np.float64]
 
-_MAX_PERIOD = 1000
-
-
-def _period(name: str = "n", default: int | None = None) -> IntParam:
-    """A lookback. Minimum 2 — a one-bar average is the series itself, and usually a typo."""
-    return IntParam(name, 2, _MAX_PERIOD, default=default)
-
 
 # --------------------------------------------------------------------------------------
 # Raw fields — the atoms every other word is a function of
@@ -51,6 +44,22 @@ def _field(name: str) -> Primitive:
     return Primitive(
         name=name, kind=Kind.SERIES, summary=f"Raw {name} of each bar.", compute=compute
     )
+
+
+def _constant(bars: Bars, *, value: float, **_: object) -> Column:
+    """The same number on every bar — the missing half of every comparison (added in 1.4c).
+
+    ``above`` and ``below`` take two *series*, because a comparison between two computed things is
+    the composable form. But that left ``rsi(14) < 30`` — the single most common rule in technical
+    trading — literally unsayable, and it went unnoticed through 1.4a and 1.4b because the words
+    that read as complete sentences on their own (``sweep_and_reclaim_low``, ``in_discount``) hid
+    the gap. Roughly sixty ``SERIES`` words in this library could not be used in a condition at all.
+
+    Shipped as a word rather than by letting ``above``'s parameters accept a bare number, so that
+    the rule "a series parameter is always a primitive" stays true with no exceptions — and so the
+    threshold shows up in ``primitives_used()``, which is what the audit log records.
+    """
+    return np.full(bars.close.shape, float(value), dtype=np.float64)
 
 
 def _typical(bars: Bars, **_: object) -> Column:
@@ -360,74 +369,107 @@ def primitives() -> tuple[Primitive, ...]:
         Primitive("typical_price", Kind.SERIES, "(H+L+C)/3.", _typical),
         Primitive("median_price", Kind.SERIES, "(H+L)/2.", _median_price),
         Primitive("ohlc4", Kind.SERIES, "(O+H+L+C)/4.", _ohlc4),
-        Primitive("sma", Kind.SERIES, "Simple moving average of close.", _sma, (_period(),)),
-        Primitive("ema", Kind.SERIES, "SMA-seeded exponential MA of close.", _ema, (_period(),)),
-        Primitive("wma", Kind.SERIES, "Linearly weighted MA of close.", _wma, (_period(),)),
-        Primitive("hma", Kind.SERIES, "Hull MA — WMA arithmetic, lower lag.", _hma, (_period(),)),
-        Primitive("dema", Kind.SERIES, "Double exponential MA.", _dema, (_period(),)),
-        Primitive("tema", Kind.SERIES, "Triple exponential MA.", _tema, (_period(),)),
+        Primitive(
+            "constant",
+            Kind.SERIES,
+            "A fixed number on every bar — the threshold side of a comparison.",
+            _constant,
+            (FloatParam("value", -1e9, 1e9),),
+        ),
+        Primitive(
+            "sma", Kind.SERIES, "Simple moving average of close.", _sma, (_ops.period_param(),)
+        ),
+        Primitive(
+            "ema", Kind.SERIES, "SMA-seeded exponential MA of close.", _ema, (_ops.period_param(),)
+        ),
+        Primitive(
+            "wma", Kind.SERIES, "Linearly weighted MA of close.", _wma, (_ops.period_param(),)
+        ),
+        Primitive(
+            "hma", Kind.SERIES, "Hull MA — WMA arithmetic, lower lag.", _hma, (_ops.period_param(),)
+        ),
+        Primitive("dema", Kind.SERIES, "Double exponential MA.", _dema, (_ops.period_param(),)),
+        Primitive("tema", Kind.SERIES, "Triple exponential MA.", _tema, (_ops.period_param(),)),
         Primitive(
             "kama",
             Kind.SERIES,
             "Kaufman adaptive MA — speed tracks the efficiency ratio.",
             _kama,
-            (_period(), IntParam("fast", 2, 100, default=2), IntParam("slow", 2, 500, default=30)),
+            (
+                _ops.period_param(),
+                IntParam("fast", 2, 100, default=2),
+                IntParam("slow", 2, 500, default=30),
+            ),
         ),
         Primitive(
             "efficiency_ratio",
             Kind.SERIES,
             "Net move / summed absolute move. Cheap trend-vs-chop measure.",
             _er,
-            (_period(),),
+            (_ops.period_param(),),
         ),
         Primitive(
             "linreg_slope",
             Kind.SERIES,
             "Least-squares slope over n bars.",
             _linreg_slope,
-            (_period(),),
+            (_ops.period_param(),),
         ),
         Primitive(
             "linreg_value",
             Kind.SERIES,
             "Fitted regression value at the last bar.",
             _linreg_value,
-            (_period(),),
+            (_ops.period_param(),),
         ),
         Primitive(
-            "r2", Kind.SERIES, "Regression R² — how trend-like the window is.", _r2, (_period(),)
+            "r2",
+            Kind.SERIES,
+            "Regression R² — how trend-like the window is.",
+            _r2,
+            (_ops.period_param(),),
         ),
-        Primitive("roc", Kind.SERIES, "Percent change over n bars.", _roc, (_period(),)),
-        Primitive("momentum", Kind.SERIES, "Absolute change over n bars.", _momentum, (_period(),)),
+        Primitive("roc", Kind.SERIES, "Percent change over n bars.", _roc, (_ops.period_param(),)),
+        Primitive(
+            "momentum",
+            Kind.SERIES,
+            "Absolute change over n bars.",
+            _momentum,
+            (_ops.period_param(),),
+        ),
         Primitive(
             "adx",
             Kind.SERIES,
             "Wilder ADX — trend strength, direction-agnostic.",
             _adx,
-            (_period(default=14),),
+            (_ops.period_param(default=14),),
         ),
-        Primitive("di_plus", Kind.SERIES, "Wilder +DI.", _di_plus, (_period(default=14),)),
-        Primitive("di_minus", Kind.SERIES, "Wilder -DI.", _di_minus, (_period(default=14),)),
+        Primitive(
+            "di_plus", Kind.SERIES, "Wilder +DI.", _di_plus, (_ops.period_param(default=14),)
+        ),
+        Primitive(
+            "di_minus", Kind.SERIES, "Wilder -DI.", _di_minus, (_ops.period_param(default=14),)
+        ),
         Primitive(
             "aroon_up",
             Kind.SERIES,
             "0-100: recency of the n-bar high.",
             _aroon_up,
-            (_period(default=25),),
+            (_ops.period_param(default=25),),
         ),
         Primitive(
             "aroon_down",
             Kind.SERIES,
             "0-100: recency of the n-bar low.",
             _aroon_down,
-            (_period(default=25),),
+            (_ops.period_param(default=25),),
         ),
         Primitive(
             "supertrend",
             Kind.LEVEL,
             "ATR-banded trailing trend line.",
             _supertrend,
-            (_period(default=10), FloatParam("mult", 0.1, 20.0, default=3.0)),
+            (_ops.period_param(default=10), FloatParam("mult", 0.1, 20.0, default=3.0)),
         ),
         Primitive(
             "psar",
@@ -440,15 +482,21 @@ def primitives() -> tuple[Primitive, ...]:
             ),
         ),
         Primitive(
-            "ichimoku_tenkan", Kind.LEVEL, "Conversion line.", _tenkan, (_period(default=9),)
+            "ichimoku_tenkan",
+            Kind.LEVEL,
+            "Conversion line.",
+            _tenkan,
+            (_ops.period_param(default=9),),
         ),
-        Primitive("ichimoku_kijun", Kind.LEVEL, "Base line.", _kijun, (_period(default=26),)),
+        Primitive(
+            "ichimoku_kijun", Kind.LEVEL, "Base line.", _kijun, (_ops.period_param(default=26),)
+        ),
         Primitive(
             "ichimoku_chikou",
             Kind.SERIES,
             "Close from n bars ago (NOT the future-displaced plot).",
             _chikou,
-            (_period(default=26),),
+            (_ops.period_param(default=26),),
         ),
         Primitive(
             "cross_above", Kind.EVENT, "a crosses strictly above b.", _cross_above, _SERIES_PAIR
@@ -463,20 +511,20 @@ def primitives() -> tuple[Primitive, ...]:
             Kind.EVENT,
             "series is higher than n bars ago.",
             _rising,
-            (SeriesParam("series"), _period()),
+            (SeriesParam("series"), _ops.period_param()),
         ),
         Primitive(
             "falling",
             Kind.EVENT,
             "series is lower than n bars ago.",
             _falling,
-            (SeriesParam("series"), _period()),
+            (SeriesParam("series"), _ops.period_param()),
         ),
         Primitive(
             "slope_positive",
             Kind.EVENT,
             "Regression slope over n bars is positive.",
             _slope_positive,
-            (_period(),),
+            (_ops.period_param(),),
         ),
     )

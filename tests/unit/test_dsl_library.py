@@ -394,3 +394,32 @@ def test_nothing_in_the_library_fills_a_gap_with_an_invented_value() -> None:
             f"{primitive.name} reports values with gaps between them — a filled warm-up leaves "
             f"exactly this signature"
         )
+
+
+def test_a_threshold_comparison_is_expressible_at_all() -> None:
+    """``rsi(14) < 30`` — the most common rule in technical trading — could not be written until
+    ``constant`` existed (added in 1.4c).
+
+    ``above``/``below`` take two *series*, which is the composable form and the right one. But it
+    left roughly sixty SERIES words in this library unusable in a condition, and the gap survived
+    1.4a and 1.4b unnoticed because the words that read as complete sentences on their own
+    (``sweep_and_reclaim_low``, ``in_discount``) hid it.
+    """
+    threshold = _call("constant", value=30.0)
+    rsi = _call("rsi", n=14)
+    node = Call(
+        primitive="below",
+        kind=Kind.EVENT,
+        literals={},
+        nested={"a": rsi, "b": threshold},
+    )
+    bars = _bars([float(x) for x in range(1, 40)])
+    fired = evaluate(node, bars, default_registry())
+    assert np.isnan(fired[:14]).all()
+    assert fired[-1] == 0.0, "a series that only rises has RSI 100, which is not below 30"
+
+
+def test_a_constant_is_the_same_number_on_every_bar_including_bar_zero() -> None:
+    """No warm-up: the value was knowable before the series started."""
+    values = _compute("constant", value=7.5)
+    assert values == pytest.approx(np.full(len(CLOSES), 7.5))

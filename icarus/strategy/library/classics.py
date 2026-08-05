@@ -54,7 +54,6 @@ if TYPE_CHECKING:
     Column = npt.NDArray[np.float64]
     Mask = npt.NDArray[np.bool_]
 
-_MAX_PERIOD = 1000
 _MAX_LEGS = 10
 
 # Weinstein counts in weeks and Minervini in months and years; the library speaks in bars, so the
@@ -69,10 +68,6 @@ _BASING = 1.0
 _ADVANCING = 2.0
 _TOPPING = 3.0
 _DECLINING = 4.0
-
-
-def _period(name: str = "n", default: int | None = None) -> IntParam:
-    return IntParam(name, 2, _MAX_PERIOD, default=default)
 
 
 # --------------------------------------------------------------------------------------
@@ -381,12 +376,12 @@ def primitives() -> tuple[Primitive, ...]:
     # parameter here rather than a decision made for the strategy. Same declaration as structure's,
     # imported rather than respelled.
     basis = basis_param()
-    vol_n = _period("vol_n", default=50)
+    vol_n = _ops.period_param("vol_n", default=50)
     vol_mult = FloatParam("vol_mult", 1.0, 10.0, default=1.5)
     k = IntParam("k", 1, 100, default=3)
     stage_params = (
-        _period(default=_WEINSTEIN_MA_BARS),
-        _period("slope_n", default=_TRADING_DAYS_PER_MONTH),
+        _ops.period_param(default=_WEINSTEIN_MA_BARS),
+        _ops.period_param("slope_n", default=_TRADING_DAYS_PER_MONTH),
         FloatParam("flat", 0.0, 0.5, default=0.01),
     )
     return (
@@ -396,14 +391,14 @@ def primitives() -> tuple[Primitive, ...]:
             Kind.EVENT,
             "Fresh break above the prior n-bar high — the Turtle entry.",
             _donchian_breakout_up,
-            (_period(default=20), basis),
+            (_ops.period_param(default=20), basis),
         ),
         Primitive(
             "donchian_breakout_down",
             Kind.EVENT,
             "Fresh break below the prior n-bar low — the Turtle short entry.",
             _donchian_breakout_down,
-            (_period(default=20), basis),
+            (_ops.period_param(default=20), basis),
         ),
         # ---- Wyckoff ----
         Primitive(
@@ -425,7 +420,7 @@ def primitives() -> tuple[Primitive, ...]:
             Kind.SERIES,
             "Relative volume divided by relative range; above 1 is effort without result.",
             _effort_vs_result,
-            (_period(default=20),),
+            (_ops.period_param(default=20),),
         ),
         # ---- Weinstein ----
         Primitive(
@@ -461,7 +456,7 @@ def primitives() -> tuple[Primitive, ...]:
             Kind.LEVEL,
             "Ceiling of the live Darvas box.",
             _darvas_box_top,
-            (_period(default=20), _period("confirm", default=3)),
+            (_ops.period_param(default=20), _ops.period_param("confirm", default=3)),
             intermittent=True,
         ),
         Primitive(
@@ -469,7 +464,7 @@ def primitives() -> tuple[Primitive, ...]:
             Kind.LEVEL,
             "Floor of the live Darvas box.",
             _darvas_box_bottom,
-            (_period(default=20), _period("confirm", default=3)),
+            (_ops.period_param(default=20), _ops.period_param("confirm", default=3)),
             intermittent=True,
         ),
         Primitive(
@@ -477,7 +472,7 @@ def primitives() -> tuple[Primitive, ...]:
             Kind.EVENT,
             "Close above the ceiling of a live Darvas box.",
             _darvas_breakout_up,
-            (_period(default=20), _period("confirm", default=3)),
+            (_ops.period_param(default=20), _ops.period_param("confirm", default=3)),
         ),
         # ---- Minervini ----
         Primitive(
@@ -492,14 +487,14 @@ def primitives() -> tuple[Primitive, ...]:
             Kind.SERIES,
             "Fraction below the n-bar high (default 252 bars ~ 52 weeks).",
             _pct_off_high,
-            (_period(default=_TRADING_DAYS_PER_YEAR),),
+            (_ops.period_param(default=_TRADING_DAYS_PER_YEAR),),
         ),
         Primitive(
             "pct_off_low",
             Kind.SERIES,
             "Fraction above the n-bar low (default 252 bars ~ 52 weeks).",
             _pct_off_low,
-            (_period(default=_TRADING_DAYS_PER_YEAR),),
+            (_ops.period_param(default=_TRADING_DAYS_PER_YEAR),),
         ),
         Primitive(
             "trend_template",
@@ -507,10 +502,10 @@ def primitives() -> tuple[Primitive, ...]:
             "State: Minervini's trend template holds on this bar.",
             _trend_template,
             (
-                _period("fast", default=150),
-                _period("slow", default=200),
-                _period("slope_n", default=_TRADING_DAYS_PER_MONTH),
-                _period(default=_TRADING_DAYS_PER_YEAR),
+                _ops.period_param("fast", default=150),
+                _ops.period_param("slow", default=200),
+                _ops.period_param("slope_n", default=_TRADING_DAYS_PER_MONTH),
+                _ops.period_param(default=_TRADING_DAYS_PER_YEAR),
                 FloatParam("above_low", 0.0, 5.0, default=0.25),
                 FloatParam("off_high", 0.0, 1.0, default=0.25),
             ),
@@ -521,13 +516,13 @@ def primitives() -> tuple[Primitive, ...]:
             Kind.EVENT,
             "Break above the prior n-bar high on expanded volume.",
             _pivotal_point_up,
-            (_period(default=20), basis, vol_n, vol_mult),
+            (_ops.period_param(default=20), basis, vol_n, vol_mult),
         ),
         Primitive(
             "pivotal_point_down",
             Kind.EVENT,
             "Break below the prior n-bar low on expanded volume.",
             _pivotal_point_down,
-            (_period(default=20), basis, vol_n, vol_mult),
+            (_ops.period_param(default=20), basis, vol_n, vol_mult),
         ),
     )

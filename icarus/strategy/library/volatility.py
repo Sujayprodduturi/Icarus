@@ -29,16 +29,11 @@ if TYPE_CHECKING:
 
     Column = npt.NDArray[np.float64]
 
-_MAX_PERIOD = 1000
 _TRADING_DAYS = 252.0
 # Precomputed as a plain float: `ndarray * np.sqrt(scalar)` types as Any under the pinned
 # mypy/numpy pair, which would quietly switch off checking on every volatility primitive.
 _ANNUALISE = 252.0**0.5
 _PARKINSON_SCALE = 4.0 * 0.6931471805599453  # 4 * ln(2)
-
-
-def _period(name: str = "n", default: int | None = None) -> IntParam:
-    return IntParam(name, 2, _MAX_PERIOD, default=default)
 
 
 def _tr(bars: Bars, **_: object) -> Column:
@@ -204,140 +199,158 @@ def primitives() -> tuple[Primitive, ...]:
     mult = FloatParam("mult", 0.1, 20.0, default=1.5)
     return (
         Primitive("true_range", Kind.SERIES, "Gap-aware bar range.", _tr),
-        Primitive("atr", Kind.SERIES, "Wilder-smoothed true range.", _atr, (_period(default=14),)),
+        Primitive(
+            "atr",
+            Kind.SERIES,
+            "Wilder-smoothed true range.",
+            _atr,
+            (_ops.period_param(default=14),),
+        ),
         Primitive(
             "natr",
             Kind.SERIES,
             "ATR / close — comparable across symbols.",
             _natr,
-            (_period(default=14),),
+            (_ops.period_param(default=14),),
         ),
         Primitive(
             "realized_vol",
             Kind.SERIES,
             "Annualised stdev of log returns.",
             _realized_vol,
-            (_period(default=20),),
+            (_ops.period_param(default=20),),
         ),
         Primitive(
             "parkinson_vol",
             Kind.SERIES,
             "High-low range volatility estimator.",
             _parkinson,
-            (_period(default=20),),
+            (_ops.period_param(default=20),),
         ),
         Primitive(
             "garman_klass_vol",
             Kind.SERIES,
             "OHLC volatility estimator.",
             _garman_klass,
-            (_period(default=20),),
+            (_ops.period_param(default=20),),
         ),
         Primitive(
             "rogers_satchell_vol",
             Kind.SERIES,
             "Drift-independent OHLC volatility estimator.",
             _rogers_satchell,
-            (_period(default=20),),
+            (_ops.period_param(default=20),),
         ),
         Primitive(
             "yang_zhang_vol",
             Kind.SERIES,
             "Gap-aware volatility estimator — best on NSE dailies.",
             _yang_zhang,
-            (_period(default=20),),
+            (_ops.period_param(default=20),),
         ),
         Primitive(
-            "bollinger_upper", Kind.LEVEL, "SMA + k*stdev.", _boll_upper, (_period(default=20), k)
+            "bollinger_upper",
+            Kind.LEVEL,
+            "SMA + k*stdev.",
+            _boll_upper,
+            (_ops.period_param(default=20), k),
         ),
         Primitive(
-            "bollinger_mid", Kind.LEVEL, "SMA of close.", _boll_mid, (_period(default=20), k)
+            "bollinger_mid",
+            Kind.LEVEL,
+            "SMA of close.",
+            _boll_mid,
+            (_ops.period_param(default=20), k),
         ),
         Primitive(
-            "bollinger_lower", Kind.LEVEL, "SMA - k*stdev.", _boll_lower, (_period(default=20), k)
+            "bollinger_lower",
+            Kind.LEVEL,
+            "SMA - k*stdev.",
+            _boll_lower,
+            (_ops.period_param(default=20), k),
         ),
         Primitive(
             "bollinger_bandwidth",
             Kind.SERIES,
             "Band width / mid — the squeeze detector.",
             _bandwidth,
-            (_period(default=20), k),
+            (_ops.period_param(default=20), k),
         ),
         Primitive(
             "percent_b",
             Kind.SERIES,
             "Position of close within the bands.",
             _percent_b,
-            (_period(default=20), k),
+            (_ops.period_param(default=20), k),
         ),
         Primitive(
             "keltner_upper",
             Kind.LEVEL,
             "EMA + mult*ATR.",
             _keltner_upper,
-            (_period(default=20), mult),
+            (_ops.period_param(default=20), mult),
         ),
         Primitive(
             "keltner_lower",
             Kind.LEVEL,
             "EMA - mult*ATR.",
             _keltner_lower,
-            (_period(default=20), mult),
+            (_ops.period_param(default=20), mult),
         ),
         Primitive(
             "donchian_upper",
             Kind.LEVEL,
             "n-bar high, excluding the current bar.",
             _donchian_upper,
-            (_period(default=20),),
+            (_ops.period_param(default=20),),
         ),
         Primitive(
             "donchian_lower",
             Kind.LEVEL,
             "n-bar low, excluding the current bar.",
             _donchian_lower,
-            (_period(default=20),),
+            (_ops.period_param(default=20),),
         ),
         Primitive(
             "donchian_mid",
             Kind.LEVEL,
             "Midpoint of the Donchian channel.",
             _donchian_mid,
-            (_period(default=20),),
+            (_ops.period_param(default=20),),
         ),
         Primitive(
             "squeeze_on",
             Kind.EVENT,
             "Bollinger inside Keltner — volatility contraction.",
             _squeeze_on,
-            (_period(default=20), k, mult),
+            (_ops.period_param(default=20), k, mult),
         ),
         Primitive(
             "vol_percentile",
             Kind.SERIES,
             "Rank of current volatility in its own history.",
             _vol_percentile,
-            (_period(default=20), IntParam("lookback", 10, 2000, default=252)),
+            (_ops.period_param(default=20), IntParam("lookback", 10, 2000, default=252)),
         ),
         Primitive(
             "vol_of_vol",
             Kind.SERIES,
             "Stdev of realized volatility.",
             _vol_of_vol,
-            (_period(default=20),),
+            (_ops.period_param(default=20),),
         ),
         Primitive(
             "chandelier_stop",
             Kind.LEVEL,
             "Highest high - mult*ATR.",
             _chandelier_stop,
-            (_period(default=22), FloatParam("mult", 0.1, 20.0, default=3.0)),
+            (_ops.period_param(default=22), FloatParam("mult", 0.1, 20.0, default=3.0)),
         ),
         Primitive(
             "ulcer_index",
             Kind.SERIES,
             "Depth-and-duration drawdown measure.",
             _ulcer_index,
-            (_period(default=14),),
+            (_ops.period_param(default=14),),
         ),
     )

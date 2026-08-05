@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from icarus.strategy.dsl import Bars, DslError, IntParam, Kind, Primitive
+from icarus.strategy.dsl import Bars, DslError, Kind, Primitive
 from icarus.strategy.library import _ops
 
 if TYPE_CHECKING:
@@ -36,16 +36,11 @@ if TYPE_CHECKING:
 
     Column = npt.NDArray[np.float64]
 
-_MAX_PERIOD = 1000
 
 # Feed names a caller must declare in `available_feeds` before these parse.
 FEED_DELIVERY = "nse-delivery"
 FEED_PARTICIPANTS = "nse-participants"
 FEED_FNO_BAN = "nse-fno-ban"
-
-
-def _period(name: str = "n", default: int | None = None) -> IntParam:
-    return IntParam(name, 2, _MAX_PERIOD, default=default)
 
 
 def _volume_sma(bars: Bars, *, n: int, **_: object) -> Column:
@@ -168,54 +163,58 @@ def primitives() -> tuple[Primitive, ...]:
             Kind.SERIES,
             "Average volume over n bars.",
             _volume_sma,
-            (_period(default=20),),
+            (_ops.period_param(default=20),),
         ),
         Primitive(
             "relative_volume",
             Kind.SERIES,
             "Volume / its trailing average, excluding today.",
             _relative_volume,
-            (_period(default=20),),
+            (_ops.period_param(default=20),),
         ),
         Primitive(
             "traded_value",
             Kind.SERIES,
             "Average rupee turnover — the liquidity filter.",
             _traded_value,
-            (_period(default=20),),
+            (_ops.period_param(default=20),),
         ),
         Primitive("obv", Kind.SERIES, "On-balance volume.", _obv),
         Primitive("ad_line", Kind.SERIES, "Accumulation/distribution line.", _ad_line),
         Primitive(
-            "chaikin_money_flow", Kind.SERIES, "Chaikin money flow.", _cmf, (_period(default=20),)
+            "chaikin_money_flow",
+            Kind.SERIES,
+            "Chaikin money flow.",
+            _cmf,
+            (_ops.period_param(default=20),),
         ),
         Primitive(
             "mfi",
             Kind.SERIES,
             "Money flow index — volume-weighted RSI.",
             _mfi,
-            (_period(default=14),),
+            (_ops.period_param(default=14),),
         ),
         Primitive(
             "rolling_vwap",
             Kind.LEVEL,
             "Rolling volume-weighted average price.",
             _rolling_vwap,
-            (_period(default=20),),
+            (_ops.period_param(default=20),),
         ),
         Primitive(
             "vwap_upper",
             Kind.LEVEL,
             "Rolling VWAP + k*spread.",
             _vwap_upper,
-            (_period(default=20), FloatParam("k", 0.1, 10.0, default=2.0)),
+            (_ops.period_param(default=20), FloatParam("k", 0.1, 10.0, default=2.0)),
         ),
         Primitive(
             "vwap_lower",
             Kind.LEVEL,
             "Rolling VWAP - k*spread.",
             _vwap_lower,
-            (_period(default=20), FloatParam("k", 0.1, 10.0, default=2.0)),
+            (_ops.period_param(default=20), FloatParam("k", 0.1, 10.0, default=2.0)),
         ),
         # ---- INTRADAY: defined so they exist in the grammar, refusing on daily bars ----
         Primitive(

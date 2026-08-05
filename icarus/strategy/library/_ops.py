@@ -20,10 +20,23 @@ from typing import TYPE_CHECKING
 import numpy as np
 from numpy.lib.stride_tricks import sliding_window_view
 
+from icarus.strategy.dsl import IntParam
+
 if TYPE_CHECKING:
     import numpy.typing as npt
 
 Column = "npt.NDArray[np.float64]"
+
+
+# The one lookback declaration. Six modules had grown a byte-identical private copy of this by
+# 1.4c, each with its own `_MAX_PERIOD = 1000` — six places for one number to drift. Minimum 2
+# because a one-bar average is the series itself, and is nearly always a typo.
+MAX_PERIOD = 1000
+
+
+def period_param(name: str = "n", default: int | None = None) -> IntParam:
+    """A lookback in bars, in ``[2, MAX_PERIOD]``."""
+    return IntParam(name, 2, MAX_PERIOD, default=default)
 
 
 def empty_like(a: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
