@@ -113,6 +113,24 @@ data_split:
   lockbox_end: null                # open-ended: "everything after lockbox_start"
   lockbox_uses_allowed: 1
 
+# Walk-forward window shape (task 1.7, PRE-REGISTERED 2026-08-05, before any backtest ran).
+# Pre-registered for the same reason the stop gate is: window shape changes results, so choosing
+# it after seeing a number is choosing the number. The loader asserts `registered` has not moved.
+backtest:
+  registered: 2026-08-05
+  # ANCHORED, not rolling: training starts at walk_forward_start and expands. A fixed-length
+  # window would drop 2011-2013 as the sample advances, and those years carry the taper-tantrum
+  # and demonetisation regimes -- exactly the conditions a strategy most needs to have survived.
+  min_train_years: 3.0             # first test window opens 2014; ~9 out-of-sample years follow
+  test_window_years: 1.0
+  step_years: 1.0
+  # Embargo: sessions dropped after each test window before training resumes. Purge is NOT here --
+  # it is derived from the strategy's own longest lookback, because a 252-day word leaks 252 days
+  # across the seam and a 20-day word leaks 20. One constant would be too small for one strategy
+  # and wasteful for another, and the too-small case fails silently.
+  embargo_sessions: 5
+  starting_equity_inr: 100000      # the sim's book size; NOT the live seed tier (that is Phase 2)
+
 learning:
   reflection_every_trades: 15      # seed: per-strategy (5 was statistical noise; BUILD_MAP M3)
   one_change_per_cycle: true

@@ -34,6 +34,7 @@ _LTCG_EXEMPTION_STATUTORY_CEILING_INR = 125_000.0
 # than read from config so that re-dating the block in goal.yaml fails at startup instead of
 # quietly laundering a lowered bar (LLM council finding, 2026-07-31).
 _STOP_GATE_PRE_REGISTERED_ON = date(2026, 8, 1)
+_BACKTEST_REGISTERED_ON = date(2026, 8, 5)
 
 
 class _Strict(BaseModel):
@@ -579,12 +580,50 @@ class DataSplit(_Strict):
         return self
 
 
+class Backtest(_Strict):
+    """Walk-forward window shape (task 1.7, pre-registered 2026-08-05).
+
+    Pre-registered for the same reason the stop gate is, and the reasoning is identical: window
+    shape moves results, so choosing it after seeing a number is choosing the number. A three-year
+    minimum train window and a one-year test are ordinary choices — the point is that they were
+    ordinary choices made *before* anything had been measured.
+
+    Note what is **not** here: the purge gap. It is derived per strategy from that strategy's own
+    longest lookback, because a 252-day word leaks 252 days across each seam and a 20-day word
+    leaks 20. A single constant would be too small for one and wasteful for the other, and the
+    too-small case leaks silently.
+    """
+
+    registered: date
+    min_train_years: _Positive
+    test_window_years: _Positive
+    step_years: _Positive
+    embargo_sessions: _PosInt
+    starting_equity_inr: _Positive
+
+    @model_validator(mode="after")
+    def _registration_holds(self) -> Backtest:
+        if self.registered != _BACKTEST_REGISTERED_ON:
+            raise ValueError(
+                f"backtest.registered must remain {_BACKTEST_REGISTERED_ON} — the date is the "
+                f"commitment, exactly as it is for stop_gate. Got {self.registered}."
+            )
+        if self.step_years > self.test_window_years:
+            raise ValueError(
+                "backtest.step_years must not exceed test_window_years — a step wider than the "
+                "window skips calendar time, and the skipped years are out-of-sample data that "
+                "silently never gets tested"
+            )
+        return self
+
+
 class GoalConfig(_Strict):
     """Root config — every top-level block in goal.yaml, all required."""
 
     objective: Objective
     stop_gate: StopGate
     data_split: DataSplit
+    backtest: Backtest
     learning: Learning
     risk: Risk
     compliance: Compliance

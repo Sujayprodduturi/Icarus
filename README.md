@@ -31,7 +31,7 @@ Right now the system can log in and read market data, but it **cannot place a si
 
 ## Current build status
 
-**505 automated tests; formatter + type-checker clean.** Phase 0 ✅ complete · Phase 1 🔨 in progress.
+**565 automated tests; formatter + type-checker clean.** Phase 0 ✅ complete · Phase 1 🔨 in progress.
 
 **🗓️ Target: code-complete 30 Sep 2026 · live-mode sim Oct 2026 · first real trade Nov 2026.**
 
@@ -50,8 +50,8 @@ The goal of this phase is to be able to test a strategy on history and get a num
 | India-only data (1.1d) | Three free feeds that exist nowhere else in the world — see below | ✅ |
 | Strategy language (1.4a-c) | A restricted vocabulary strategies must be written in — 223 words, see below | ✅ |
 | SMC + cross-sectional words (1.4b/c) | Market structure, liquidity sweeps, and ranking across the whole universe | ✅ |
-| Backtester + fill model (1.7, 1.7b) | ⏳ **next.** Replays history honestly: a limit order only fills if the price actually traded *through* it, and today's signal can only trade tomorrow | ⏳ |
-| Metrics + overfitting guards (1.8, 1.9) | Scores a strategy, and works out how likely the score is luck | ⏳ |
+| Backtester + fill model (1.7, 1.7b) | Replays history honestly: a limit order only fills if the price actually traded *through* it, and today's signal can only trade tomorrow | ✅ |
+| Metrics + overfitting guards (1.8, 1.9) | ⏳ **next.** Scores a strategy, and works out how likely the score is luck | ⏳ |
 | Practice runs (1.10) | Two modes: replay old data through the live machinery to catch cheating, then run on real live data to prove the plumbing works | ⏳ |
 | Validation gate (1.11) | Runs a strategy through all the checks and issues a verdict with evidence | ⏳ |
 
@@ -97,6 +97,20 @@ It is the only piece that changed the shape of the machinery rather than adding 
 **The way this lies to you is different, and worse.** The earlier hazard was reading tomorrow's price. Here it is reading *today's list of companies*. Rank 2013 using the hundred stocks that are liquid in 2026 and you have silently deleted every company that went bust in between — the survivors look magnificent, because you picked them by having survived. It is the most common way this kind of backtest manufactures an edge that isn't there, and no amount of hiding future *prices* detects it, because the cheating is happening on the list of companies rather than on the calendar. The defence is structural: the system now refuses to build a universe at all unless it is told which companies were genuinely tradable on each date, and refuses to rank fewer than twenty names, because "the top tenth" of four stocks is a coin toss that returns a confident-looking number.
 
 We proved the guards work by breaking them on purpose — six bugs reinserted one at a time, all six caught. One deserves a mention because it is so easy to write: ranking ties alphabetically instead of splitting them fairly would have handed every company starting with "A" a permanent, invisible advantage over every company starting with "Z".
+
+**The machine that finally runs a strategy against history (1.7, 1.7b).** Everything above is *input* — honest prices, exact costs, exact taxes, a language for writing rules. None of it had ever been run. This is the piece that replays fifteen years one day at a time and produces the number the whole of Phase 1 exists to produce.
+
+**The single most expensive assumption in retail backtesting is "I got filled".** Put a buy order at ₹100 and suppose the day's low was exactly ₹100. Almost certainly nobody filled you: price came down, printed one trade to people already ahead of you in the queue, and left. But the real damage isn't that some trades are imaginary — it's *which* ones. You get handed precisely the days where price reached your level and reversed hard in your favour, and you're spared the days it kept falling straight through you. **The invented trades are systematically the winners**, so the error doesn't average out, it compounds. A strategy can be built entirely out of that artefact and show a beautiful curve made of trades that never happened. So here an order fills only if the price actually traded *past* it, and "no fill" is a normal answer rather than an error.
+
+The same applies to stops, where it costs the most. If your stop is at ₹95 and the stock opens at ₹88, you get ₹88 — not ₹95. Pretending otherwise deletes overnight gap risk from the entire backtest, and on Indian cash equity a large share of the move happens between sessions. That isn't a rounding difference; that *is* the risk.
+
+**It simulates a portfolio, not a trade.** The cheaper design runs one stock start to finish and adds up the results — but that answers "five stocks fired and I can hold four" with "hold all five", which is not the system we'd actually run. So it holds a real book: at most four positions, inside the 2% risk cap, and when more signals fire than there are slots it has to choose. Whole shares only — a position of 3.7 shares isn't a position, and one that rounds to zero is a trade that didn't happen.
+
+**Three ways a backtest lets you fool yourself, and the defence for each.** *You tune until it works* — so we train on the past and test on the year after, nine times over, and every number reported comes from a window the strategy had never seen. *Information leaks across the boundary* — a 200-day average on the first test day is made mostly of training data, so a gap is cut at each seam, and its width comes from the strategy's own longest lookback rather than a fixed number, because a 252-day rule leaks 252 days and a 20-day rule leaks 20. *The final test stops being final if you rerun it* — so everything from 2023 is sealed, needs an explicit unlock, and every look at it is written to a permanent dated log.
+
+That last one has a deliberate escape hatch. If a bug or a typo burned the sealed window on day one with no way back, a coding error would end the project. So it can be reset — and the reset itself is permanent and dated, visible to anyone reading later. **You can recover from an accident; you can't make the accident invisible.**
+
+**Sixteen bugs put back on purpose, sixteen caught.** But the more useful finding was a test that was passing for no reason at all: the one checking "what happens when a stop can't be filled" used a fixture where the *entry* never filled either, so the code it claimed to test was never reached. It went green while covering nothing, and only a deliberately reintroduced bug exposed it. A passing test is not evidence. A test that fails when you put the bug back is.
 
 **And a gap that had been open since the very first version.** Building this surfaced that `RSI below 30` — probably the most common rule in all of technical trading — could not actually be written in our language. Comparisons took two calculations, and there was no way to say the number 30. Roughly sixty words were unusable in a rule because of it. It went unnoticed for two whole tasks because the words we happened to test with were self-contained sentences that needed no comparison. Fixed, and worth recording as the kind of hole that only shows up when you try to write something real.
 
