@@ -1,0 +1,30 @@
+# CROSS-SECTIONAL CONTROL — pre-registered 2026-08-07, before any backtest on this panel.
+#
+# Classic relative-strength: hold the ten strongest names in the universe by 20-session return.
+# Here to exercise the Panel path — point-in-time membership, per-date ranking, the matrix-wise
+# evaluator — against real data, because that machinery is the newest in the codebase and the
+# easiest place for a survivorship bug to hide. It is also a genuinely plausible edge, which is
+# why it is worth a trial rather than a smoke test.
+#
+# xs_top_n carries the min_symbols floor: on a date where fewer than 20 names cleared the
+# liquidity gate, ranking is refused rather than computed on a handful.
+name: xs_momentum_20
+version: 1
+timeframe: 1d
+universe: nse_liquid
+
+entry:
+  xs_top_n:
+    expr: {momentum: {n: 20}}
+    n: 10
+
+rank_by:
+  momentum: {n: 20}
+
+exit:
+  - stop_loss_atr: {atr_mult: 3.0, atr_period: 14}
+  - time_stop: {bars: 20}
+
+sizing:
+  risk_r: 0.005
+  weighting: equal_weight

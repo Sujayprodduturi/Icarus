@@ -1,0 +1,39 @@
+# THE THESIS — pre-registered 2026-08-07, before any backtest on this panel had been run.
+#
+# The distilled Donlevey idea: price runs below a prior swing low, taking out the stops resting
+# there, and then closes back above it within a few bars. The sweep is the liquidity grab; the
+# reclaim is the evidence it was a grab and not a breakdown. Longs only, because the equity
+# delivery segment is the only one wired for this run.
+#
+# Two filters, both chosen for a reason rather than swept:
+#   * above the 200-session average — the setup is a continuation pattern, and taking it against
+#     the primary trend is a different (and historically worse) trade.
+#   * ATR-based stop at 2x, which is what sizes the position; a fixed-percentage stop would risk
+#     wildly different amounts on a quiet name and a volatile one.
+#
+# Every parameter here is a round number taken from the research note (docs/strategy-research/
+# donlevey-liquidity-smc.md), NOT tuned on this data. If it fails, the response is a different
+# input — intraday bars, the India-specific feeds — never a re-tuned parameter (invariant #25).
+name: donlevey_sweep_reclaim
+version: 1
+timeframe: 1d
+universe: nse_liquid
+
+entry:
+  all:
+    - sweep_and_reclaim_low: {n: 5, k: 3}
+    - above:
+        a: {close: {}}
+        b: {sma: {n: 200}}
+
+rank_by:
+  momentum: {n: 20}
+
+exit:
+  - stop_loss_atr: {atr_mult: 2.0, atr_period: 14}
+  - take_profit_r: {r_multiple: 3.0}
+  - time_stop: {bars: 20}
+
+sizing:
+  risk_r: 0.005
+  weighting: equal_weight

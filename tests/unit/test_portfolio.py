@@ -414,3 +414,85 @@ def test_a_strategy_with_no_protective_exit_cannot_reach_the_simulator() -> None
     """The DSL rejects it at parse time; this is the backstop for an unvalidated candidate."""
     with pytest.raises(ValueError, match="declares no protective exit"):
         stop_distance_from_exits((), atr=np.full(3, 1.0), close=np.full(3, 100.0))
+
+
+# --------------------------------------------------------------------------------------
+# A stop can fill on the session the position opened (found 2026-08-07, on 16 March 2020)
+# --------------------------------------------------------------------------------------
+
+
+def _gapping_panel() -> Panel:
+    """Six flat sessions, except bar 1 collapses intraday from 100 to 60.
+
+    Bar 1 is the *fill* bar for a signal fired on bar 0, so the position opens at ~100 with a
+    stop 10 below it and is immediately taken out by the same bar's low. That is an ordinary,
+    if unpleasant, session — and for a long time this simulator could not represent it.
+    """
+    close = np.array([100.0, 60.0, 60.0, 60.0, 60.0, 60.0], dtype=np.float64)
+    open_ = np.array([100.0, 100.0, 60.0, 60.0, 60.0, 60.0], dtype=np.float64)
+    low = np.array([99.0, 55.0, 59.0, 59.0, 59.0, 59.0], dtype=np.float64)
+    high = np.array([101.0, 101.0, 61.0, 61.0, 61.0, 61.0], dtype=np.float64)
+    bars = Bars(
+        ts=np.arange(START, START + 6).astype("datetime64[ns]"),
+        open=open_,
+        high=high,
+        low=low,
+        close=close,
+        volume=np.full(6, 1_000_000.0),
+    )
+    return Panel.build({"AAA": bars}, {"AAA": np.ones(6, dtype=np.bool_)})
+
+
+def test_a_stop_can_be_hit_on_the_very_session_the_position_opened(goal: GoalConfig) -> None:
+    """The signal fires on bar 0, the entry fills on bar 1, and bar 1's low is through the stop.
+
+    Real markets do this — 16 March 2020 is the session that surfaced it here — and a simulator
+    that cannot close the trade until bar 2 does not merely mis-date it. It carries the position
+    through a collapse it should have exited, and every such trade is a loss the results never
+    show. Dating exits to the entry *decision* (bar 0) rather than the entry *fill* (bar 1) is
+    what makes the exit legal on bar 1 without breaking next-bar execution.
+    """
+    result = _sim(goal).run(
+        _strategy(),  # type: ignore[arg-type]
+        _gapping_panel(),
+        signals={"AAA": _column(6, [0])},
+        stops={"AAA": np.full(6, 10.0)},
+        starting_equity=Decimal(100_000),
+    )
+    assert len(result.trades) == 1
+    trade = result.trades[0]
+    assert trade.reason is ExitReason.STOP_LOSS
+    assert trade.entry_ts == trade.exit_ts, "the stop filled on the session the position opened"
+    assert trade.net_pnl < 0
+
+
+def test_the_entry_decision_still_precedes_the_entry_fill(goal: GoalConfig) -> None:
+    """The fix must not have collapsed decision-time into execution-time (invariant #13).
+
+    Signal on bar 0, fill on bar 1: the trade's entry timestamp has to be the later of the two.
+    If dating exits to the decision bar had been done by moving the *entry* back instead, this
+    passes nothing and next-bar execution would be gone.
+    """
+    result = _sim(goal).run(
+        _strategy(),  # type: ignore[arg-type]
+        _panel({"AAA": FLAT}),
+        signals={"AAA": _column(6, [0])},
+        stops={"AAA": np.full(6, 10.0)},
+        starting_equity=Decimal(100_000),
+    )
+    entry = result.trades[0].entry_ts
+    assert entry == datetime(2024, 1, 2, tzinfo=UTC), "bar 1, not bar 0"
+
+
+def test_every_closed_trade_carries_the_risk_it_was_sized_on(goal: GoalConfig) -> None:
+    """Without ``risk_per_share`` on the closed trade there is no R-multiple, and without an
+    R-multiple there is no expectancy, no mean-R interval for the stagnation check (invariant
+    #23), and no unit in which a big win and a small win are comparable."""
+    result = _sim(goal).run(
+        _strategy(),  # type: ignore[arg-type]
+        _panel({"AAA": FLAT}),
+        signals={"AAA": _column(6, [0])},
+        stops={"AAA": np.full(6, 10.0)},
+        starting_equity=Decimal(100_000),
+    )
+    assert result.trades[0].risk_per_share == Decimal("10.0")

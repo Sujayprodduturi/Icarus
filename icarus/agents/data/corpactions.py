@@ -15,10 +15,17 @@ The practical consequence: **Yahoo's ``adjclose`` must not be used.** It is divi
 it silently encodes the total-return convention. We take the raw OHLC and apply split ratios
 ourselves, from Yahoo's ``events=split`` feed.
 
-Source of actions, verified 2026-07-29: NSE's own corporate-actions API returns only a rolling
-~2-day window — useless for history. Yahoo's chart endpoint with ``events=div,split`` returns the
-full history with exact ratios (RELIANCE: 3 splits and 22 dividends over 21 years). NSE remains
-the cross-check going forward, as it publishes.
+Source of actions for **crypto and for cross-checking**: Yahoo's chart endpoint with
+``events=div,split`` returns full history with exact ratios (RELIANCE: 3 splits and 22 dividends
+over 21 years).
+
+    ⚠️ **Corrected 2026-08-07.** This module used to record that NSE's own corporate-actions API
+    "returns only a rolling ~2-day window — useless for history" (noted 2026-07-29). That is true
+    only of the bare call; passing ``from_date``/``to_date`` serves history back to at least
+    January 2011. **NSE is now the primary source for equities** — see
+    :mod:`icarus.agents.data.nseactions` — because Yahoo has no split record at all for delisted
+    names such as RCOM, and those are exactly the names a point-in-time universe must price
+    honestly (invariant #14). The functions here remain the adjustment arithmetic both paths use.
 """
 
 from __future__ import annotations

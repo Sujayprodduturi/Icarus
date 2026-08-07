@@ -91,6 +91,16 @@ class OpenPosition:
     quantity: int
     entry_price: Decimal
     entry_ts: datetime
+    decided_at: datetime
+    """The bar whose close produced the entry signal — one session before ``entry_ts``.
+
+    Kept separately because the protective stop was decided *here*, not on the fill bar. Dating
+    exits to ``entry_ts`` instead made a stop unable to fill on the session it was placed, which
+    is both wrong and optimistic: real stops do get hit the same day you buy. It surfaced on
+    2020-03-16, the worst session in the sample, as a same-bar assertion rather than as a quietly
+    missing loss — the loud failure was luck, so the field exists to remove the luck.
+    """
+
     entry_charges: Charges
     stop_price: Decimal
     risk_per_share: Decimal
@@ -117,6 +127,15 @@ class ClosedTrade:
     reason: ExitReason
     entry_charges: Charges
     exit_charges: Charges
+    risk_per_share: Decimal
+    """What the position was sized to lose per share — entry minus the protective stop.
+
+    Carried on the closed trade rather than recomputed from the exit, because the exit price is
+    not the stop: a trade that closed on a trailing stop or ran to the end of the data has no stop
+    distance visible in its own record. Without this, R-multiples — and therefore expectancy, the
+    stagnation check's mean-R confidence interval (invariant #23), and the trade-count floor —
+    cannot be computed at all.
+    """
 
     @property
     def gross_pnl(self) -> Decimal:
@@ -264,6 +283,7 @@ class PortfolioSimulator:
                 reason=reason,
                 entry_charges=position.entry_charges,
                 exit_charges=charges,
+                risk_per_share=position.risk_per_share,
             )
             result.trades.append(trade)
             realised += trade.net_pnl
@@ -283,16 +303,20 @@ class PortfolioSimulator:
         target instead would hand the strategy the good half of every ambiguous bar, which is the
         touch-equals-fill bias arriving through the exit door.
 
-        **Every exit is dated to the position's entry, not to today**, and that is not a
-        formality. A protective stop is a *resting order sitting at the broker* — invariant #16
-        requires every open position to carry one — so it was decided when the position opened and
-        triggers intra-bar with no new decision. Next-bar execution constrains *decisions*; dating
-        these to the current bar would either force the engine to wait a day before honouring its
-        own stop (inventing a day of unprotected loss) or trip the same-bar assertion. ``ts`` is
-        still passed in so the caller's bar is available; it is deliberately not used as the
-        decision time.
+        **Every exit is dated to the bar that decided the entry, not to today and not to the fill
+        bar**, and the distinction is load-bearing. A protective stop is a *resting order sitting
+        at the broker* — invariant #16 requires every open position to carry one — so it was
+        decided at the same moment the entry was, one session before the fill. Next-bar execution
+        constrains *decisions*, not the intra-bar triggering of an order already resting.
+
+        Dating exits to the current bar would force the engine to wait a day before honouring its
+        own stop, inventing a day of unprotected loss. Dating them to ``entry_ts`` — the fill bar —
+        was the original mistake: it made a stop unable to execute on the very session the position
+        opened, so a trade that gapped through its stop on day one could never be stopped out. That
+        is a real outcome, and always a loss, so suppressing it flattered every result. ``ts`` is
+        still passed so the caller's bar is available; it is deliberately not the decision time.
         """
-        decided = position.entry_ts
+        decided = position.decided_at
         if final:
             return (
                 Intent(OrderSide.SELL, OrderKind.MARKETABLE_LIMIT, position.quantity, decided),
@@ -404,6 +428,7 @@ class PortfolioSimulator:
                 quantity=filled,
                 entry_price=fill.price,
                 entry_ts=fill.ts,
+                decided_at=ts,
                 entry_charges=self._costs.charges(
                     self._segment, OrderSide.BUY, fill.price, Decimal(filled)
                 ),

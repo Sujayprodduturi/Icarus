@@ -1,0 +1,35 @@
+# BASELINE — pre-registered 2026-08-07, before any backtest on this panel had been run.
+#
+# Not a strategy. A control. It buys whatever the universe offers, ranked by 252-session
+# momentum so the choice is deterministic rather than alphabetical, and then holds until a 50%
+# stop or the end of the fold. Its job is to answer two questions no clever strategy can:
+#
+#   1. Does the machinery work end to end on real prices? A baseline that returns nothing, or
+#      returns 400% a year, is a plumbing bug and every other number in the run is void.
+#   2. What did simply being long Indian equity pay over this period? Without that, a Sharpe of
+#      0.6 is unreadable — it might be edge, or it might be beta with extra steps (invariant #21).
+#
+# The 50% stop is the widest the DSL allows and is here because invariant #16 requires every
+# position to carry a protective stop. It is not a risk rule; it is the floor under one.
+name: baseline_buy_and_hold
+version: 1
+timeframe: 1d
+universe: nse_liquid
+
+# "always, wherever there is a price". The DSL refuses a bare series as a condition — correctly,
+# a number is not a yes/no — so the unconditional entry is written as the comparison it really is.
+# It is nan on a session a symbol did not trade, which is exactly the intended behaviour.
+entry:
+  above:
+    a: {close: {}}
+    b: {constant: {value: 0.0}}
+
+rank_by:
+  momentum: {n: 252}
+
+exit:
+  - stop_loss_pct: {pct: 0.5}
+
+sizing:
+  risk_r: 0.005
+  weighting: equal_weight

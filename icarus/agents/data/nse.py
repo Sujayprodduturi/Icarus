@@ -124,7 +124,7 @@ CLOSE_INDEX = 3
 
 # Schema 2 added turnover; schema-1 caches are discarded and refetched, which is what the
 # version is for.
-_DAY_CACHE_SCHEMA = 2
+DAY_CACHE_SCHEMA = 2
 
 # Parsed day-files kept in memory. One entry is ~2,000 tickers; the bound keeps a long backfill
 # from growing without limit while still covering a typical multi-symbol lookback window, where
@@ -216,7 +216,7 @@ class NseBhavcopySource:
             return memoized
 
         cached = await asyncio.to_thread(
-            read_versioned_json, self._dir / f"{day:%Y%m%d}.json", _DAY_CACHE_SCHEMA
+            read_versioned_json, self._dir / f"{day:%Y%m%d}.json", DAY_CACHE_SCHEMA
         )
         if cached is not None and isinstance(cached.get("rows"), dict):
             rows: dict[str, list[str]] = cached["rows"]
@@ -226,7 +226,7 @@ class NseBhavcopySource:
             await asyncio.to_thread(
                 write_atomic_json,
                 self._dir / f"{day:%Y%m%d}.json",
-                {"schema": _DAY_CACHE_SCHEMA, "rows": rows},
+                {"schema": DAY_CACHE_SCHEMA, "rows": rows},
             )
 
         self._memo[day] = rows
