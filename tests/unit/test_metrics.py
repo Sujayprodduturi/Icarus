@@ -218,3 +218,35 @@ def test_more_sessions_open_than_sessions_is_refused_not_reported() -> None:
 
 def test_no_trades_means_no_exposure() -> None:
     assert summarise(_curve([100] * 10), []).exposure == 0.0
+
+
+# --------------------------------------------------------------------------------------
+# Ruin — the outcome the gate most needs to see clearly
+# --------------------------------------------------------------------------------------
+
+
+def test_a_wiped_out_account_reports_minus_one_hundred_percent_not_flat() -> None:
+    """`total = curve[-1]/curve[0] - 1` is exactly -1.0 on ruin, which failed a `> -1.0` guard
+    and fell through to a CAGR of 0.0 — so the single worst possible outcome printed as "flat"
+    in the headline column, beside a 100% drawdown."""
+    metrics = summarise(_curve([100, 60, 20, 0]), [])
+    assert metrics.cagr == pytest.approx(-1.0)
+    assert metrics.max_drawdown == pytest.approx(1.0)
+
+
+def test_the_return_that_takes_equity_to_zero_is_in_the_series() -> None:
+    """100 -> 50 -> 0 is two returns, -50% and -100%, not one.
+
+    Cutting the curve *before* the zero dropped the terminal -100% from Sharpe, volatility and
+    Sortino, so a strategy that blew up reported moments computed only on the sessions before the
+    blow-up. Optimistic in exactly the scenario the gate exists to catch.
+    """
+    curve = [100.0] + [100.0 - i for i in range(1, 40)] + [0.0]
+    metrics = summarise(_curve(curve), [])
+    # The count is what pins it: 41 points must yield 40 returns. Asserting only "estimable" or
+    # "volatility > 0" passes either way — the first version of this test did exactly that and a
+    # deliberately reintroduced bug sailed through it.
+    assert metrics.sharpe.observations == len(curve) - 1
+    # And the terminal -100% must dominate the spread it is included in.
+    truncated = summarise(_curve(curve[:-1]), [])
+    assert metrics.volatility_annual > truncated.volatility_annual * 2

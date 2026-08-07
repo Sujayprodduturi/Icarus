@@ -42,6 +42,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import numpy.typing as npt
 
+from icarus.agents.data.cache import write_atomic_json
 from icarus.common.logging import get_logger
 from icarus.engine.backtest import (
     assert_no_lockbox_overlap,
@@ -58,7 +59,7 @@ from icarus.engine.portfolio import (
     RunResult,
     stop_distance_from_exits,
 )
-from icarus.engine.taxmodel import Bucket, RealizedTrade, TaxModel
+from icarus.engine.taxmodel import RealizedTrade, TaxModel
 from icarus.strategy.dsl import DslError, evaluate_universe
 from icarus.strategy.library import _ops
 
@@ -162,7 +163,14 @@ def run_walk_forward(
     dates = [str(t)[:10] for t in panel.ts]
 
     for i, window in enumerate(windows):
-        train = _run_span(strategy, panel, window.train_start, window.train_end, 0, goal, registry)
+        # The SAME warm-up treatment on both sides. Training used to be called with warmup=0,
+        # so its curve kept the unavoidable lead-in of dead, zero-return sessions while the test
+        # curve had its prefix trimmed. Padding a return series with zeros scales its Sharpe by
+        # about sqrt(active/total), so the in-sample figure was depressed and the headline
+        # "was it fitted" decay ratio came out correspondingly too generous.
+        train = _run_span(
+            strategy, panel, window.train_start, window.train_end, warmup, goal, registry
+        )
         test = _run_span(
             strategy, panel, window.test_start, window.test_end, warmup, goal, registry
         )
@@ -382,16 +390,21 @@ def _tax(trades: Sequence[ClosedTrade], goal: GoalConfig) -> tuple[list[Financia
     would invent a daily liability that never existed, and netting it into each trade would deny
     the set-off rules the whole model exists to honour.
     """
-    months = goal.tax.ltcg_holding_months
+    model = TaxModel(goal.tax)
     realized = [
         RealizedTrade(
-            bucket=Bucket.LTCG if t.holding_days > months * 30 else Bucket.STCG,
+            # `bucket_for`, never a local re-derivation of the holding-period split. The first
+            # version inlined `LTCG if holding_days > months*30 else STCG`, which skipped the
+            # branch on `tax.equity_delivery`: flipping the config to the business-income reading
+            # — the open CA question, item O7 — would have left every after-tax number in every
+            # backtest silently on the cheaper capital-gains rates.
+            bucket=model.bucket_for(Segment.EQUITY_DELIVERY, holding_days=t.holding_days),
             pnl=t.net_pnl,
             exit_ts=t.exit_ts,
         )
         for t in trades
     ]
-    years = TaxModel(goal.tax).annual_tax(realized)
+    years = model.annual_tax(realized)
     return years, sum((y.total_tax for y in years), Decimal(0))
 
 
@@ -427,10 +440,9 @@ def record_trial(
             "folds": len(result.folds),
         }
     )
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps({"schema": _LEDGER_SCHEMA, "trials": history}, indent=2), encoding="utf-8"
-    )
+    # Atomic: a crash midway through an in-place rewrite leaves a truncated JSON document, after
+    # which `read_trials` raises and the lifetime count invariant #24 depends on is unrecoverable.
+    write_atomic_json(path, {"schema": _LEDGER_SCHEMA, "trials": history})
     log.info("trial recorded", strategy=strategy.name, lifetime_trials=len(history))
     return len(history)
 

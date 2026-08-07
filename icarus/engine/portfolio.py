@@ -36,7 +36,7 @@ below its limit whenever a position closed.
 from __future__ import annotations
 
 import enum
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC
 from decimal import ROUND_DOWN, Decimal
 from typing import TYPE_CHECKING
@@ -105,6 +105,8 @@ class OpenPosition:
     stop_price: Decimal
     risk_per_share: Decimal
     take_profit: Decimal | None
+    time_stop_bars: int | None = None
+    trailing: bool = False
     bars_held: int = 0
     peak_close: Decimal = Decimal(0)
 
@@ -223,6 +225,7 @@ class PortfolioSimulator:
         can be tested against hand-built arrays.
         """
         result = RunResult()
+        plan = ExitPlan.of(strategy.exits)
         book: dict[str, OpenPosition] = {}
         equity = starting_equity
         last = len(panel) - 1
@@ -230,12 +233,12 @@ class PortfolioSimulator:
         for t in range(last + 1):
             ts = _ts_at(panel, t)
             # Exits first: a slot freed this morning is available to this morning's signal.
-            equity += self._process_exits(book, panel, t, ts, result, final=t == last)
+            equity += self._process_exits(book, panel, t, ts, stops, result, final=t == last)
             if t < last:
                 self._process_entries(
-                    strategy, book, panel, t, ts, signals, stops, ranks, equity, result
+                    strategy, plan, book, panel, t, ts, signals, stops, ranks, equity, result
                 )
-            result.equity.append((ts, equity + self._unrealised(book, panel, t)))
+            result.equity.append((ts, equity + self._unrealised(book, panel, t, ts)))
         return result
 
     # -- exits -------------------------------------------------------------------------------
@@ -246,6 +249,7 @@ class PortfolioSimulator:
         panel: Panel,
         t: int,
         ts: datetime,
+        stops: Mapping[str, Column],
         result: RunResult,
         *,
         final: bool,
@@ -259,6 +263,7 @@ class PortfolioSimulator:
                 continue
             position.bars_held += 1
             position.peak_close = max(position.peak_close, bar.close)
+            self._trail_stop(position, float(stops[symbol][t]))
 
             intent, reason = self._exit_intent(position, bar, ts, final=final)
             if intent is None or reason is None:
@@ -349,13 +354,40 @@ class PortfolioSimulator:
                 ),
                 ExitReason.TAKE_PROFIT,
             )
+        if position.time_stop_bars is not None and position.bars_held >= position.time_stop_bars:
+            # A time stop is a decision, not a resting order — the strategy chose in advance to be
+            # out after N bars, and the exit is a market-hours order at the next opportunity. It is
+            # checked last because both price exits would have triggered intra-bar, before the
+            # close that makes the bar count tick over.
+            return (
+                Intent(OrderSide.SELL, OrderKind.MARKETABLE_LIMIT, position.quantity, decided),
+                ExitReason.TIME_STOP,
+            )
         return None, None
+
+    @staticmethod
+    def _trail_stop(position: OpenPosition, distance: float) -> None:
+        """Ratchet a trailing stop up behind the peak close. It never moves down.
+
+        ``distance`` is the same per-share stop distance column the position was sized from, so
+        the trail and the original stop are one number and cannot drift apart.
+
+        A stop that could loosen is not a stop. Letting it fall back as volatility rose would make
+        an already-protected position unprotected again, and the risk the trade was sized on would
+        stop describing the loss it can actually take.
+        """
+        if not position.trailing or not np.isfinite(distance) or distance <= 0:
+            return
+        candidate = position.peak_close - _dec(distance)
+        if candidate > position.stop_price:
+            position.stop_price = candidate
 
     # -- entries -----------------------------------------------------------------------------
 
     def _process_entries(
         self,
         strategy: StrategyCandidate,
+        plan: ExitPlan,
         book: dict[str, OpenPosition],
         panel: Panel,
         t: int,
@@ -434,15 +466,28 @@ class PortfolioSimulator:
                 ),
                 stop_price=fill.price - stop_distance,
                 risk_per_share=stop_distance,
-                take_profit=None,
+                take_profit=plan.target_for(fill.price, stop_distance),
+                time_stop_bars=plan.time_stop_bars,
+                trailing=plan.trailing,
                 peak_close=fill.price,
             )
             heat_used += stop_distance * filled
 
-    def _unrealised(self, book: Mapping[str, OpenPosition], panel: Panel, t: int) -> Decimal:
-        """Open P&L marked at the close, so the equity curve is not a step function of exits."""
+    def _unrealised(
+        self, book: Mapping[str, OpenPosition], panel: Panel, t: int, ts: datetime
+    ) -> Decimal:
+        """Open P&L marked at the close, so the equity curve is not a step function of exits.
+
+        **Only positions that already existed on this bar.** Entries are decided on bar `t` and
+        fill on bar `t+1`, so a position created during this iteration was not held at `close[t]`.
+        Marking it here charged bar `t` with the whole overnight move from `close[t]` to the next
+        open — a fabricated return on every entry's decision bar, inflating measured volatility
+        and biasing the very Sharpe the stop gate reads.
+        """
         total = Decimal(0)
         for symbol, position in book.items():
+            if position.entry_ts > ts:
+                continue
             close = panel.bars[panel.index_of(symbol)].close[t]
             if np.isfinite(close):
                 total += (_dec(float(close)) - position.entry_price) * position.quantity
@@ -482,6 +527,63 @@ def _sim_bar(panel: Panel, index: int, t: int, ts: datetime) -> SimBar | None:
 def _rank_of(column: Column, t: int) -> float:
     value = float(column[t])
     return value if np.isfinite(value) else float("-inf")
+
+
+@dataclass(frozen=True, slots=True)
+class ExitPlan:
+    """Every exit rule a strategy declared, resolved into what the simulator must actually do.
+
+    **This exists because the simulator used to honour one rule out of six and say nothing.**
+    ``take_profit_r``, ``take_profit_pct`` and ``time_stop`` parsed, validated, and were then
+    dropped on the floor; ``trailing_stop_atr`` was installed as a *fixed* stop that never
+    trailed. So a strategy file declaring a 3R target and a 20-bar time stop was simulated as
+    buy-and-hold-until-stopped — a materially different strategy from the one pre-registered, and
+    invariant #25 is worth nothing if the artefact and the thing measured are not the same.
+
+    :meth:`of` therefore **refuses** any rule it does not implement rather than ignoring it. A new
+    exit word added to the DSL now breaks the backtest loudly instead of quietly changing what a
+    strategy means.
+    """
+
+    take_profit_r: float | None = None
+    take_profit_pct: float | None = None
+    time_stop_bars: int | None = None
+    trailing: bool = False
+
+    @classmethod
+    def of(cls, exits: Sequence[ExitRule]) -> ExitPlan:
+        known = {"stop_loss_atr", "stop_loss_pct", "trailing_stop_atr"}
+        plan = cls()
+        for rule in exits:
+            if rule.rule in known:
+                plan = replace(plan, trailing=plan.trailing or rule.rule == "trailing_stop_atr")
+            elif rule.rule == "take_profit_r":
+                plan = replace(plan, take_profit_r=float(rule.literals["r_multiple"]))
+            elif rule.rule == "take_profit_pct":
+                plan = replace(plan, take_profit_pct=float(rule.literals["pct"]))
+            elif rule.rule == "time_stop":
+                plan = replace(plan, time_stop_bars=int(rule.literals["bars"]))
+            else:
+                raise ValueError(
+                    f"the portfolio simulator cannot honour the exit rule {rule.rule!r}. It parses "
+                    f"in the DSL but nothing here implements it, so a strategy declaring it would "
+                    f"be simulated as a different strategy than the one written down. Implement it "
+                    f"or remove it from EXIT_RULES — never run past it."
+                )
+        return plan
+
+    def target_for(self, entry_price: Decimal, risk_per_share: Decimal) -> Decimal | None:
+        """The take-profit level, or ``None``. The **nearer** target wins if both are declared."""
+        levels = [
+            entry_price + _dec(self.take_profit_r) * risk_per_share
+            if self.take_profit_r is not None
+            else None,
+            entry_price * (Decimal(1) + _dec(self.take_profit_pct))
+            if self.take_profit_pct is not None
+            else None,
+        ]
+        present = [level for level in levels if level is not None]
+        return min(present) if present else None
 
 
 def stop_distance_from_exits(exits: Sequence[ExitRule], *, atr: Column, close: Column) -> Column:

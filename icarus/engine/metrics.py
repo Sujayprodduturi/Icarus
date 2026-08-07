@@ -164,7 +164,13 @@ def summarise(
 
     years = len(returns) / SESSIONS_PER_YEAR if len(returns) else 0.0
     total = float(curve[-1] / curve[0] - 1.0) if curve.size > 1 and curve[0] > 0 else 0.0
-    cagr = ((1.0 + total) ** (1.0 / years) - 1.0) if years > 0 and total > -1.0 else 0.0
+    # A wiped-out account has total == -1.0, which failed the guard and fell through to 0.0 —
+    # so the single worst possible outcome printed as "flat" in the headline CAGR column, next to
+    # a 100% drawdown. Total loss is -100% a year, not zero.
+    if total <= -1.0:
+        cagr = -1.0
+    else:
+        cagr = ((1.0 + total) ** (1.0 / years) - 1.0) if years > 0 else 0.0
     volatility = (
         float(np.std(returns, ddof=1)) * math.sqrt(SESSIONS_PER_YEAR) if returns.size > 1 else 0.0
     )
@@ -259,8 +265,13 @@ def _returns(curve: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
     """
     if curve.size < 2:
         return np.zeros(0, dtype=np.float64)
+    # Include the observation that CROSSES to zero, then stop. Cutting before it dropped the
+    # terminal -100% from every moment, so a strategy that blew up reported a Sharpe computed
+    # only on the sessions before the blow-up — optimistic in exactly the case the gate exists
+    # to catch. What must not be included is anything *after* zero, where the denominator is
+    # meaningless.
     alive = np.flatnonzero(curve <= 0.0)
-    end = int(alive[0]) if alive.size else curve.size
+    end = int(alive[0]) + 1 if alive.size else curve.size
     live = curve[:end]
     if live.size < 2:
         return np.zeros(0, dtype=np.float64)

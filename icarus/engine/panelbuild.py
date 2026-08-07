@@ -394,39 +394,54 @@ def _quarantine(
         (a.symbol, a.ex_date) for a in (*actions.unpriceable, *actions.unrecognised)
     } | {(s, sp.ex_date) for s, sps in actions.splits.items() for sp in sps}
 
+    # A capital change NSE listed but we could not price — a demerger, a rights issue, a scheme of
+    # arrangement — reprices the stock by an amount nobody wrote down. Quarantining only what the
+    # gap audit *detected* left every such event under 25% being traded through: flagged upstream,
+    # ignored by the adjuster, invisible to the audit, and then experienced by the strategy as a
+    # real 15% loss it stopped out on. So the known-unpriceable dates seed the quarantine directly.
+    unpriceable_at: dict[str, list[int]] = {}
+    session_index = {day: t for t, day in enumerate(sessions)}
+    for action in (*actions.unpriceable, *actions.unrecognised):
+        t = session_index.get(action.ex_date)
+        if t is not None:
+            unpriceable_at.setdefault(action.symbol, []).append(t)
+
     for i, symbol in enumerate(symbols):
         present = np.flatnonzero(~np.isnan(close[i]))
-        if present.size < 2:
-            continue
-        consecutive = np.diff(present) == 1
-        prev, cur = present[:-1][consecutive], present[1:][consecutive]
-        if prev.size == 0:
-            continue
-        with np.errstate(invalid="ignore", divide="ignore"):
-            ratio = open_[i][cur] / close[i][prev]
-        breached = np.flatnonzero(np.abs(np.log(ratio)) > math.log(1.0 + MAX_UNEXPLAINED_GAP))
-        if breached.size == 0:
+        cut, ratio_at_cut, detected = -1, float("nan"), False
+        if present.size >= 2:
+            consecutive = np.diff(present) == 1
+            prev, cur = present[:-1][consecutive], present[1:][consecutive]
+            if prev.size:
+                with np.errstate(invalid="ignore", divide="ignore"):
+                    ratio = open_[i][cur] / close[i][prev]
+                breached = np.flatnonzero(
+                    np.abs(np.log(ratio)) > math.log(1.0 + MAX_UNEXPLAINED_GAP)
+                )
+                if breached.size:
+                    cut = int(cur[breached[-1]])
+                    ratio_at_cut = float(ratio[breached[-1]])
+                    detected = True
+
+        listed = unpriceable_at.get(symbol, [])
+        if listed:
+            cut = max(cut, max(listed))
+        if cut < 0:
             continue
 
-        last = int(cur[breached[-1]])
-        gap_day = sessions[last]
+        gap_day = sessions[cut]
         # An action listed within a couple of sessions either side means NSE knew about an event
         # here and our ratio was wrong or unparseable — a different failure from a gap with no
         # corporate action on file at all, and worth telling apart in the report.
-        nearby = any(
+        nearby = not detected or any(
             (symbol, sessions[j]) in action_dates
-            for j in range(max(0, last - 2), min(len(sessions), last + 3))
+            for j in range(max(0, cut - 2), min(len(sessions), cut + 3))
         )
         report.quarantines.append(
-            Quarantine(
-                symbol=symbol,
-                at=gap_day,
-                ratio=float(ratio[breached[-1]]),
-                had_action_on_file=nearby,
-            )
+            Quarantine(symbol=symbol, at=gap_day, ratio=ratio_at_cut, had_action_on_file=nearby)
         )
-        report.dropped_symbol_days += int(tradable[i, : last + 1].sum())
-        tradable[i, : last + 1] = False
+        report.dropped_symbol_days += int(tradable[i, : cut + 1].sum())
+        tradable[i, : cut + 1] = False
 
 
 def _drop_never_tradable(

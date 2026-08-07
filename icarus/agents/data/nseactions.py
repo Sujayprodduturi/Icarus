@@ -48,18 +48,18 @@ from datetime import date
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
+import httpx
+
 from icarus.agents.data.cache import read_versioned_json, write_atomic_json
 from icarus.agents.data.corpactions import Split
 from icarus.agents.data.fetch import COURTESY_PER_S, RateLimiter, get_or_raise, with_retry
-from icarus.agents.data.source import SourceUnavailableError
+from icarus.agents.data.source import SourceUnavailableError, TransientSourceError
 from icarus.common.logging import get_logger
 from icarus.common.schemas import SchemaError
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
     from pathlib import Path
-
-    import httpx
 
 log = get_logger("data.nseactions")
 
@@ -337,6 +337,17 @@ class NseCorporateActions:
         rows = await with_retry(
             lambda: self._download(frm, to), what=f"nse corporate actions {frm}..{to}"
         )
+        if not rows:
+            # NEVER cache an empty quarter. NSE lists hundreds of actions per quarter (165 in
+            # 2011 Q1 alone), so zero rows means an error envelope or a changed schema, not a
+            # quarter in which no company did anything. Cached, it would be served forever: every
+            # split in that quarter would go unadjusted, surface as a fabricated 50-80% crash,
+            # and be deleted by the panel's quarantine as if it were bad symbol history. The
+            # aggregate emptiness check in `history` cannot see it — one bad quarter in 48 passes.
+            raise ActionsUnavailable(
+                f"nse returned no corporate actions at all for {frm}..{to}. That is not a quiet "
+                f"quarter, it is a failed request — refusing to cache it."
+            )
         await asyncio.to_thread(write_atomic_json, path, {"schema": _CACHE_SCHEMA, "rows": rows})
         return rows
 
@@ -356,9 +367,15 @@ class NseCorporateActions:
         try:
             payload = response.json()
         except ValueError as exc:
-            # NSE answers a rate-limited or cookie-less request with an HTML block page and a 200,
-            # so a non-JSON body is a transient block rather than a schema change.
-            raise SchemaError(f"nse corporate actions {frm}..{to}: non-JSON body") from exc
+            # NSE answers a rate-limited or cookie-less request with an HTML block page and a 200.
+            # It must be TransientSourceError, not SchemaError: `with_retry` retries only the
+            # former and documents that the latter "propagates immediately to the caller, which
+            # halts the feed". Raising SchemaError here — as the first version did, directly
+            # contradicting this comment — meant one block page during a 48-quarter fetch aborted
+            # the whole panel build with zero retries.
+            raise TransientSourceError(
+                f"nse corporate actions {frm}..{to}: non-JSON body (probably a block page)"
+            ) from exc
         rows = payload if isinstance(payload, list) else payload.get("data", [])
         if not isinstance(rows, list):
             raise SchemaError(
@@ -373,8 +390,13 @@ class NseCorporateActions:
         await self._limiter.acquire()
         try:
             await self._client.get(HOME_URL)
-        except Exception as exc:  # a failed seed is not fatal; the API call decides
-            log.warning("could not seed nse session cookie", error=str(exc))
+        except httpx.HTTPError as exc:
+            # Deliberately NOT setting the flag. Marking the session seeded after a failure meant
+            # every later request on this instance skipped seeding and went out cookie-less, so a
+            # single failed home-page GET at the start guaranteed the whole fetch failed with no
+            # path back. Leaving it false lets the next request try again.
+            log.warning("could not seed nse session cookie; will retry", error=str(exc))
+            return
         self._seeded = True
 
 

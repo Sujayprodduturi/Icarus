@@ -75,6 +75,12 @@ def main() -> int:
     return 0
 
 
+def _mean_in_sample(result: BacktestResult) -> float:
+    """Mean in-sample Sharpe across folds, or ``nan`` if none was estimable."""
+    points = [f.in_sample.sharpe.point for f in result.folds if f.in_sample.sharpe.is_estimable]
+    return sum(points) / len(points) if points else float("nan")
+
+
 def _print_sheet(results: list[BacktestResult], goal: object) -> None:
     """The operator-facing summary. Losses and refusals are as prominent as the returns (§8)."""
     bound = goal.stop_gate.require_sharpe_lower_bound_above  # type: ignore[attr-defined]
@@ -85,7 +91,7 @@ def _print_sheet(results: list[BacktestResult], goal: object) -> None:
     print("=" * 100)
     header = (
         f"{'strategy':<26}{'trades':>8}{'Sharpe':>9}{'95% CI':>18}{'CAGR':>9}"
-        f"{'maxDD':>9}{'expR':>8}{'win%':>7}{'decay':>8}"
+        f"{'maxDD':>9}{'expR':>8}{'win%':>7}{'meanIS':>8}{'decay':>8}"
     )
     print(header)
     print("-" * 100)
@@ -98,8 +104,16 @@ def _print_sheet(results: list[BacktestResult], goal: object) -> None:
         print(
             f"{r.strategy:<26}{m.trades:>8}{m.sharpe.point:>9.2f}{ci:>18}"
             f"{m.cagr:>8.1%}{m.max_drawdown:>9.1%}{m.expectancy_r:>8.2f}"
-            f"{m.win_rate:>7.1%}{r.sharpe_decay:>8.2f}"
+            f"{m.win_rate:>7.1%}{_mean_in_sample(r):>8.2f}{r.sharpe_decay:>8.2f}"
         )
+    # The mean in-sample Sharpe sits next to the decay because decay is a RATIO and goes `nan`
+    # whenever the in-sample figure is not positive. That case is not missing information — it is
+    # the sharpest verdict available: a strategy that loses money on the data it could have been
+    # fitted to is not overfitted, it simply has no edge. Printing only `nan` hid that entirely.
+    print(
+        "\n  meanIS = mean in-sample Sharpe across folds. decay = meanOOS / meanIS; it is `nan`\n"
+        "  when meanIS <= 0, which means there was never an in-sample edge to decay from."
+    )
 
     print("\n" + "-" * 100)
     print("AGAINST THE PRE-REGISTERED STOP GATE (goal.yaml, fixed 2026-08-01)")

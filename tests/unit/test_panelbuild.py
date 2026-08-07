@@ -318,3 +318,43 @@ def test_a_stale_panel_cache_schema_is_refused(tmp_path: Path) -> None:
     np.savez_compressed(tmp_path / "panel.npz", **payload)
     with pytest.raises(DslError, match="schema"):
         load_panel(tmp_path / "panel.npz")
+
+
+def test_a_listed_unpriceable_action_quarantines_even_with_no_visible_gap(tmp_path: Path) -> None:
+    """A rights issue or partial demerger repricing a name by 15% is below MAX_UNEXPLAINED_GAP.
+
+    Both module docstrings promised that unpriceable actions get their history quarantined, but
+    the promise was never kept: `unpriceable` only ever set the `had_action_on_file` label on gaps
+    the audit had already found on its own. So an event NSE told us about, which we admitted we
+    could not price, sailed through and became a real 15% loss the strategy traded and stopped
+    out on.
+    """
+    _write_days(tmp_path, _prices([100.0] * 12 + [85.0] * 13))
+    panel, report = build_panel(
+        sessions=SESSIONS,
+        cache_dir=tmp_path,
+        actions=_actions(
+            unpriceable=(Unpriceable(symbol="AAA", ex_date=SESSIONS[12], subject="Demerger"),)
+        ),
+        universe=_universe(),
+    )
+    tradable = panel.tradable[panel.index_of("AAA")]
+    assert not tradable[:13].any(), "history before an unpriceable event is gone"
+    assert tradable[13:].any(), "and the name survives after it"
+    assert len(report.quarantines) == 1
+    assert report.quarantines[0].had_action_on_file is True
+
+
+def test_an_unpriceable_action_outside_the_span_quarantines_nothing(tmp_path: Path) -> None:
+    """Only ex-dates inside the built panel can cut it; one before or after is not this panel's
+    problem and must not silently blank a symbol."""
+    _write_days(tmp_path, _prices([100.0] * 25))
+    _, report = build_panel(
+        sessions=SESSIONS,
+        cache_dir=tmp_path,
+        actions=_actions(
+            unpriceable=(Unpriceable(symbol="AAA", ex_date=date(2030, 1, 1), subject="Demerger"),)
+        ),
+        universe=_universe(),
+    )
+    assert report.quarantines == []

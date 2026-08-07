@@ -496,3 +496,24 @@ def test_every_closed_trade_carries_the_risk_it_was_sized_on(goal: GoalConfig) -
         starting_equity=Decimal(100_000),
     )
     assert result.trades[0].risk_per_share == Decimal("10.0")
+
+
+def test_a_position_is_not_marked_on_the_bar_before_it_exists(goal: GoalConfig) -> None:
+    """Entries are decided on bar t and fill on bar t+1, so bar t's equity must not include them.
+
+    Marking the new position at close[t] charged bar t with the whole overnight move from close[t]
+    to the next open — a fabricated return on every entry's decision bar. It inflates measured
+    volatility and biases the Sharpe the stop gate reads, and on a flat panel it is visible as
+    equity moving on a day nothing happened.
+    """
+    result = _sim(goal).run(
+        _strategy(),  # type: ignore[arg-type]
+        _panel({"AAA": FLAT}),
+        signals={"AAA": _column(6, [0])},
+        stops={"AAA": np.full(6, 10.0)},
+        starting_equity=Decimal(100_000),
+    )
+    decision_bar_equity = result.equity[0][1]
+    assert decision_bar_equity == Decimal(100_000), (
+        "the signal bar held no position, so equity must be untouched on it"
+    )
