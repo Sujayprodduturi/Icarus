@@ -1,6 +1,6 @@
 # CLAUDE.md — Project Icarus engineering conventions & safety invariants
 
-This file is the standing context for the coding agent building Icarus. Read it at the start of every session. The full requirements are in `PRD.md`; the build sequence is in `TASKS.md`. **This file is the short list of rules you must never break.**
+This file is the standing context for the coding agent building Icarus. Read it at the start of every session. The full requirements are in `PRD.md`; the build sequence is in `TASKS.md`; **how the operator wants to work is in `OPERATOR.md` — read that too, every session.** **This file is the short list of rules you must never break.**
 
 Icarus is a **fully-autonomous, self-learning trading system that places real-money orders on Indian markets** under SEBI rules. Bugs here lose money or break the law. Code defensively, fail safe, and when unsure, **halt rather than trade**.
 
@@ -47,6 +47,7 @@ If a requested change would violate any of these, **stop and flag it** rather th
 
 ## 1. How to work in this repo
 
+- **Explain in plain English → get approval → build → summarise what was actually done.** In that order, every time. See `OPERATOR.md` §1; it is the operator's standing requirement, not a courtesy.
 - **Follow `TASKS.md` in order.** Do not skip ahead to a later phase. Each task has acceptance criteria; a task is done only when they pass.
 - **Build the smallest correct thing, prove it, then extend.** Prefer a working read-only data stream over a half-built execution path.
 - **When a fact in the PRD is flagged "verify at build" (Appendix B), verify it before depending on it** — don't hard-code a number the PRD marked as uncertain without checking the live source.
