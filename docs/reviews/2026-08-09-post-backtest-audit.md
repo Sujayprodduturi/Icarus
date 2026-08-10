@@ -323,8 +323,75 @@ Status: `OPEN` · `DECIDED` (approach agreed, not built) · `IN TASKS.md` · `DO
 | 16 | §3.6 folds differ per strategy | OPEN | Cross-strategy comparison is not like-for-like |
 | 17 | §3.7 regime breakdown + cost stress (1.8) | OPEN | Already-specified work, never run |
 | 18 | walk-forward split for intraday | **DECIDED** 2026-08-10 (D7) — two separately-pinned splits, `lockbox_start` unmoved | `data_split` is deliberately pinned; moving it needs a dated amendment |
+| 19 | §6b.1 data-QA gate never applied to the panel | OPEN | Built and tested; no bad tick has ever been rejected from the panel |
+| 20 | §6b.2 two-source cross-check never applied to the panel | OPEN | The panel is single-source and unverified, contrary to what `TASKS.md` claims |
+| 21 | §6b.3 `tests/golden/` empty — task 1.12 does not exist | **BLOCKS NOTHING YET, SEQUENCED** — capture *after* Step 1, never before | The definition of done in `CLAUDE.md` §6 references a test that has never existed |
+| 22 | §6b.4 no lag operator, no series arithmetic in the DSL | OPEN | 12-1 momentum and any two-series expression are inexpressible |
+| 7b | §6b.5 India-feed **history has never been downloaded** | OPEN | Finding #7 needs a backfill of 3 report types × 11 years before any wiring |
 
 ---
+
+## 6b. Found in the completeness sweep, 2026-08-10
+
+Four more, found by looking at the parts the first pass did not open. Two of them are the same
+shape as §4.3: **built, tested, and never connected to anything.**
+
+### 6b.1 🔴 The data-QA gate is not applied to the backtest panel
+
+`icarus/agents/data/quality.py` (task 1.1b) — bad-tick rejection at `max_bar_move_atr: 8.0`,
+unadjusted-action detection at `max_single_bar_move: 0.5`, `min_day_score: 0.98`,
+`stale_sessions_symbol_veto: 2` — is imported by exactly one module: `agents/data/agent.py`, the
+**live** ingestion path.
+
+`panelbuild.py` imports `nse`, `calendar`, `logging` and `dsl`. It reads the bhavcopy day-cache raw.
+**No bad tick has ever been rejected from the panel every number in this project came from.**
+
+The corporate-action quarantine (±25% residual gap) catches some of the same territory, but it is a
+coarser test that only fires around corporate actions. A bad tick on an ordinary day passes straight
+through.
+
+### 6b.2 🟠 The two-source cross-check is not applied to the panel either
+
+`icarus/agents/data/crosscheck.py` (task 1.1) is imported by **nothing** outside its own tests.
+
+`TASKS.md` says *"bars arrive from two cross-checked free sources (1.1)"*. That is true of the live
+feed design. It is **not** true of the panel: it is single-source NSE bhavcopy, never compared
+against Yahoo, never verified.
+
+### 6b.3 🔴 `tests/golden/` is empty — task 1.12 does not exist
+
+`CLAUDE.md` §6 defines a unit of work as done only when *"the **golden backtest regression** still
+passes"*. `TASKS.md` §"Definition of done" repeats it. **There is no golden backtest regression.**
+The directory was created on 2026-07-27 and has been empty since. That clause has never once been
+enforceable.
+
+**This has a direct sequencing consequence.** The Step-1 fixes will move every number in the
+project, and there is no regression net to say what *else* moved. But a golden test captured from
+today's engine would freeze the bugs into the baseline. So the order must be: **fix Step 1 → then
+capture the golden baseline from the corrected engine.** Not before.
+
+### 6b.4 🟠 The DSL has no lag operator and no arithmetic between series
+
+Composite operators are `all` and `any` only — both boolean. There is no `lag`/`shift`, and no way
+to subtract, divide or otherwise combine two arbitrary series.
+
+Consequence: **the standard momentum construction is inexpressible.** "12-month return skipping the
+most recent month" (Jegadeesh–Titman, and every serious implementation since, because the skip
+removes short-term reversal) cannot be written. `roc(252)` alone is the closest available and is a
+measurably weaker factor.
+
+`relative_strength` handles benchmark-relative subtraction as a built-in special case, so that
+specific need is covered. The general gap stands and it limits which published strategies we can
+reproduce faithfully — which matters most for the calibration argument in §6c.
+
+### 6b.5 ⚠️ Correction to the size of finding #7
+
+`var/` contains `bhavcopy`, `corpactions` and `calendar`. It contains **no delivery, participants or
+F&O-ban data**, and `scripts/` has a backfill script for bhavcopy only.
+
+So finding #7 is bigger than "wire the feeds into the panel". The modules exist and were verified
+against spot-checked live files during 1.1d, but **11 years of history for three separate NSE report
+types has never been downloaded.** It needs a backfill first.
 
 ## 7. What did NOT go wrong
 
