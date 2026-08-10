@@ -14,21 +14,50 @@ membered matrix. Four jobs, in an order that matters:
    excluded as a penny stock by a rule that only exists because of what happened afterwards.
 3. **Back-adjust.** Only then are prices made continuous, using NSE's own ratios
    (:mod:`icarus.agents.data.nseactions`).
-4. **Audit what is left.** Any residual overnight gap the adjustment did not explain gets the
+4. **Reject bad ticks** against each symbol's own volatility. See :func:`_reject_bad_ticks`.
+5. **Audit what is left.** Any residual overnight gap the adjustment did not explain gets the
    symbol's prior history quarantined, with a count and a named list. See :func:`_quarantine`.
 
-**On step 4's direction of bias.** A 50% down-gap is either an unadjusted capital change (fake) or a
+**On step 5's direction of bias.** A 50% down-gap is either an unadjusted capital change (fake) or a
 genuine collapse (real). Deleting it outright would flatter the results by removing real losses;
 keeping it would let a fabricated crash trigger real stops. The chosen answer is to remove the
 symbol's history *up to and including* the gap and keep everything after — symmetric in sign, so
 it removes fabricated gains and fabricated losses alike, and the count is reported rather than
 absorbed. If that count is ever large, the run is not trustworthy and the report says so.
+
+**Where the data-QA layer lives, and why it is not simply called** (1.1, 2026-08-10). An audit found
+that :class:`~icarus.agents.data.quality.DataQualityGate` was imported only by the *live* ingestion
+agent and had never touched the panel. Checking its rules one by one against what happens here:
+
+=============================  =================================================================
+non-positive price             already enforced in :func:`_row_values`, and *more* strictly — the
+                               panel rejects below ``_MIN_SANE_PRICE``, the gate only at zero
+incoherent OHLC                already enforced in :func:`_row_values`
+negative volume                already enforced in :func:`_row_values` (turnover too)
+non-trading day                impossible here: ``sessions`` comes from the validated calendar
+duplicate timestamp            impossible here: the panel is a date-indexed matrix
+**implausible jump**           **was genuinely missing.** Now :func:`_reject_bad_ticks`
+probable corporate action      superseded by :func:`_quarantine` at ``MAX_UNEXPLAINED_GAP`` —
+                               tighter than the gate's 50%, and with a stronger remedy
+=============================  =================================================================
+
+The gate is a *stateful stream validator over Decimal candles*; this is a *batch float64 matrix
+builder*. Forcing one implementation on both would be the wrong shape for one of them. So the
+structural rules exist twice — and a differential test in ``test_panelbuild.py`` runs both over
+the same bars and asserts they agree, because two copies that are never compared are how the
+day-cache schema constant drifted. **Prove the equivalence; do not assume it.**
+
+Porting the gate's ≥50% corporate-action check was considered and **deliberately rejected**: it
+would blank the bar to ``nan``, :func:`_quarantine` only compares *consecutive present* sessions,
+and so a genuine unexplained repricing would become invisible and never quarantine anything. The
+check would have made the panel worse than not having it.
 """
 
 from __future__ import annotations
 
 import json
 import math
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import TYPE_CHECKING
@@ -46,6 +75,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from icarus.agents.data.nseactions import ActionHistory
+    from icarus.common.config import DataQuality as DataQualityConfig
     from icarus.common.config import Universe as UniverseConfig
 
 log = get_logger("engine.panelbuild")
@@ -88,6 +118,16 @@ class BuildReport:
     symbols_seen: int = 0
     symbols_kept: int = 0
     splits_applied: int = 0
+    bad_ticks_rejected: int = 0
+    symbols_with_bad_ticks: int = 0
+    low_quality_sessions: list[tuple[date, float]] = field(default_factory=list)
+    """Sessions whose accepted share fell below ``data_quality.min_day_score``.
+
+    Reported, never acted on. §29.4 turns a low day score into ``NEEDS_MORE_DATA`` at the
+    *validation gate*; deciding it here would let the panel builder silently drop a day of
+    history, and a hole nobody was told about is the failure the score exists to surface.
+    """
+
     quarantines: list[Quarantine] = field(default_factory=list)
     tradable_symbol_days: int = 0
     dropped_symbol_days: int = 0
@@ -101,6 +141,14 @@ class BuildReport:
             "symbols_seen": self.symbols_seen,
             "symbols_kept": self.symbols_kept,
             "splits_applied": self.splits_applied,
+            "bad_ticks_rejected": self.bad_ticks_rejected,
+            "symbols_with_bad_ticks": self.symbols_with_bad_ticks,
+            "low_quality_sessions": len(self.low_quality_sessions),
+            "worst_day_score": (
+                round(min(score for _, score in self.low_quality_sessions), 4)
+                if self.low_quality_sessions
+                else 1.0
+            ),
             "quarantined_symbols": len(self.quarantines),
             "quarantined_with_action_on_file": sum(
                 1 for q in self.quarantines if q.had_action_on_file
@@ -147,6 +195,7 @@ def build_panel(
     cache_dir: Path,
     actions: ActionHistory,
     universe: UniverseConfig,
+    quality: DataQualityConfig,
     benchmark: Bars | None = None,
 ) -> tuple[Panel, BuildReport]:
     """Read the day-cache and assemble the panel. Touches no network.
@@ -157,10 +206,22 @@ def build_panel(
     report = BuildReport(sessions=len(sessions))
     symbols, raw = _read_days(sessions, cache_dir, report)
 
-    tradable = _membership(raw, universe, sessions)
+    # Order is load-bearing, and two of the four steps moved on 2026-08-10.
+    #
+    # Back-adjust BEFORE looking for bad ticks: on raw prices every split is a huge jump, so a
+    # volatility-relative test run there would reject the 614 legitimate repricings in this span
+    # and nothing else.
+    #
+    # Reject bad ticks BEFORE membership and BEFORE the quarantine. Before membership because a
+    # fabricated print would otherwise still count toward the 20-session turnover window that
+    # decides who was tradable. Before the quarantine because the gap audit cannot tell a bad
+    # print from a capital change and its remedy is to delete everything prior — so a single
+    # spurious tick used to erase a symbol's whole history.
     adjusted, splits_applied = _back_adjust(symbols, raw, actions, sessions)
     report.splits_applied = splits_applied
+    _reject_bad_ticks(symbols, adjusted, raw, quality, sessions, report)
 
+    tradable = _membership(raw, universe, sessions)
     _quarantine(symbols, adjusted, tradable, actions, sessions, report)
     symbols, adjusted, tradable = _drop_never_tradable(symbols, adjusted, tradable, report)
 
@@ -368,6 +429,183 @@ def _back_adjust(
             out[name][i] /= factor
         out["volume"][i] *= factor
     return out, applied
+
+
+# --------------------------------------------------------------------------------------
+# Bad ticks — the one data-QA rule the panel was missing (1.1, 2026-08-10)
+# --------------------------------------------------------------------------------------
+
+
+def _reject_bad_ticks(
+    symbols: Sequence[str],
+    adjusted: _Matrices,
+    raw: _Matrices,
+    quality: DataQualityConfig,
+    sessions: Sequence[date],
+    report: BuildReport,
+) -> None:
+    """Blank bars whose intrabar excursion is absurd against the symbol's own recent volatility.
+
+    Mutates both matrices in place: a bar rejected here must be gone from ``raw`` too, or
+    :func:`_membership` would still count a fabricated print towards a turnover window.
+
+    **A bad tick and a repricing are different animals and must not be confused.**
+
+    * A *bad tick* is a spike in the high or the low that the **close does not confirm** — a print
+      that never represented a tradable price. Remedy: drop the bar.
+    * A *repricing* is an overnight move the adjustment could not explain. Remedy:
+      :func:`_quarantine` truncates the symbol's history.
+
+    So this only fires when the overnight move is **inside** ``MAX_UNEXPLAINED_GAP``. Without that
+    guard the two mechanisms would hide each other: blanking a repricing bar to ``nan`` makes its
+    neighbours non-consecutive, and :func:`_quarantine` deliberately does not compare across holes
+    — so the discontinuity would vanish silently and the history would never be quarantined.
+
+    **This runs before the quarantine, and that is the point.** The gap audit cannot tell a bad
+    print from a genuine capital change, and its remedy is to delete everything before it. One
+    spurious tick above the band therefore erased a symbol's entire prior history. Removing bad
+    ticks first should *reduce* what the quarantine takes.
+
+    **The ATR excludes the current bar** and is a simple mean of the last ``atr_window`` true
+    ranges, matching :class:`~icarus.agents.data.quality.DataQualityGate` exactly — judging a bar
+    partly against itself would let a big enough spike raise the very threshold meant to catch it.
+
+    **One sequential pass, deliberately, even though a vectorised pre-filter would be faster.**
+    The first version had one: a cheap matrix scan to find symbols with any candidate at all, then
+    the walk on those alone. It was correct, and it was untestable. Mutation-testing the walk's
+    band guard and its warm-up guard found both mutations *surviving* — because the pre-filter
+    carried copies of the same two conditions and skipped the symbol before the walk ever ran. Two
+    of the guards that matter most had no single site where breaking them showed up.
+
+    A rule with two homes is a rule that can drift, and the saving was on a build that runs once
+    and caches a ``.npz``. So the pre-filter is gone and the walk keeps a running true-range total
+    to stay O(1) per bar.
+    """
+    window = quality.atr_window
+    limit = float(quality.max_bar_move_atr)
+    band = math.log(1.0 + MAX_UNEXPLAINED_GAP)
+    high, low, close, open_ = (adjusted[k] for k in ("high", "low", "close", "open"))
+
+    rejected_at: list[tuple[int, int]] = []
+    for i in range(len(symbols)):
+        present = np.flatnonzero(~np.isnan(close[i]))
+        if present.size <= window:
+            continue
+        bars = (open_[i][present], high[i][present], low[i][present], close[i][present])
+        hits = _walk_for_bad_ticks(bars, window, limit, band)
+        rejected_at.extend((i, int(present[j])) for j in hits)
+
+    if not rejected_at:
+        _score_days(adjusted, {}, quality, sessions, report)
+        return
+
+    rows = np.fromiter((i for i, _ in rejected_at), dtype=np.intp, count=len(rejected_at))
+    cols = np.fromiter((t for _, t in rejected_at), dtype=np.intp, count=len(rejected_at))
+    per_session: dict[int, int] = {}
+    for t in cols.tolist():
+        per_session[t] = per_session.get(t, 0) + 1
+
+    # `raw` before `adjusted`: they are separate arrays (back-adjustment copies), and a bar left
+    # alive in `raw` would still feed the turnover window that decides membership.
+    for matrices in (raw, adjusted):
+        for block in matrices.values():
+            block[rows, cols] = np.nan
+
+    report.bad_ticks_rejected = len(rejected_at)
+    report.symbols_with_bad_ticks = len(set(rows.tolist()))
+    _score_days(adjusted, per_session, quality, sessions, report)
+    log.info(
+        "bad ticks rejected",
+        bars=report.bad_ticks_rejected,
+        symbols=report.symbols_with_bad_ticks,
+    )
+
+
+_Bars4 = tuple[
+    npt.NDArray[np.float64],
+    npt.NDArray[np.float64],
+    npt.NDArray[np.float64],
+    npt.NDArray[np.float64],
+]
+
+
+def _walk_for_bad_ticks(bars: _Bars4, window: int, limit: float, band: float) -> list[int]:
+    """The single implementation. Returns indices *into the present series* that were rejected.
+
+    Mirrors ``DataQualityGate``: the reference close and the true-range window advance only on
+    **accepted** bars, so a rejected print cannot become the baseline the next bar is judged
+    against — which is exactly how one bad tick otherwise manufactures a second one.
+
+    A bar whose overnight move is outside ``band`` is accepted here **and remembered**. That is a
+    deliberate choice over skipping it: not advancing the reference close would leave every
+    subsequent bar compared against a stale price and cascade into false rejections. Its true range
+    does enter the window and will raise the threshold for the next ``window`` bars — conservative,
+    in the direction of keeping data, and the symbol is the quarantine's problem by then anyway.
+
+    ``total`` tracks the sum of ``trailing`` so the ATR is O(1) rather than O(window) per bar.
+    That is what makes one honest sequential pass affordable across every symbol, and therefore
+    what lets every rule below live at exactly one site where a mutation can find it.
+    """
+    open_, high, low, close = bars
+    rejected: list[int] = []
+    trailing: deque[float] = deque(maxlen=window)
+    total = 0.0
+    reference: float | None = None
+
+    for j in range(close.size):
+        span = float(high[j] - low[j])
+        if reference is None:
+            total += span
+            trailing.append(span)
+            reference = float(close[j])
+            continue
+        excursion = max(abs(high[j] - reference), abs(low[j] - reference))
+        overnight = abs(math.log(open_[j] / reference)) if open_[j] > 0 else math.inf
+        if len(trailing) == window and overnight <= band:
+            atr = total / window
+            if atr > 0 and excursion > limit * atr:
+                rejected.append(j)
+                continue
+        true_range = max(span, excursion)
+        # Read the evicted value before appending: a full deque discards it on append, and losing
+        # it would leave `total` drifting upward forever.
+        if len(trailing) == window:
+            total -= trailing[0]
+        total += true_range
+        trailing.append(true_range)
+        reference = float(close[j])
+    return rejected
+
+
+def _score_days(
+    adjusted: _Matrices,
+    rejected_per_session: dict[int, int],
+    quality: DataQualityConfig,
+    sessions: Sequence[date],
+    report: BuildReport,
+) -> None:
+    """Record sessions whose accepted share fell below ``min_day_score`` (§29.4).
+
+    The denominator is bars *seen* on that session — present after rejection, plus the rejected
+    ones. A symbol that simply did not trade is not a data-quality failure, so absence must not
+    dilute the score in either direction.
+    """
+    surviving = np.count_nonzero(~np.isnan(adjusted["close"]), axis=0)
+    for t, day in enumerate(sessions):
+        dropped = rejected_per_session.get(t, 0)
+        seen = int(surviving[t]) + dropped
+        if not seen:
+            continue
+        score = (seen - dropped) / seen
+        if score < quality.min_day_score:
+            report.low_quality_sessions.append((day, score))
+    if report.low_quality_sessions:
+        log.warning(
+            "sessions below min_day_score",
+            count=len(report.low_quality_sessions),
+            threshold=quality.min_day_score,
+            worst=min(score for _, score in report.low_quality_sessions),
+        )
 
 
 # --------------------------------------------------------------------------------------

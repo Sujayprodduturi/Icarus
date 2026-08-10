@@ -414,8 +414,38 @@ The panel is the input to everything else. Fixing arithmetic on top of bad numbe
 
 | task | finding | what |
 |---|---|---|
-| **1.1** | #19 | Apply the data-QA gate (`quality.py`) inside `panelbuild`. Bad ticks **rejected, never winsorized** — clamping invents a price that never traded. Honour `stale_sessions_symbol_veto`. |
+| **1.1** | #19 | ✅ **DONE 2026-08-10.** Scope corrected on contact with the code — see below. |
 | **1.2** | #19 | Rebuild the panel; report exactly what was rejected and what it cost, the same way the quarantine is reported. |
+
+**1.1 as built, and why it is narrower than it was written.** Checking the gate's seven rules
+against `panelbuild` found three already enforced in `_row_values` (and *more* strictly — the panel
+refuses sub-₹1 quotes, the gate only non-positive ones), two impossible by construction, and one —
+the ≥50% corporate-action test — **actively harmful to port**: it blanks the bar to `nan`, and
+`_quarantine` only compares *consecutive present* sessions, so a genuine unexplained repricing
+would have become invisible and never truncated anything.
+
+So finding #19 was one missing rule, not a missing layer. What was built:
+
+- `_reject_bad_ticks` — the ATR excursion test, firing only when the overnight move is **inside**
+  `MAX_UNEXPLAINED_GAP`, so a bad print and a repricing cannot hide each other.
+- **Reordered** to back-adjust → bad ticks → membership → quarantine. Before membership so a
+  fabricated print cannot buy a name into the universe; before the quarantine because the gap audit
+  cannot tell a bad print from a capital change and deletes everything prior when it guesses wrong.
+- Day scores against `min_day_score`, **reported and never acted on** (§29.4 makes that the
+  validation gate's call, not the builder's).
+- A **differential test** proving `_row_values` and `DataQualityGate` agree on every structural
+  rule, with the one deliberate divergence — the sub-₹1 floor — pinned as its own test.
+- `goal.yaml` now records, per key, where each `data_quality` threshold is enforced or why it is
+  not. `stale_sessions_symbol_veto` turned out to be already implied and stricter: membership
+  requires presence in *every* session of the 20-day turnover window.
+
+**What mutation testing found, which is the part worth keeping.** The first version had a
+vectorised pre-filter in front of the sequential walk. Two of seven mutations **survived** — the
+band guard and the warm-up guard — because the pre-filter carried its own copies of both and
+skipped the symbol before the walk ran. The two rules that matter most had no single site where
+breaking them was visible. The pre-filter is gone; the walk keeps a running true-range total to
+stay O(1) per bar. **All 7 mutations now caught.** A rule with two homes is a rule that can drift,
+and the saving was on a build that runs once and caches a `.npz`.
 
 **Deferred here, with the reason recorded:** #20, the two-source cross-check. Yahoo's Indian coverage
 for **delisted** names is poor — already established when RCOM returned nothing during the corporate
