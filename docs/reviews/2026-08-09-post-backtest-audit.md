@@ -319,10 +319,10 @@ Status: `OPEN` · `DECIDED` (approach agreed, not built) · `IN TASKS.md` · `DO
 | 12 | §3.5 DSR/PBO (task 1.9) | OPEN | Correct order — only meaningful once a candidate passes |
 | 13 | §3.3 withdraw the invalid Nifty CAGR comparison in `TASKS.md` | OPEN | A wrong number is currently written down as a headline |
 | 14 | §4.4 universe is ~98 names, not 600–900 | OPEN | Not a bug — but the scope choice was made on a wrong number |
-| 15 | §4.5 ₹1L + whole shares filters the universe | **PENDING OPERATOR** (D8) | Conflates "does it work" with "does it work on ₹1L" |
+| 15 | §4.5 ₹1L + whole shares filters the universe | **DECIDED** 2026-08-10 (D8, D9) — ₹10L edge run + ₹1L seed run; gate reads seed; `NEEDS_MORE_CAPITAL` verdict | Conflates "does it work" with "does it work on ₹1L" |
 | 16 | §3.6 folds differ per strategy | OPEN | Cross-strategy comparison is not like-for-like |
 | 17 | §3.7 regime breakdown + cost stress (1.8) | OPEN | Already-specified work, never run |
-| 18 | walk-forward split for intraday | **PENDING OPERATOR** (D7) | `data_split` is deliberately pinned; moving it needs a dated amendment |
+| 18 | walk-forward split for intraday | **DECIDED** 2026-08-10 (D7) — two separately-pinned splits, `lockbox_start` unmoved | `data_split` is deliberately pinned; moving it needs a dated amendment |
 
 ---
 
