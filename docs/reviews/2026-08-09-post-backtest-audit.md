@@ -295,22 +295,34 @@ Proposed fix: `OPERATOR.md` at the repo root, read at session start, owned by th
 
 ---
 
-## 6. Ranked fix list (nothing here is done)
+## 6. Ranked fix list — THE LIVING CHECKLIST
 
-| # | Finding | Why first |
-|---|---|---|
-| 1 | §2.1 `momentum` is absolute, not percent | Silently changes what two strategies mean; one-line diagnosis, invalidates existing numbers |
-| 2 | §1 unconstrained "signal test" mode | The operator's actual question is currently unanswerable |
-| 3 | §2.2 `longest_lookback` ignores `rank_by`/`exit` | The control was broken; every warm-up guarantee is weaker than believed |
-| 4 | §2.3 orphaned positions | Money vanishes from the ledger, biased in our favour |
-| 5 | §3.1 + §3.4 cost attribution + per-trade log | Cannot distinguish "no edge" from "edge eaten by costs" |
-| 6 | §2.4 no cash constraint | Latent; becomes severe with tighter stops or intraday |
-| 7 | §4.3 wire the India feeds into the panel | Largest unexploited asset already paid for |
-| 8 | §4.2 intraday data | The method's own timeframe; invariant #25's prescribed response |
-| 9 | §4.1 shorts | Half of the thesis |
-| 10 | §3.2 alpha/beta/R² vs Nifty | Invariant #21; gate is incomplete without it |
-| 11 | §2.5 inert config | Decide: enforce or delete. Never leave it ambiguous |
-| 12 | §3.5 DSR/PBO (task 1.9) | Correct order — only meaningful once a candidate passes |
+**This table is the durable record.** Chat is compacted; `TASKS.md` only gets an entry once we
+commit to working on something. Between "found" and "scheduled", a finding lives here and nowhere
+else. **Update the status column as things move. Never delete a row.**
+
+Status: `OPEN` · `DECIDED` (approach agreed, not built) · `IN TASKS.md` · `DONE` · `WON'T FIX`
+
+| # | Finding | Status | Why it ranks here |
+|---|---|---|---|
+| 1 | §2.1 `momentum` is absolute, not percent | **DECIDED** 2026-08-10 — `OPERATOR.md` §7c (D6): delete the name, add `scale_free`, make xs-words refuse rupee inputs | Silently changes what two strategies mean; invalidates existing numbers |
+| 2 | §1 unconstrained "signal test" mode | **DECIDED** 2026-08-10 (D1, D2) — two modes, gross+net side by side | The operator's actual question is currently unanswerable |
+| 3 | §2.2 `longest_lookback` ignores `rank_by`/`exit` | OPEN | The control was broken; every warm-up guarantee is weaker than believed |
+| 4 | §2.3 orphaned positions | OPEN | Money vanishes from the ledger, biased in our favour |
+| 5 | §3.1 + §3.4 cost attribution + per-trade log | **DECIDED** 2026-08-10 (D2) | Cannot distinguish "no edge" from "edge eaten by costs" |
+| 6 | §2.4 no cash constraint | OPEN | Latent; becomes severe with tighter stops or intraday |
+| 7 | §4.3 wire the India feeds into the panel | OPEN | Largest unexploited asset already paid for |
+| 8 | §4.2 intraday data | **DECIDED** 2026-08-10 (D3, D4) — 15-min, daily owns membership | The method's own timeframe; invariant #25's prescribed response |
+| 9 | §4.1 shorts | **DEFERRED** 2026-08-10 (D5) — `OPERATOR.md` §7c, with its reopening trigger | Half of the thesis, but gated on a working long-only system |
+| 10 | §3.2 alpha/beta/R² vs Nifty | OPEN | Invariant #21; gate is incomplete without it |
+| 11 | §2.5 inert config | OPEN | Decide: enforce or delete. Never leave it ambiguous |
+| 12 | §3.5 DSR/PBO (task 1.9) | OPEN | Correct order — only meaningful once a candidate passes |
+| 13 | §3.3 withdraw the invalid Nifty CAGR comparison in `TASKS.md` | OPEN | A wrong number is currently written down as a headline |
+| 14 | §4.4 universe is ~98 names, not 600–900 | OPEN | Not a bug — but the scope choice was made on a wrong number |
+| 15 | §4.5 ₹1L + whole shares filters the universe | **PENDING OPERATOR** (D8) | Conflates "does it work" with "does it work on ₹1L" |
+| 16 | §3.6 folds differ per strategy | OPEN | Cross-strategy comparison is not like-for-like |
+| 17 | §3.7 regime breakdown + cost stress (1.8) | OPEN | Already-specified work, never run |
+| 18 | walk-forward split for intraday | **PENDING OPERATOR** (D7) | `data_split` is deliberately pinned; moving it needs a dated amendment |
 
 ---
 

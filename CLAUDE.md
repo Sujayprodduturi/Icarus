@@ -48,6 +48,7 @@ If a requested change would violate any of these, **stop and flag it** rather th
 ## 1. How to work in this repo
 
 - **Explain in plain English → get approval → build → summarise what was actually done.** In that order, every time. See `OPERATOR.md` §1; it is the operator's standing requirement, not a courtesy.
+- **Known-but-unfixed problems live in the newest `docs/reviews/*-audit.md` ranked fix list, and decisions live in `OPERATOR.md` §7b/§7c.** Read both before starting Phase-1 work. A finding that is not yet in `TASKS.md` is not thereby closed — those two places are the only durable record between "found" and "scheduled".
 - **Follow `TASKS.md` in order.** Do not skip ahead to a later phase. Each task has acceptance criteria; a task is done only when they pass.
 - **Build the smallest correct thing, prove it, then extend.** Prefer a working read-only data stream over a half-built execution path.
 - **When a fact in the PRD is flagged "verify at build" (Appendix B), verify it before depending on it** — don't hard-code a number the PRD marked as uncertain without checking the live source.

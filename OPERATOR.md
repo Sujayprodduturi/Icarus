@@ -104,6 +104,72 @@ Two separate reports are wanted, never conflated:
 A strategy that passes (1) and fails (2) has a portfolio-construction problem. One that fails both
 is dead. **The first run only produced (2)**, so the two cases were indistinguishable.
 
+## 7b. Decision log — append-only
+
+Dated decisions that are not code and not in `goal.yaml`, so they have nowhere else to live.
+**Never edit an entry. Supersede it with a new one and strike the old.**
+
+### 2026-08-10 — after the post-backtest audit (`docs/reviews/2026-08-09-post-backtest-audit.md`)
+
+| # | decision | who |
+|---|---|---|
+| D1 | **Two backtest modes, always both.** Signal test (every signal, uniform notional, no caps) *and* portfolio test (real book). Never conflated. | operator |
+| D2 | **Every report shows gross and net side by side.** Gross P&L, costs, tax, net — four columns, not one. Without this we cannot tell "no edge" from "edge eaten by costs". | operator |
+| D3 | **Intraday survivorship: option (a).** Daily bhavcopy remains the sole authority on universe membership and entry eligibility; intraday bars refine *timing only*. A delisted name keeps its place in the universe and simply loses its intraday refinement. Invariant #14 stays intact — Kite cannot serve history for delisted instruments, so any Kite-derived universe would be survivors-only. | operator |
+| D4 | **15-minute bars first**, not 1-minute. Matches Donlevey's M15 structural layer, ~15× cheaper to fetch and store. 1-minute stays open for later. | operator |
+| D5 | **Long-only for now.** Bidirectional trading is revisited **after the current system is set up and working properly** — see §7c. | operator |
+| D6 | **Fix the `momentum` ambiguity systemically, not locally** — see §7c. | agent, on operator instruction to "fix things once and for all" |
+| D7 | *(pending)* Walk-forward split for intraday — one split moved to 2015, or two independently-pinned splits. | — |
+| D8 | *(pending)* Test capital — edge run at a larger book plus a separate seed-tier run, or single ₹1L run. | — |
+
+## 7c. Deferred by decision — not forgotten
+
+Things consciously postponed. **Each names the condition that reopens it.** A deferral without a
+trigger is an abandonment pretending otherwise.
+
+### Bidirectional (short) trading — deferred 2026-08-10 (D5)
+
+**Reopens when:** the long-only system is running end-to-end and has produced at least one strategy
+that clears the pre-registered stop gate.
+
+**What is already built and idle:** the DSL carries the complete bearish vocabulary — `bos_down`,
+`choch_down`, `structure_bearish`, `sweep_and_reclaim_high`, `swept_high`, `liquidity_pool_high`,
+`inducement_high`, `upthrust`, `failed_break_up`, and the `order_block_bear_*`, `ote_bear_*`,
+`breaker_bear_*`, `mitigation_bear_*`, `rejection_bear_*` families. None of it is reachable:
+`portfolio.py:_process_entries` always issues `OrderSide.BUY` and the strategy schema has no
+`direction` key.
+
+**What it will cost when we do it** (recorded now so it is not rediscovered as a surprise):
+1. NSE **cash delivery cannot be shorted at all.** Shorts require intraday (MIS) or futures.
+2. That changes the **cost segment** — `equity_intraday` or `equity_futures`, not `equity_delivery`.
+3. It changes the **tax bucket** — speculative business (s.66) or non-speculative business, *not*
+   capital gains. This is the expensive reading: 30% slab instead of 20% STCG.
+4. It needs a **margin model**, which does not exist.
+5. The Donlevey method is explicitly bidirectional (*"Mirror for shorts"*), so a long-only result
+   is weak evidence about the method either way.
+
+### The `momentum` fix — decided 2026-08-10 (D6)
+
+The local fix is to rename one word. The **actual** bug class is: *a DSL word whose name does not
+determine its units, used in a cross-sectional comparison.* Ranking rupee-denominated quantities
+across symbols is nearly always wrong, and it fails silently — it looks like a working ranker.
+
+**The systemic fix, in three parts:**
+1. **Delete the ambiguous name.** No word called `momentum` survives. `roc` is the percentage
+   change; `momentum_abs` is the rupee change, named so it cannot be picked by accident. No alias —
+   an alias keeps the ambiguity alive in every strategy file already written.
+2. **Add `scale_free: bool` to `Primitive`**, beside `intraday_only` / `requires_feed` /
+   `intermittent` / `needs_panel`. The docstring already says those flags live there *"precisely so
+   that adding a primitive cannot forget them"* — this is the same idea. 82 SERIES words, roughly
+   32 of them price-denominated; a bounded one-time job.
+3. **Make the cross-sectional words refuse a non-scale-free input.** `xs_top_n`, `xs_bottom_n`,
+   `xs_rank`, `xs_zscore`, `xs_percentile`, `xs_sector_neutral` and the `rank_by` block raise at
+   parse time rather than ranking rupees against rupees. Same shape as `ExitPlan.of` refusing an
+   exit rule it cannot honour: **fail loudly at parse time, never compute something plausible.**
+
+Consequence, accepted: this breaks every existing strategy file that says `momentum`. That is the
+point — those files currently mean something other than what they say.
+
 ## 8. Pace and posture
 
 - **Ship fast.** Prefer a working, honest, small thing today over a complete thing next month.
