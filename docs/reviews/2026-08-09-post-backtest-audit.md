@@ -323,7 +323,8 @@ Status: `OPEN` · `DECIDED` (approach agreed, not built) · `IN TASKS.md` · `DO
 | 16 | §3.6 folds differ per strategy | OPEN | Cross-strategy comparison is not like-for-like |
 | 17 | §3.7 regime breakdown + cost stress (1.8) | OPEN | Already-specified work, never run |
 | 18 | walk-forward split for intraday | **DECIDED** 2026-08-10 (D7) — two separately-pinned splits, `lockbox_start` unmoved | `data_split` is deliberately pinned; moving it needs a dated amendment |
-| 19 | §6b.1 data-QA gate never applied to the panel | OPEN | Built and tested; no bad tick has ever been rejected from the panel |
+| 19 | §6b.1 data-QA gate never applied to the panel | **CLOSED** 2026-08-10 — six of seven rules already enforced, impossible, or superseded; the seventh was built, measured, and found to have no job here (§6c) | Turned out to be one rule, and that rule was wrong for this data |
+| 23 | **Annulled trades are in the panel.** 32 symbols carry 20%-circuit prints from the Emkay flash crash of 2012-10-05; NSE annulled trades that day. A backtest stop would "fill" against a price that was legally undone | **NEW** 2026-08-10, OPEN | Found while measuring the bad-tick detector. Narrow and real, and it wants a **list of annulled sessions** — not a statistical test, which cannot tell an annulled print from a genuine crash |
 | 20 | §6b.2 two-source cross-check never applied to the panel | OPEN | The panel is single-source and unverified, contrary to what `TASKS.md` claims |
 | 21 | §6b.3 `tests/golden/` empty — task 1.12 does not exist | **BLOCKS NOTHING YET, SEQUENCED** — capture *after* Step 1, never before | The definition of done in `CLAUDE.md` §6 references a test that has never existed |
 | 22 | §6b.4 no lag operator, no series arithmetic in the DSL | OPEN | 12-1 momentum and any two-series expression are inexpressible |
@@ -439,13 +440,46 @@ So finding #19 was one missing rule, not a missing layer. What was built:
   not. `stale_sessions_symbol_veto` turned out to be already implied and stricter: membership
   requires presence in *every* session of the 20-day turnover window.
 
-**What mutation testing found, which is the part worth keeping.** The first version had a
-vectorised pre-filter in front of the sequential walk. Two of seven mutations **survived** — the
-band guard and the warm-up guard — because the pre-filter carried its own copies of both and
-skipped the symbol before the walk ran. The two rules that matter most had no single site where
-breaking them was visible. The pre-filter is gone; the walk keeps a running true-range total to
-stay O(1) per bar. **All 7 mutations now caught.** A rule with two homes is a rule that can drift,
-and the saving was on a build that runs once and caches a `.npz`.
+**What mutation testing found.** The first version had a vectorised pre-filter in front of the
+sequential walk. Two of seven mutations **survived** — the band guard and the warm-up guard —
+because the pre-filter carried its own copies of both and skipped the symbol before the walk ran.
+The two rules that matter most had no single site where breaking them was visible. The pre-filter
+went; the walk keeps a running true-range total to stay O(1) per bar. All 7 then caught.
+
+### 🔴 …and then the detector was measured against real prices, and reverted
+
+Built at `5dc68e6`, removed at the next commit, **the same day**. Over 2011–2022 it rejected
+**4,053 bars across 480 symbols**. Every one of the 761 that could be diffed against the previous
+panel fell into one of three buckets. **None was a data error.**
+
+| what it actually was | count | examples |
+|---|---:|---|
+| **Real market events** — the close confirmed the move | 383 | DHFL −55% (2018-09-21, IL&FS contagion) · PNB +49% and CANBK +40% (2017-10-25, recapitalisation) · ADANIENT −83% (2015-06-03, demerger) · RCOM · PCJEWELLER · ZEEL |
+| **An artefact of the threshold itself** — ATR collapses toward zero on a flat instrument, so 8× almost-nothing is cleared by rounding | 220 | LIQUIDBEES at a pegged ₹1000 · thin names printing an identical price for a fortnight |
+| **Real prints at the 20% circuit band** | 158 | 32 symbols on **2012-10-05** — the Emkay erroneous-order flash crash · BRITANNIA · OFSS · NESTLEIND · INFY · ITC |
+
+**The premise was wrong.** Bhavcopy is the exchange's own end-of-day settlement file, not a live
+tick feed; it does not carry the random bad prints an ATR test exists to catch. And the failure is
+in the worst possible direction: the test deletes the **largest** moves, which are exactly what
+sets drawdown and tail risk. Removing DHFL's −55% and ADANIENT's −83% would make every backtest
+look *safer* than the market was.
+
+Two mistakes of my own, both worth naming:
+
+1. **I documented one rule and implemented another.** The docstring said a bad tick is "a spike the
+   close does not confirm". The code never looked at the close — it only measured the excursion.
+   Applying the documented rule to the same data would have kept all 383 real events.
+2. **`atr > 0` is not a floor.** On a near-flat instrument the ATR is *positive but negligible*, and
+   the threshold becomes noise. It needed a floor relative to price.
+
+Even corrected on both counts, the remaining 158 are real prints of real trades. So the answer is
+not a better threshold; it is that this test has no job here. **The revert is verified:** rebuilding
+the panel afterwards reproduces the pre-1.1 report field for field, quarantine list included.
+
+**Kept from 1.1** (all of it independently valuable): the differential test proving `_row_values`
+and `DataQualityGate` agree on every structural rule; the sub-₹1 divergence pinned as its own test;
+the per-key enforcement map in `goal.yaml`; and the analysis of all seven gate rules, recorded in
+the `panelbuild` docstring so the detector is not rebuilt from the same false premise.
 
 **Deferred here, with the reason recorded:** #20, the two-source cross-check. Yahoo's Indian coverage
 for **delisted** names is poor — already established when RCOM returned nothing during the corporate

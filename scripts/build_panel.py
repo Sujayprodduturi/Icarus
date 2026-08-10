@@ -98,10 +98,6 @@ def main() -> None:
                 "to": str(sessions[-1]),
                 "has_benchmark": panel.benchmark is not None,
                 **report.as_json(),
-                "low_quality_sessions_detail": [
-                    {"session": str(day), "score": round(score, 4)}
-                    for day, score in sorted(report.low_quality_sessions)
-                ],
                 "quarantined": [
                     {
                         "symbol": q.symbol,
@@ -129,7 +125,6 @@ async def _assemble(sessions: list[date], goal: object, *, skip_benchmark: bool)
         cache_dir=BHAVCOPY,
         actions=actions,
         universe=goal.universe,  # type: ignore[attr-defined]
-        quality=goal.data_quality,  # type: ignore[attr-defined]
         benchmark=benchmark,
     )
 

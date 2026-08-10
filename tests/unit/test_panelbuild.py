@@ -116,7 +116,6 @@ def test_a_split_rescales_the_past_and_leaves_the_present_alone(tmp_path: Path) 
         cache_dir=tmp_path,
         actions=_actions({"AAA": (Split(ex_date=SESSIONS[12], ratio=Decimal(2)),)}),
         universe=_universe(),
-        quality=_quality(),
     )
     close = panel.bars[panel.index_of("AAA")].close
     assert close[0] == pytest.approx(50.0), "pre-split price halved"
@@ -134,7 +133,6 @@ def test_volume_moves_the_opposite_way_so_traded_value_is_preserved(tmp_path: Pa
         cache_dir=tmp_path,
         actions=_actions({"AAA": (Split(ex_date=SESSIONS[12], ratio=Decimal(2)),)}),
         universe=_universe(),
-        quality=_quality(),
     )
     volume = panel.bars[panel.index_of("AAA")].volume
     assert volume[0] == pytest.approx(200_000.0)
@@ -159,7 +157,6 @@ def test_an_unexplained_halving_quarantines_the_history_before_it(tmp_path: Path
         cache_dir=tmp_path,
         actions=_actions(),
         universe=_universe(),
-        quality=_quality(),
     )
     tradable = panel.tradable[panel.index_of("AAA")]
     assert not tradable[:13].any(), "everything up to and including the gap is gone"
@@ -181,7 +178,6 @@ def test_an_ordinary_move_is_not_a_discontinuity(tmp_path: Path) -> None:
         cache_dir=tmp_path,
         actions=_actions(),
         universe=_universe(),
-        quality=_quality(),
     )
     assert report.quarantines == []
 
@@ -197,7 +193,6 @@ def test_a_gap_next_to_an_event_on_file_is_reported_as_such(tmp_path: Path) -> N
             unpriceable=(Unpriceable(symbol="AAA", ex_date=SESSIONS[12], subject="Demerger"),)
         ),
         universe=_universe(),
-        quality=_quality(),
     )
     assert report.quarantines[0].had_action_on_file is True
 
@@ -214,7 +209,6 @@ def test_an_absence_is_not_a_gap(tmp_path: Path) -> None:
         cache_dir=tmp_path,
         actions=_actions(),
         universe=_universe(),
-        quality=_quality(),
     )
     assert report.quarantines == []
 
@@ -238,7 +232,6 @@ def test_the_penny_floor_is_applied_before_back_adjustment(tmp_path: Path) -> No
         cache_dir=tmp_path,
         actions=_actions({"AAA": (Split(ex_date=SESSIONS[20], ratio=Decimal(10)),)}),
         universe=_universe(min_close_inr=30),
-        quality=_quality(),
     )
     index = panel.index_of("AAA")
     assert panel.tradable[index][10], "tradable in the era it really traded above the floor"
@@ -254,7 +247,6 @@ def test_a_name_below_the_turnover_floor_is_never_tradable(tmp_path: Path) -> No
             cache_dir=tmp_path,
             actions=_actions(),
             universe=_universe(),
-            quality=_quality(),
         )
 
 
@@ -270,7 +262,6 @@ def test_the_first_sessions_have_no_complete_liquidity_window(tmp_path: Path) ->
         cache_dir=tmp_path,
         actions=_actions(),
         universe=_universe(turnover_window_sessions=5),
-        quality=_quality(),
     )
     tradable = panel.tradable[panel.index_of("AAA")]
     assert not tradable[:4].any()
@@ -293,7 +284,6 @@ def test_a_session_with_no_cached_file_raises(tmp_path: Path) -> None:
             cache_dir=tmp_path,
             actions=_actions(),
             universe=_universe(),
-            quality=_quality(),
         )
 
 
@@ -309,7 +299,6 @@ def test_a_stale_day_cache_schema_raises_rather_than_being_read(tmp_path: Path) 
             cache_dir=tmp_path,
             actions=_actions(),
             universe=_universe(),
-            quality=_quality(),
         )
 
 
@@ -336,7 +325,6 @@ def test_the_benchmark_survives_the_cache_round_trip(tmp_path: Path) -> None:
         cache_dir=tmp_path / "days",
         actions=_actions(),
         universe=_universe(),
-        quality=_quality(),
         benchmark=index,
     )
     save_panel(panel, report, tmp_path / "panel.npz")
@@ -352,7 +340,6 @@ def test_a_panel_survives_the_round_trip_unchanged(tmp_path: Path) -> None:
         cache_dir=tmp_path / "days",
         actions=_actions(),
         universe=_universe(),
-        quality=_quality(),
     )
     save_panel(panel, report, tmp_path / "panel.npz")
     reloaded = load_panel(tmp_path / "panel.npz")
@@ -369,7 +356,6 @@ def test_a_stale_panel_cache_schema_is_refused(tmp_path: Path) -> None:
         cache_dir=tmp_path / "days",
         actions=_actions(),
         universe=_universe(),
-        quality=_quality(),
     )
     save_panel(panel, report, tmp_path / "panel.npz")
     with np.load(tmp_path / "panel.npz") as data:
@@ -397,7 +383,6 @@ def test_a_listed_unpriceable_action_quarantines_even_with_no_visible_gap(tmp_pa
             unpriceable=(Unpriceable(symbol="AAA", ex_date=SESSIONS[12], subject="Demerger"),)
         ),
         universe=_universe(),
-        quality=_quality(),
     )
     tradable = panel.tradable[panel.index_of("AAA")]
     assert not tradable[:13].any(), "history before an unpriceable event is gone"
@@ -417,170 +402,8 @@ def test_an_unpriceable_action_outside_the_span_quarantines_nothing(tmp_path: Pa
             unpriceable=(Unpriceable(symbol="AAA", ex_date=date(2030, 1, 1), subject="Demerger"),)
         ),
         universe=_universe(),
-        quality=_quality(),
     )
     assert report.quarantines == []
-
-
-# --------------------------------------------------------------------------------------
-# Bad ticks (1.1, 2026-08-10)
-#
-# The data-QA gate had never touched the panel. Six of its seven rules turned out to be already
-# enforced here, impossible by construction, or superseded by the quarantine at a tighter
-# threshold. The ATR bad-tick test was the one real gap, and these pin it.
-#
-# The fixtures use atr_window=3 (see `_quality`) so a 25-session panel can actually exercise it.
-# Flat prices at 100 with a +-1% bar give a true range of 2, hence an ATR of 2 and a rejection
-# threshold of 8 x 2 = 16 rupees of excursion from the previous close.
-# --------------------------------------------------------------------------------------
-
-
-def _write_bars(
-    root: Path,
-    bars: dict[str, list[tuple[float, float, float, float] | None]],
-    turnover: float = 10_000_000.0,
-) -> None:
-    """Day-files with explicit OHLC, for the cases where a bar's shape is the point."""
-    root.mkdir(parents=True, exist_ok=True)
-    for t, day in enumerate(SESSIONS):
-        rows = {}
-        for symbol, series in bars.items():
-            bar = series[t]
-            if bar is None:
-                continue
-            rows[symbol] = [f"{v:.2f}" for v in bar] + ["100000", f"{turnover:.2f}"]
-        (root / f"{day:%Y%m%d}.json").write_text(
-            json.dumps({"schema": DAY_CACHE_SCHEMA, "rows": rows}), encoding="utf-8"
-        )
-
-
-def _flat(n: int = 25) -> list[tuple[float, float, float, float] | None]:
-    """``n`` unremarkable sessions at 100: o=c=100, h=101, l=99, so the true range is 2."""
-    return [(100.0, 101.0, 99.0, 100.0) for _ in range(n)]
-
-
-def _build(tmp_path: Path, **over: object) -> tuple[object, object]:
-    kwargs: dict[str, object] = {
-        "sessions": SESSIONS,
-        "cache_dir": tmp_path,
-        "actions": _actions(),
-        "universe": _universe(),
-        "quality": _quality(),
-    }
-    return build_panel(**(kwargs | over))  # type: ignore[arg-type]
-
-
-def test_a_spike_the_close_does_not_confirm_is_rejected(tmp_path: Path) -> None:
-    """A 117 high on a bar that opened and closed at 100 is an excursion of 17 against an ATR of
-    2 — more than 8x, so it is not a price anything traded at.
-
-    This also pins that the ATR **excludes the current bar**. Had the spike's own true range of
-    17 been folded in first, the ATR would be (2+2+17)/3 = 7 and the threshold 56, so a bar that
-    is plainly garbage would have raised the very limit meant to catch it.
-    """
-    series = _flat()
-    series[10] = (100.0, 117.0, 99.0, 100.0)
-    _write_bars(tmp_path, {"AAA": series})
-    panel, report = _build(tmp_path)
-    assert report.bad_ticks_rejected == 1  # type: ignore[attr-defined]
-    assert report.symbols_with_bad_ticks == 1  # type: ignore[attr-defined]
-    assert np.isnan(panel.bars[0].high[10]), "the whole bar goes, not just the bad field"  # type: ignore[attr-defined]
-    assert np.isnan(panel.bars[0].close[10])  # type: ignore[attr-defined]
-
-
-def test_a_large_but_believable_bar_survives(tmp_path: Path) -> None:
-    """The control: excursion 15 against a threshold of 16. Nearly the same bar, and kept.
-
-    Without this, the test above would pass just as happily if the detector rejected everything.
-    """
-    series = _flat()
-    series[10] = (100.0, 115.0, 99.0, 100.0)
-    _write_bars(tmp_path, {"AAA": series})
-    panel, report = _build(tmp_path)
-    assert report.bad_ticks_rejected == 0  # type: ignore[attr-defined]
-    assert panel.bars[0].high[10] == 115.0  # type: ignore[attr-defined]
-
-
-def test_a_rejected_bar_does_not_become_the_baseline_for_the_next_one(tmp_path: Path) -> None:
-    """Two spikes on consecutive sessions must **both** be rejected.
-
-    If a rejected bar's true range were folded into the window anyway, the ATR at the second
-    spike would be (2+2+17)/3 = 7 and the threshold 56 — so the second would sail through, one
-    bad tick manufacturing cover for the next. State advances only on accepted bars.
-    """
-    series = _flat()
-    series[10] = (100.0, 117.0, 99.0, 100.0)
-    series[11] = (100.0, 117.0, 99.0, 100.0)
-    _write_bars(tmp_path, {"AAA": series})
-    _, report = _build(tmp_path)
-    assert report.bad_ticks_rejected == 2  # type: ignore[attr-defined]
-
-
-def test_an_unexplained_repricing_still_reaches_the_quarantine(tmp_path: Path) -> None:
-    """**The interaction that matters.** A 40% overnight drop is a repricing, not a bad print.
-
-    Its excursion is enormous, so a naive bad-tick test would blank the bar to ``nan`` — and
-    :func:`_quarantine` compares only *consecutive present* sessions, so the hole would make the
-    discontinuity invisible and the history would never be cut. The band guard exists to stop
-    exactly that: this bar passes through untouched and is quarantined instead.
-    """
-    series = _flat()
-    for t in range(10, 25):
-        series[t] = (60.0, 61.0, 59.0, 60.0)
-    _write_bars(tmp_path, {"AAA": series})
-    _, report = _build(tmp_path)
-    assert report.bad_ticks_rejected == 0, "a repricing belongs to the quarantine"  # type: ignore[attr-defined]
-    assert len(report.quarantines) == 1  # type: ignore[attr-defined]
-    assert report.quarantines[0].at == SESSIONS[10]  # type: ignore[attr-defined]
-
-
-def test_a_rejected_bar_is_gone_from_the_turnover_window_too(tmp_path: Path) -> None:
-    """Membership must not count a print that never happened.
-
-    The bar is blanked in the **raw** matrix as well as the adjusted one, so the symbol fails the
-    "present in every session of the window" rule and loses membership for every window still
-    containing the hole. Leaving it in ``raw`` would let a fabricated bar buy a name its way into
-    the tradable universe.
-    """
-    series = _flat()
-    series[10] = (100.0, 117.0, 99.0, 100.0)
-    _write_bars(tmp_path, {"AAA": series})
-    panel, _ = _build(tmp_path, universe=_universe(turnover_window_sessions=5))
-    tradable = panel.tradable[0]  # type: ignore[attr-defined]
-    assert not tradable[10], "the session itself"
-    assert not tradable[11:14].any(), "and every window that still contains the hole"
-    assert tradable[15], "membership returns once the window has cleared it"
-
-
-def test_the_detector_is_silent_before_it_has_enough_history(tmp_path: Path) -> None:
-    """Judging a bar against an ATR built from fewer than ``atr_window`` true ranges is theatre.
-
-    The spike sits at index 1, before three exist, and is kept — an honest "cannot tell yet"
-    rather than a confident rejection made on the strength of one prior bar.
-    """
-    series = _flat()
-    series[1] = (100.0, 400.0, 99.0, 100.0)
-    _write_bars(tmp_path, {"AAA": series})
-    panel, report = _build(tmp_path)
-    assert report.bad_ticks_rejected == 0  # type: ignore[attr-defined]
-    assert panel.bars[0].high[1] == 400.0  # type: ignore[attr-defined]
-
-
-def test_a_bad_day_is_reported_but_never_silently_dropped(tmp_path: Path) -> None:
-    """§29.4 turns a low day score into NEEDS_MORE_DATA at the validation gate — not here.
-
-    Three of four symbols spike on one session, so that day scores 0.25 and is named in the
-    report. Every other session is untouched: the builder surfaces the day, it does not delete it.
-    """
-    names = ["AAA", "BBB", "CCC", "DDD"]
-    bars = {name: _flat() for name in names}
-    for name in names[:3]:
-        bars[name][10] = (100.0, 117.0, 99.0, 100.0)
-    _write_bars(tmp_path, bars)
-    _, report = _build(tmp_path)
-    assert report.bad_ticks_rejected == 3  # type: ignore[attr-defined]
-    assert [day for day, _ in report.low_quality_sessions] == [SESSIONS[10]]  # type: ignore[attr-defined]
-    assert report.low_quality_sessions[0][1] == pytest.approx(0.25)  # type: ignore[attr-defined]
 
 
 # --------------------------------------------------------------------------------------
