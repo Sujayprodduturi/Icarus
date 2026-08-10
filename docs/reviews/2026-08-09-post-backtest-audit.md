@@ -393,6 +393,118 @@ So finding #7 is bigger than "wire the feeds into the panel". The modules exist 
 against spot-checked live files during 1.1d, but **11 years of history for three separate NSE report
 types has never been downloaded.** It needs a backfill first.
 
+## 6c. THE PLAN — everything that happens before the next backtest
+
+Agreed 2026-08-10. Re-ordered after the completeness sweep (§6b) moved two things and promoted a
+third to the front.
+
+**The governing constraint:** every backtest run is a trial on the lifetime ledger (invariant #24),
+and the multiple-testing correction raises the Sharpe bar in proportion to the count. At 9 trials
+the effective bar is ~0.84; at 17 it is ~0.95 *(estimate — task 1.9 computes it exactly)*. **So the
+next run has to be right the first time.** Anything that would force a re-run for a reason other
+than a new idea belongs before it, not after. That is why the report work (Step 4) and the
+benchmark-relative metrics sit *ahead* of the sweep rather than behind it.
+
+**Every finding in §6 is accounted for below** — as a task, or as an explicit deferral with a
+reason. Nothing is left merely unmentioned.
+
+### Step 1 — Make the panel itself trustworthy *(new; promoted to first)*
+
+The panel is the input to everything else. Fixing arithmetic on top of bad numbers is wasted work.
+
+| task | finding | what |
+|---|---|---|
+| **1.1** | #19 | Apply the data-QA gate (`quality.py`) inside `panelbuild`. Bad ticks **rejected, never winsorized** — clamping invents a price that never traded. Honour `stale_sessions_symbol_veto`. |
+| **1.2** | #19 | Rebuild the panel; report exactly what was rejected and what it cost, the same way the quarantine is reported. |
+
+**Deferred here, with the reason recorded:** #20, the two-source cross-check. Yahoo's Indian coverage
+for **delisted** names is poor — already established when RCOM returned nothing during the corporate
+-actions work. A cross-check would therefore verify survivors only, and a verification that
+systematically skips the names most likely to be wrong is worse than none: it would produce a
+confidence number that does not mean what it says. Reopens if a source with delisted coverage is
+acquired (see §4 option (c), TickData).
+
+### Step 2 — The engine measures the strategy that was written
+
+| task | finding | what |
+|---|---|---|
+| **2a** | #1, #22 | Delete `momentum`. `roc` = percent, `momentum_abs` = rupees. Add `scale_free: bool` to `Primitive`, set across all 223 words. `xs_*` and `rank_by` **refuse a rupee-denominated input at parse time**. Add `roc_skip(n, skip)` so 12-1 momentum is expressible. Rewrite the three strategy files. **← STOP AND REVIEW** |
+| **2b** | #3 | `longest_lookback` reads `rank_by` and `exit`, not only `entry`. |
+| **2c** | #4 | A position whose symbol stops printing bars is closed at its last known price with a `DELISTED` reason, not left open forever. |
+| **2d** | #6 | Track cash; refuse an entry whose notional does not fit. New skip reason `INSUFFICIENT_CASH`. |
+| **2e** | #11 | Every config key either has code enforcing it **or** carries an explicit `# NOT ENFORCED — <reason>, <date>` comment. A reader must never have to guess. Enforce `max_pairwise_correlation`, `min_holding_bars`, `max_trades_per_day_per_strategy`. Make the DSL **reject** `sizing.weighting` values other than `equal_weight` and reject `vol_target_pct` outright until implemented — fail closed. Mark `rank_select_top_k`, `min_quality_score`, `allocation.*` as Phase-3 deferrals in the file itself. |
+
+`roc_skip` rather than a general `lag`: making every SERIES word composable over an arbitrary input
+series — instead of implicitly over `close` — is an architectural change, not a Step-2 change. #22
+stays open for the general case.
+
+### Step 3 — The engine answers the right question
+
+| task | finding | what |
+|---|---|---|
+| **3a** | #2 (D1) | **Signal-test mode**: every signal taken, uniform notional, no book cap, no heat cap, no slot competition. Reported separately and never quotable as a portfolio. |
+| **3b** | #15 (D8, D9) | Two capital rows on every portfolio test — ₹10,00,000 edge run and ₹1,00,000 seed run. `NEEDS_MORE_CAPITAL` as a third non-promoting verdict. |
+| **3c** | #16 | Report each strategy over the **common** OOS window as well as its own, so the cross-strategy comparison is like-for-like. |
+
+### Step 4 — The report says enough to act on
+
+Pulled forward from "later" precisely because of the trial-cost constraint above.
+
+| task | finding | what |
+|---|---|---|
+| **4a** | #5 (D2) | Four columns: **gross · costs · tax · net**. Currently we cannot tell "no edge" from "edge eaten by costs" — which need opposite responses. |
+| **4b** | #5 | Per-trade ledger written to CSV. Today not one individual trade is inspectable. |
+| **4c** | #10 | Alpha, beta and R² vs Nifty 50 (invariant #21, `max_benchmark_r2: 0.8`). Without it the sweep produces numbers that immediately need another run. |
+| **4d** | #13 | Withdraw the invalid Nifty CAGR comparison from `TASKS.md`. A wrong number is currently a headline in the most-read file. |
+
+### Step 5 — Freeze the corrected engine
+
+| task | finding | what |
+|---|---|---|
+| **5a** | #21 | The golden backtest regression (task 1.12) — **captured from the corrected engine, never before it.** A baseline taken today would freeze the bugs into it. This is the first time `CLAUDE.md` §6's definition of done becomes enforceable. |
+
+### Step 6 — Write the strategies, then pre-register them
+
+| task | what |
+|---|---|
+| **6a** | Eight strategy files (§6d), each carrying its published source and the reasoning for every parameter. **No parameter tuned on this data** — round numbers from the source, per invariant #25. |
+| **6b** | Pre-register all eight with a date **before** any of them runs. |
+
+### Step 7 — Run. ← *the next backtest*
+
+### After the run, in this order
+
+| step | findings | what |
+|---|---|---|
+| 8 | #8, #18 (D3, D4) | Intraday: 15-minute bars via Kite; daily bhavcopy keeps sole authority over universe membership; a second independently-pinned walk-forward split from 2015, `lockbox_start` unmoved. |
+| 9 | #7, #7b | Backfill 11 years of delivery / participants / F&O-ban, then wire them into the panel and declare them in `available_feeds`. |
+| 10 | #12, #17 | DSR + PBO with the lifetime effective trial count; regime stability; cost stress at `cost_stress_multiplier: 1.5`. |
+| — | #9 (D5) | Shorts — deferred with a trigger, `OPERATOR.md` §7c. |
+| — | #14 | Universe is ~98 names, not 600–900. **No action** — not a defect, but the scope was chosen on a wrong number and the metric sheet should say so. |
+
+### 6d. The strategies to be run in Step 7
+
+Chosen so that **a common failure implicates the engine, not the ideas** — and so that the
+best-documented of them acts as a calibration instrument. If Donchian disagrees with its own
+published record, that is our bug.
+
+| # | strategy | published by | expression | role |
+|---|---|---|---|---|
+| 0 | Nifty 50 buy-and-hold | — | benchmark series | Reference, fully invested — makes the CAGR comparison valid at last |
+| 1 | Donchian 55/20 breakout (Turtle) | Dennis & Eckhardt, public since 1983 | `donchian_breakout_up(55)` | **Primary calibration instrument** |
+| 2 | Cross-sectional relative strength | Jegadeesh–Titman 1993 | `xs_top_n(roc_skip(252, 21), 10)` | Most-replicated equity anomaly |
+| 3 | Minervini trend template | *Trade Like a Stock Market Wizard* | `trend_template` — already a primitive | Mechanical, widely used on NSE |
+| 4 | Weinstein Stage 2 | *Secrets for Profiting…* | `stage_advancing` — already a primitive | Same trend layer Donlevey uses |
+| 5 | 52-week-high proximity | George & Hwang 2004 | `pct_off_high(252)` | Closest published cousin of the Donlevey idea |
+| 6 | Low-volatility factor | Haugen–Baker; strong on NSE | `xs_bottom_n(realized_vol(252), 10)` | The anomaly that most reliably **survives costs** |
+| 7 | Connors RSI-2 | Larry Connors, published rules | `connors_rsi` | **Counter-hypothesis** — if only this works, that is a statement about the regime |
+| 8 | Donlevey sweep-reclaim, corrected | ours | `sweep_and_reclaim_low` | The thesis |
+
+**Calibration runs still count as trials** *(decided 2026-08-10)*. They are tagged
+`origin: calibration` in the ledger so that a future decision to weight them differently is
+possible **with a documented rationale** — but they are counted by default, because an exemption
+is exactly the loophole that would hollow out invariant #24.
+
 ## 7. What did NOT go wrong
 
 Worth recording, because the list above is long and the foundation is not the problem.
