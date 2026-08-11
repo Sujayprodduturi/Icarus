@@ -5,6 +5,20 @@
 > **Companion:** `TASKS.md` §1.7 findings (a)–(x) records the bugs found *during* the build.
 > This document records the bugs found *by looking at the result*.
 
+> ### ⚠️ How to read the numbers in this file
+>
+> Findings here are **`F1`…`F23`**. Safety invariants in `CLAUDE.md` §0 are **`#1`…`#26`**.
+> **They are different things and they overlap in range.**
+>
+> They were originally both written as bare `#N`, which made `#23` mean *"halt on stagnation"*
+> (invariant) in one paragraph and *"annulled trades are in the panel"* (finding) in the next.
+> Renamed 2026-08-11 so a reference can only mean one thing.
+>
+> Anywhere in this project: **`F` = a finding in this file · `#` = a safety invariant in
+> `CLAUDE.md` · `D` = a decision in `OPERATOR.md` §7b · `§` = a PRD section.**
+> Spell out what a reference *means* the first time it appears in any conversation — a bare
+> number is not an explanation.
+
 The run that prompted this: 2,962 sessions × 693 point-in-time symbols, 2011-01-03 → 2022-12-30,
 lockbox untouched. Three strategies, all three FAIL the pre-registered gate. Headline numbers are in
 `TASKS.md`.
@@ -305,30 +319,30 @@ Status: `OPEN` · `DECIDED` (approach agreed, not built) · `IN TASKS.md` · `DO
 
 | # | Finding | Status | Why it ranks here |
 |---|---|---|---|
-| 1 | §2.1 `momentum` is absolute, not percent | **DECIDED** 2026-08-10 — `OPERATOR.md` §7c (D6): delete the name, add `scale_free`, make xs-words refuse rupee inputs | Silently changes what two strategies mean; invalidates existing numbers |
-| 2 | §1 unconstrained "signal test" mode | **DECIDED** 2026-08-10 (D1, D2) — two modes, gross+net side by side | The operator's actual question is currently unanswerable |
-| 3 | §2.2 `longest_lookback` ignores `rank_by`/`exit` | OPEN | The control was broken; every warm-up guarantee is weaker than believed |
-| 4 | §2.3 orphaned positions | OPEN | Money vanishes from the ledger, biased in our favour |
-| 5 | §3.1 + §3.4 cost attribution + per-trade log | **DECIDED** 2026-08-10 (D2) | Cannot distinguish "no edge" from "edge eaten by costs" |
-| 6 | §2.4 no cash constraint | OPEN | Latent; becomes severe with tighter stops or intraday |
-| 7 | §4.3 wire the India feeds into the panel | OPEN | Largest unexploited asset already paid for |
-| 8 | §4.2 intraday data | **DECIDED** 2026-08-10 (D3, D4) — 15-min, daily owns membership | The method's own timeframe; invariant #25's prescribed response |
-| 9 | §4.1 shorts | **DEFERRED** 2026-08-10 (D5) — `OPERATOR.md` §7c, with its reopening trigger | Half of the thesis, but gated on a working long-only system |
-| 10 | §3.2 alpha/beta/R² vs Nifty | OPEN | Invariant #21; gate is incomplete without it |
-| 11 | §2.5 inert config | OPEN | Decide: enforce or delete. Never leave it ambiguous |
-| 12 | §3.5 DSR/PBO (task 1.9) | OPEN | Correct order — only meaningful once a candidate passes |
-| 13 | §3.3 withdraw the invalid Nifty CAGR comparison in `TASKS.md` | OPEN | A wrong number is currently written down as a headline |
-| 14 | §4.4 universe is ~98 names, not 600–900 | OPEN | Not a bug — but the scope choice was made on a wrong number |
-| 15 | §4.5 ₹1L + whole shares filters the universe | **DECIDED** 2026-08-10 (D8, D9) — ₹10L edge run + ₹1L seed run; gate reads seed; `NEEDS_MORE_CAPITAL` verdict | Conflates "does it work" with "does it work on ₹1L" |
-| 16 | §3.6 folds differ per strategy | OPEN | Cross-strategy comparison is not like-for-like |
-| 17 | §3.7 regime breakdown + cost stress (1.8) | OPEN | Already-specified work, never run |
-| 18 | walk-forward split for intraday | **DECIDED** 2026-08-10 (D7) — two separately-pinned splits, `lockbox_start` unmoved | `data_split` is deliberately pinned; moving it needs a dated amendment |
-| 19 | §6b.1 data-QA gate never applied to the panel | **CLOSED** 2026-08-10 — six of seven rules already enforced, impossible, or superseded; the seventh was built, measured, and found to have no job here (§6c) | Turned out to be one rule, and that rule was wrong for this data |
-| 23 | **Annulled trades are in the panel.** 32 symbols carry 20%-circuit prints from the Emkay flash crash of 2012-10-05; NSE annulled trades that day. A backtest stop would "fill" against a price that was legally undone | **NEW** 2026-08-10, OPEN | Found while measuring the bad-tick detector. Narrow and real, and it wants a **list of annulled sessions** — not a statistical test, which cannot tell an annulled print from a genuine crash |
-| 20 | §6b.2 two-source cross-check never applied to the panel | OPEN | The panel is single-source and unverified, contrary to what `TASKS.md` claims |
-| 21 | §6b.3 `tests/golden/` empty — task 1.12 does not exist | **BLOCKS NOTHING YET, SEQUENCED** — capture *after* Step 1, never before | The definition of done in `CLAUDE.md` §6 references a test that has never existed |
-| 22 | §6b.4 no lag operator, no series arithmetic in the DSL | OPEN | 12-1 momentum and any two-series expression are inexpressible |
-| 7b | §6b.5 India-feed **history has never been downloaded** | OPEN | Finding #7 needs a backfill of 3 report types × 11 years before any wiring |
+| F1 | §2.1 `momentum` is absolute, not percent | **DECIDED** 2026-08-10 — `OPERATOR.md` §7c (D6): delete the name, add `scale_free`, make xs-words refuse rupee inputs | Silently changes what two strategies mean; invalidates existing numbers |
+| F2 | §1 unconstrained "signal test" mode | **DECIDED** 2026-08-10 (D1, D2) — two modes, gross+net side by side | The operator's actual question is currently unanswerable |
+| F3 | §2.2 `longest_lookback` ignores `rank_by`/`exit` | OPEN | The control was broken; every warm-up guarantee is weaker than believed |
+| F4 | §2.3 orphaned positions | OPEN | Money vanishes from the ledger, biased in our favour |
+| F5 | §3.1 + §3.4 cost attribution + per-trade log | **DECIDED** 2026-08-10 (D2) | Cannot distinguish "no edge" from "edge eaten by costs" |
+| F6 | §2.4 no cash constraint | OPEN | Latent; becomes severe with tighter stops or intraday |
+| F7 | §4.3 wire the India feeds into the panel | OPEN | Largest unexploited asset already paid for |
+| F8 | §4.2 intraday data | **DECIDED** 2026-08-10 (D3, D4) — 15-min, daily owns membership | The method's own timeframe; invariant #25's prescribed response |
+| F9 | §4.1 shorts | **DEFERRED** 2026-08-10 (D5) — `OPERATOR.md` §7c, with its reopening trigger | Half of the thesis, but gated on a working long-only system |
+| F10 | §3.2 alpha/beta/R² vs Nifty | OPEN | invariant #21; gate is incomplete without it |
+| F11 | §2.5 inert config | OPEN | Decide: enforce or delete. Never leave it ambiguous |
+| F12 | §3.5 DSR/PBO (task 1.9) | OPEN | Correct order — only meaningful once a candidate passes |
+| F13 | §3.3 withdraw the invalid Nifty CAGR comparison in `TASKS.md` | OPEN | A wrong number is currently written down as a headline |
+| F14 | §4.4 universe is ~98 names, not 600–900 | OPEN | Not a bug — but the scope choice was made on a wrong number |
+| F15 | §4.5 ₹1L + whole shares filters the universe | **DECIDED** 2026-08-10 (D8, D9) — ₹10L edge run + ₹1L seed run; gate reads seed; `NEEDS_MORE_CAPITAL` verdict | Conflates "does it work" with "does it work on ₹1L" |
+| F16 | §3.6 folds differ per strategy | OPEN | Cross-strategy comparison is not like-for-like |
+| F17 | §3.7 regime breakdown + cost stress (1.8) | OPEN | Already-specified work, never run |
+| F18 | walk-forward split for intraday | **DECIDED** 2026-08-10 (D7) — two separately-pinned splits, `lockbox_start` unmoved | `data_split` is deliberately pinned; moving it needs a dated amendment |
+| F19 | §6b.1 data-QA gate never applied to the panel | **CLOSED** 2026-08-10 — six of seven rules already enforced, impossible, or superseded; the seventh was built, measured, and found to have no job here (§6c) | Turned out to be one rule, and that rule was wrong for this data |
+| F23 | **Annulled trades are in the panel.** 32 symbols carry 20%-circuit prints from the Emkay flash crash of 2012-10-05; NSE annulled trades that day. A backtest stop would "fill" against a price that was legally undone | **NEW** 2026-08-10, OPEN | Found while measuring the bad-tick detector. Narrow and real, and it wants a **list of annulled sessions** — not a statistical test, which cannot tell an annulled print from a genuine crash |
+| F20 | §6b.2 two-source cross-check never applied to the panel | OPEN | The panel is single-source and unverified, contrary to what `TASKS.md` claims |
+| F21 | §6b.3 `tests/golden/` empty — task 1.12 does not exist | **BLOCKS NOTHING YET, SEQUENCED** — capture *after* Step 1, never before | The definition of done in `CLAUDE.md` §6 references a test that has never existed |
+| F22 | §6b.4 no lag operator, no series arithmetic in the DSL | OPEN | 12-1 momentum and any two-series expression are inexpressible |
+| F7b | §6b.5 India-feed **history has never been downloaded** | OPEN | Finding F7 needs a backfill of 3 report types × 11 years before any wiring |
 
 ---
 
@@ -385,12 +399,12 @@ measurably weaker factor.
 specific need is covered. The general gap stands and it limits which published strategies we can
 reproduce faithfully — which matters most for the calibration argument in §6c.
 
-### 6b.5 ⚠️ Correction to the size of finding #7
+### 6b.5 ⚠️ Correction to the size of finding F7
 
 `var/` contains `bhavcopy`, `corpactions` and `calendar`. It contains **no delivery, participants or
 F&O-ban data**, and `scripts/` has a backfill script for bhavcopy only.
 
-So finding #7 is bigger than "wire the feeds into the panel". The modules exist and were verified
+So finding F7 is bigger than "wire the feeds into the panel". The modules exist and were verified
 against spot-checked live files during 1.1d, but **11 years of history for three separate NSE report
 types has never been downloaded.** It needs a backfill first.
 
@@ -415,8 +429,8 @@ The panel is the input to everything else. Fixing arithmetic on top of bad numbe
 
 | task | finding | what |
 |---|---|---|
-| **1.1** | #19 | ✅ **DONE 2026-08-10.** Scope corrected on contact with the code — see below. |
-| **1.2** | #19 | Rebuild the panel; report exactly what was rejected and what it cost, the same way the quarantine is reported. |
+| **1.1** | F19 | ✅ **DONE 2026-08-10.** Scope corrected on contact with the code — see below. |
+| **1.2** | F19 | Rebuild the panel; report exactly what was rejected and what it cost, the same way the quarantine is reported. |
 
 **1.1 as built, and why it is narrower than it was written.** Checking the gate's seven rules
 against `panelbuild` found three already enforced in `_row_values` (and *more* strictly — the panel
@@ -425,7 +439,7 @@ the ≥50% corporate-action test — **actively harmful to port**: it blanks the
 `_quarantine` only compares *consecutive present* sessions, so a genuine unexplained repricing
 would have become invisible and never truncated anything.
 
-So finding #19 was one missing rule, not a missing layer. What was built:
+So finding F19 was one missing rule, not a missing layer. What was built:
 
 - `_reject_bad_ticks` — the ATR excursion test, firing only when the overnight move is **inside**
   `MAX_UNEXPLAINED_GAP`, so a bad print and a repricing cannot hide each other.
@@ -481,7 +495,7 @@ and `DataQualityGate` agree on every structural rule; the sub-₹1 divergence pi
 the per-key enforcement map in `goal.yaml`; and the analysis of all seven gate rules, recorded in
 the `panelbuild` docstring so the detector is not rebuilt from the same false premise.
 
-**Deferred here, with the reason recorded:** #20, the two-source cross-check. Yahoo's Indian coverage
+**Deferred here, with the reason recorded:** F20, the two-source cross-check. Yahoo's Indian coverage
 for **delisted** names is poor — already established when RCOM returned nothing during the corporate
 -actions work. A cross-check would therefore verify survivors only, and a verification that
 systematically skips the names most likely to be wrong is worse than none: it would produce a
@@ -492,23 +506,23 @@ acquired (see §4 option (c), TickData).
 
 | task | finding | what |
 |---|---|---|
-| **2a** | #1, #22 | Delete `momentum`. `roc` = percent, `momentum_abs` = rupees. Add `scale_free: bool` to `Primitive`, set across all 223 words. `xs_*` and `rank_by` **refuse a rupee-denominated input at parse time**. Add `roc_skip(n, skip)` so 12-1 momentum is expressible. Rewrite the three strategy files. **← STOP AND REVIEW** |
-| **2b** | #3 | `longest_lookback` reads `rank_by` and `exit`, not only `entry`. |
-| **2c** | #4 | A position whose symbol stops printing bars is closed at its last known price with a `DELISTED` reason, not left open forever. |
-| **2d** | #6 | Track cash; refuse an entry whose notional does not fit. New skip reason `INSUFFICIENT_CASH`. |
-| **2e** | #11 | Every config key either has code enforcing it **or** carries an explicit `# NOT ENFORCED — <reason>, <date>` comment. A reader must never have to guess. Enforce `max_pairwise_correlation`, `min_holding_bars`, `max_trades_per_day_per_strategy`. Make the DSL **reject** `sizing.weighting` values other than `equal_weight` and reject `vol_target_pct` outright until implemented — fail closed. Mark `rank_select_top_k`, `min_quality_score`, `allocation.*` as Phase-3 deferrals in the file itself. |
+| **2a** | F1, F22 | Delete `momentum`. `roc` = percent, `momentum_abs` = rupees. Add `scale_free: bool` to `Primitive`, set across all 223 words. `xs_*` and `rank_by` **refuse a rupee-denominated input at parse time**. Add `roc_skip(n, skip)` so 12-1 momentum is expressible. Rewrite the three strategy files. **← STOP AND REVIEW** |
+| **2b** | F3 | `longest_lookback` reads `rank_by` and `exit`, not only `entry`. |
+| **2c** | F4 | A position whose symbol stops printing bars is closed at its last known price with a `DELISTED` reason, not left open forever. |
+| **2d** | F6 | Track cash; refuse an entry whose notional does not fit. New skip reason `INSUFFICIENT_CASH`. |
+| **2e** | F11 | Every config key either has code enforcing it **or** carries an explicit `# NOT ENFORCED — <reason>, <date>` comment. A reader must never have to guess. Enforce `max_pairwise_correlation`, `min_holding_bars`, `max_trades_per_day_per_strategy`. Make the DSL **reject** `sizing.weighting` values other than `equal_weight` and reject `vol_target_pct` outright until implemented — fail closed. Mark `rank_select_top_k`, `min_quality_score`, `allocation.*` as Phase-3 deferrals in the file itself. |
 
 `roc_skip` rather than a general `lag`: making every SERIES word composable over an arbitrary input
-series — instead of implicitly over `close` — is an architectural change, not a Step-2 change. #22
+series — instead of implicitly over `close` — is an architectural change, not a Step-2 change. F22
 stays open for the general case.
 
 ### Step 3 — The engine answers the right question
 
 | task | finding | what |
 |---|---|---|
-| **3a** | #2 (D1) | **Signal-test mode**: every signal taken, uniform notional, no book cap, no heat cap, no slot competition. Reported separately and never quotable as a portfolio. |
-| **3b** | #15 (D8, D9) | Two capital rows on every portfolio test — ₹10,00,000 edge run and ₹1,00,000 seed run. `NEEDS_MORE_CAPITAL` as a third non-promoting verdict. |
-| **3c** | #16 | Report each strategy over the **common** OOS window as well as its own, so the cross-strategy comparison is like-for-like. |
+| **3a** | F2 (D1) | **Signal-test mode**: every signal taken, uniform notional, no book cap, no heat cap, no slot competition. Reported separately and never quotable as a portfolio. |
+| **3b** | F15 (D8, D9) | Two capital rows on every portfolio test — ₹10,00,000 edge run and ₹1,00,000 seed run. `NEEDS_MORE_CAPITAL` as a third non-promoting verdict. |
+| **3c** | F16 | Report each strategy over the **common** OOS window as well as its own, so the cross-strategy comparison is like-for-like. |
 
 ### Step 4 — The report says enough to act on
 
@@ -516,16 +530,16 @@ Pulled forward from "later" precisely because of the trial-cost constraint above
 
 | task | finding | what |
 |---|---|---|
-| **4a** | #5 (D2) | Four columns: **gross · costs · tax · net**. Currently we cannot tell "no edge" from "edge eaten by costs" — which need opposite responses. |
-| **4b** | #5 | Per-trade ledger written to CSV. Today not one individual trade is inspectable. |
-| **4c** | #10 | Alpha, beta and R² vs Nifty 50 (invariant #21, `max_benchmark_r2: 0.8`). Without it the sweep produces numbers that immediately need another run. |
-| **4d** | #13 | Withdraw the invalid Nifty CAGR comparison from `TASKS.md`. A wrong number is currently a headline in the most-read file. |
+| **4a** | F5 (D2) | Four columns: **gross · costs · tax · net**. Currently we cannot tell "no edge" from "edge eaten by costs" — which need opposite responses. |
+| **4b** | F5 | Per-trade ledger written to CSV. Today not one individual trade is inspectable. |
+| **4c** | F10 | Alpha, beta and R² vs Nifty 50 (invariant #21, `max_benchmark_r2: 0.8`). Without it the sweep produces numbers that immediately need another run. |
+| **4d** | F13 | Withdraw the invalid Nifty CAGR comparison from `TASKS.md`. A wrong number is currently a headline in the most-read file. |
 
 ### Step 5 — Freeze the corrected engine
 
 | task | finding | what |
 |---|---|---|
-| **5a** | #21 | The golden backtest regression (task 1.12) — **captured from the corrected engine, never before it.** A baseline taken today would freeze the bugs into it. This is the first time `CLAUDE.md` §6's definition of done becomes enforceable. |
+| **5a** | F21 | The golden backtest regression (task 1.12) — **captured from the corrected engine, never before it.** A baseline taken today would freeze the bugs into it. This is the first time `CLAUDE.md` §6's definition of done becomes enforceable. |
 
 ### Step 6 — Write the strategies, then pre-register them
 
@@ -540,11 +554,11 @@ Pulled forward from "later" precisely because of the trial-cost constraint above
 
 | step | findings | what |
 |---|---|---|
-| 8 | #8, #18 (D3, D4) | Intraday: 15-minute bars via Kite; daily bhavcopy keeps sole authority over universe membership; a second independently-pinned walk-forward split from 2015, `lockbox_start` unmoved. |
-| 9 | #7, #7b | Backfill 11 years of delivery / participants / F&O-ban, then wire them into the panel and declare them in `available_feeds`. |
-| 10 | #12, #17 | DSR + PBO with the lifetime effective trial count; regime stability; cost stress at `cost_stress_multiplier: 1.5`. |
-| — | #9 (D5) | Shorts — deferred with a trigger, `OPERATOR.md` §7c. |
-| — | #14 | Universe is ~98 names, not 600–900. **No action** — not a defect, but the scope was chosen on a wrong number and the metric sheet should say so. |
+| 8 | F8, F18 (D3, D4) | Intraday: 15-minute bars via Kite; daily bhavcopy keeps sole authority over universe membership; a second independently-pinned walk-forward split from 2015, `lockbox_start` unmoved. |
+| 9 | F7, F7b | Backfill 11 years of delivery / participants / F&O-ban, then wire them into the panel and declare them in `available_feeds`. |
+| 10 | F12, F17 | DSR + PBO with the lifetime effective trial count; regime stability; cost stress at `cost_stress_multiplier: 1.5`. |
+| — | F9 (D5) | Shorts — deferred with a trigger, `OPERATOR.md` §7c. |
+| — | F14 | Universe is ~98 names, not 600–900. **No action** — not a defect, but the scope was chosen on a wrong number and the metric sheet should say so. |
 
 ### 6d. The strategies to be run in Step 7
 
@@ -554,15 +568,15 @@ published record, that is our bug.
 
 | # | strategy | published by | expression | role |
 |---|---|---|---|---|
-| 0 | Nifty 50 buy-and-hold | — | benchmark series | Reference, fully invested — makes the CAGR comparison valid at last |
-| 1 | Donchian 55/20 breakout (Turtle) | Dennis & Eckhardt, public since 1983 | `donchian_breakout_up(55)` | **Primary calibration instrument** |
-| 2 | Cross-sectional relative strength | Jegadeesh–Titman 1993 | `xs_top_n(roc_skip(252, 21), 10)` | Most-replicated equity anomaly |
-| 3 | Minervini trend template | *Trade Like a Stock Market Wizard* | `trend_template` — already a primitive | Mechanical, widely used on NSE |
-| 4 | Weinstein Stage 2 | *Secrets for Profiting…* | `stage_advancing` — already a primitive | Same trend layer Donlevey uses |
-| 5 | 52-week-high proximity | George & Hwang 2004 | `pct_off_high(252)` | Closest published cousin of the Donlevey idea |
-| 6 | Low-volatility factor | Haugen–Baker; strong on NSE | `xs_bottom_n(realized_vol(252), 10)` | The anomaly that most reliably **survives costs** |
-| 7 | Connors RSI-2 | Larry Connors, published rules | `connors_rsi` | **Counter-hypothesis** — if only this works, that is a statement about the regime |
-| 8 | Donlevey sweep-reclaim, corrected | ours | `sweep_and_reclaim_low` | The thesis |
+| F0 | Nifty 50 buy-and-hold | — | benchmark series | Reference, fully invested — makes the CAGR comparison valid at last |
+| F1 | Donchian 55/20 breakout (Turtle) | Dennis & Eckhardt, public since 1983 | `donchian_breakout_up(55)` | **Primary calibration instrument** |
+| F2 | Cross-sectional relative strength | Jegadeesh–Titman 1993 | `xs_top_n(roc_skip(252, 21), 10)` | Most-replicated equity anomaly |
+| F3 | Minervini trend template | *Trade Like a Stock Market Wizard* | `trend_template` — already a primitive | Mechanical, widely used on NSE |
+| F4 | Weinstein Stage 2 | *Secrets for Profiting…* | `stage_advancing` — already a primitive | Same trend layer Donlevey uses |
+| F5 | 52-week-high proximity | George & Hwang 2004 | `pct_off_high(252)` | Closest published cousin of the Donlevey idea |
+| F6 | Low-volatility factor | Haugen–Baker; strong on NSE | `xs_bottom_n(realized_vol(252), 10)` | The anomaly that most reliably **survives costs** |
+| F7 | Connors RSI-2 | Larry Connors, published rules | `connors_rsi` | **Counter-hypothesis** — if only this works, that is a statement about the regime |
+| F8 | Donlevey sweep-reclaim, corrected | ours | `sweep_and_reclaim_low` | The thesis |
 
 **Calibration runs still count as trials** *(decided 2026-08-10)*. They are tagged
 `origin: calibration` in the ledger so that a future decision to weight them differently is

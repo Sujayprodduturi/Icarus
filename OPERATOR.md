@@ -36,6 +36,34 @@ tolerated.
 - Explain **why**, not just what. A number without its reasoning is not an explanation.
 - Plain English in operator-facing output. Reserve precision for the code and its comments.
 
+## 2b. Never reference a number without saying what it means
+
+*(Operator instruction, 2026-08-11.)*
+
+> "Assume that the references you give — the PRD, the invariants, #23 or something else — I may
+> not know exactly what they are about. So clarify that before referencing them."
+
+**A bare `#23` is not communication.** Before using any numbered reference in operator-facing
+output, say in one clause what it *is*: "invariant #23 — halt on a slow bleed, not just a fast
+loss" rather than "invariant #23".
+
+**The reference prefixes, which exist because they collided:**
+
+| prefix | means | lives in |
+|---|---|---|
+| `#1`…`#26` | a **safety invariant** | `CLAUDE.md` §0 |
+| `F1`…`F23` | a **finding** from the post-backtest audit | `docs/reviews/2026-08-09-post-backtest-audit.md` |
+| `D1`, `D2`… | a **decision** by the operator | `OPERATOR.md` §7b |
+| `§7`, `§29.3` | a **PRD section** | `PRD.md` |
+| `O1`…`O8` | an **operator setup item** | `TASKS.md`, top |
+| `1.7c`, `2a` | a **task** | `TASKS.md` / the plan in the audit doc |
+
+**Why this rule exists.** Findings were originally numbered `#1`–`#23`, the same shape as the
+invariants. So `#23` meant *"halt on stagnation"* in one paragraph and *"annulled trades are in the
+panel"* in the next, and the only way to tell was to already know. Renamed 2026-08-11. The prefixes
+fix the ambiguity; **the rule above fixes the actual problem**, which is that the operator should
+never have to look a reference up to follow a sentence.
+
 ## 3. Honesty and reporting
 
 - **Never overstate a result.** Losses, halts and refusals get the same prominence as gains
