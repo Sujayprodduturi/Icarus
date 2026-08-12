@@ -198,13 +198,20 @@ def primitives() -> tuple[Primitive, ...]:
     k = FloatParam("k", 0.1, 10.0, default=2.0)
     mult = FloatParam("mult", 0.1, 20.0, default=1.5)
     return (
-        Primitive("true_range", Kind.SERIES, "Gap-aware bar range.", _tr),
+        Primitive(
+            "true_range",
+            Kind.SERIES,
+            "Gap-aware bar range.",
+            _tr,
+            scale_free=False,
+        ),
         Primitive(
             "atr",
             Kind.SERIES,
             "Wilder-smoothed true range.",
             _atr,
             (_ops.period_param(default=14),),
+            scale_free=False,
         ),
         Primitive(
             "natr",
@@ -212,6 +219,7 @@ def primitives() -> tuple[Primitive, ...]:
             "ATR / close — comparable across symbols.",
             _natr,
             (_ops.period_param(default=14),),
+            scale_free=True,
         ),
         Primitive(
             "realized_vol",
@@ -219,6 +227,7 @@ def primitives() -> tuple[Primitive, ...]:
             "Annualised stdev of log returns.",
             _realized_vol,
             (_ops.period_param(default=20),),
+            scale_free=True,
         ),
         Primitive(
             "parkinson_vol",
@@ -226,6 +235,7 @@ def primitives() -> tuple[Primitive, ...]:
             "High-low range volatility estimator.",
             _parkinson,
             (_ops.period_param(default=20),),
+            scale_free=True,
         ),
         Primitive(
             "garman_klass_vol",
@@ -233,6 +243,7 @@ def primitives() -> tuple[Primitive, ...]:
             "OHLC volatility estimator.",
             _garman_klass,
             (_ops.period_param(default=20),),
+            scale_free=True,
         ),
         Primitive(
             "rogers_satchell_vol",
@@ -240,6 +251,7 @@ def primitives() -> tuple[Primitive, ...]:
             "Drift-independent OHLC volatility estimator.",
             _rogers_satchell,
             (_ops.period_param(default=20),),
+            scale_free=True,
         ),
         Primitive(
             "yang_zhang_vol",
@@ -247,6 +259,7 @@ def primitives() -> tuple[Primitive, ...]:
             "Gap-aware volatility estimator — best on NSE dailies.",
             _yang_zhang,
             (_ops.period_param(default=20),),
+            scale_free=True,
         ),
         Primitive(
             "bollinger_upper",
@@ -275,6 +288,7 @@ def primitives() -> tuple[Primitive, ...]:
             "Band width / mid — the squeeze detector.",
             _bandwidth,
             (_ops.period_param(default=20), k),
+            scale_free=True,
         ),
         Primitive(
             "percent_b",
@@ -282,6 +296,7 @@ def primitives() -> tuple[Primitive, ...]:
             "Position of close within the bands.",
             _percent_b,
             (_ops.period_param(default=20), k),
+            scale_free=True,
         ),
         Primitive(
             "keltner_upper",
@@ -331,6 +346,7 @@ def primitives() -> tuple[Primitive, ...]:
             "Rank of current volatility in its own history.",
             _vol_percentile,
             (_ops.period_param(default=20), IntParam("lookback", 10, 2000, default=252)),
+            scale_free=True,
         ),
         Primitive(
             "vol_of_vol",
@@ -338,6 +354,7 @@ def primitives() -> tuple[Primitive, ...]:
             "Stdev of realized volatility.",
             _vol_of_vol,
             (_ops.period_param(default=20),),
+            scale_free=True,
         ),
         Primitive(
             "chandelier_stop",
@@ -352,5 +369,6 @@ def primitives() -> tuple[Primitive, ...]:
             "Depth-and-duration drawdown measure.",
             _ulcer_index,
             (_ops.period_param(default=14),),
+            scale_free=True,
         ),
     )

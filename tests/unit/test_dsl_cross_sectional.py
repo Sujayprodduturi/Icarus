@@ -414,7 +414,7 @@ universe: nse_liquid_100
 entry:
   all:
     - xs_top_n:
-        expr: {momentum: {n: 5}}
+        expr: {roc: {n: 5}}
         n: 10
     - index_above_ma: {n: 20}
 exit:
@@ -433,7 +433,7 @@ def test_the_cross_sectional_momentum_strategy_parses_and_evaluates() -> None:
     candidate = parse_strategy(_STRATEGY, registry=registry, max_risk_r=0.01)
     assert candidate.sizing.weighting == "inverse_vol_weight"
     assert candidate.sizing.vol_target_pct == pytest.approx(0.15)
-    assert {"xs_top_n", "momentum", "index_above_ma"} <= candidate.primitives_used()
+    assert {"xs_top_n", "roc", "index_above_ma"} <= candidate.primitives_used()
 
     signal = evaluate_universe(candidate.entry, _panel(), registry)
     assert set(signal) == set(SYMBOLS)

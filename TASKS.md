@@ -6,9 +6,27 @@ Phase-by-phase tasks for Claude Code. **Build in order.** Each task lists accept
 
 Legend: `[ ]` todo · `[x]` done (AC demonstrated, tests green) · `MUST`/`SHOULD` per PRD · **V:** = how to verify.
 
-**Progress:** Phase 0 ✅ complete (17/17 incl. v2 hardening) · Phase 1 in progress — data layer (1.1, 1.1b, 1.1c, 1.1d) + CostModel (1.5) + TaxModel (1.6) + the pre-registered stop gate (1.0g) + **the whole Strategy DSL (1.4a, 1.4b, 1.4c)** + the backtester and fill model (1.7, 1.7b) + the panel builder and runner (1.7c, 1.7d) + the core metric battery (1.8, partial) done. **223 primitives**, 641 unit tests, ruff + mypy clean.
+**Progress:** Phase 0 ✅ complete (17/17 incl. v2 hardening) · Phase 1 in progress — data layer (1.1, 1.1b, 1.1c, 1.1d) + CostModel (1.5) + TaxModel (1.6) + the pre-registered stop gate (1.0g) + **the whole Strategy DSL (1.4a, 1.4b, 1.4c)** + the backtester and fill model (1.7, 1.7b) + the panel builder and runner (1.7c, 1.7d) + the core metric battery (1.8, partial) done. **224 primitives**, 778 unit tests, ruff + mypy clean.
+
+**Current work is the post-backtest repair plan**, not the numbered list below. The ranked findings
+and the ordered step list live in `docs/reviews/2026-08-09-post-backtest-audit.md` §6 and §6c;
+decisions live in `OPERATOR.md` §7b/§7c. Step **2a** (units in the strategy vocabulary — finding F1)
+is ✅ done 2026-08-12. Next is **2b** (`longest_lookback` ignores `rank_by` and `exit` — finding F3).
 
 **🔴 THE ENGINE HAS NOW RUN END-TO-END ON REAL DATA (2026-08-07).** 2,962 sessions × 693 point-in-time symbols, 2011-01-03 → 2022-12-30, lockbox untouched. Three pre-registered strategies, **all three FAIL** the pre-registered stop gate:
+
+> ## ⚠️ EVERY NUMBER IN THIS TABLE IS VOID AS OF 2026-08-12. DO NOT QUOTE IT.
+>
+> All three strategies ranked their candidates with `momentum`, which returned the change in
+> **rupees** rather than percent — so they were ordering by share price, not by strength (finding
+> F1). The rule measured and the rule written down were different objects. The word is deleted, all
+> three files are at v2, and **these figures describe strategies nobody wrote.** They stay here
+> because deleting a wrong number hides that it was ever believed.
+>
+> Separately void even for the surviving comparison: the **Nifty CAGR/drawdown line below**. The
+> baseline's 50%-wide stop leaves only ~4% of equity deployed (annual volatility 1.47%), so its CAGR
+> is not comparable to a fully-invested index. The *Sharpe* comparison is roughly fair; the CAGR and
+> drawdown comparison is not, and is scheduled for withdrawal in step 4d (finding F13).
 
 | strategy | trades | OOS Sharpe | 95% CI | mean IS Sharpe | expectancy |
 |---|---|---|---|---|---|

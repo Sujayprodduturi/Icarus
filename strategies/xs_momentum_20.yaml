@@ -1,4 +1,4 @@
-# CROSS-SECTIONAL CONTROL — pre-registered 2026-08-07, before any backtest on this panel.
+# CROSS-SECTIONAL CONTROL — pre-registered 2026-08-07; CORRECTED 2026-08-12 (v1 -> v2).
 #
 # Classic relative-strength: hold the ten strongest names in the universe by 20-session return.
 # Here to exercise the Panel path — point-in-time membership, per-date ranking, the matrix-wise
@@ -6,20 +6,32 @@
 # easiest place for a survivorship bug to hide. It is also a genuinely plausible edge, which is
 # why it is worth a trial rather than a smoke test.
 #
+# WHAT CHANGED IN v2, AND WHY IT IS NOT A POST-HOC RE-TUNE (invariant #25 — a pre-registered rule
+# is not renegotiated once results are in). v1 said `momentum: {n: 20}`, and `momentum` computed
+# the change in RUPEES, not percent. So this file did not hold the ten strongest names; it held
+# the ten whose share price rose by the most rupees — a ₹3,000 stock up 5% outranking a ₹300 one
+# up 40%. On this panel (median price ₹470) that is a standing bet on expensive shares wearing a
+# momentum label. Nothing about the hypothesis, the window, the cohort size or the exits has
+# moved. The only edit makes the file compute what its own first paragraph always claimed, and the
+# word that allowed the confusion no longer exists (finding F1, decision D6).
+#
+# EVERY v1 NUMBER IS VOID, not superseded. The Sharpe of -0.03 measured a rule nobody wrote.
+# v2 is a fresh trial against the trial ledger (invariant #24 — human attempts count too).
+#
 # xs_top_n carries the min_symbols floor: on a date where fewer than 20 names cleared the
 # liquidity gate, ranking is refused rather than computed on a handful.
 name: xs_momentum_20
-version: 1
+version: 2
 timeframe: 1d
 universe: nse_liquid
 
 entry:
   xs_top_n:
-    expr: {momentum: {n: 20}}
+    expr: {roc: {n: 20}}
     n: 10
 
 rank_by:
-  momentum: {n: 20}
+  roc: {n: 20}
 
 exit:
   - stop_loss_atr: {atr_mult: 3.0, atr_period: 14}

@@ -421,6 +421,7 @@ def primitives() -> tuple[Primitive, ...]:
             "Relative volume divided by relative range; above 1 is effort without result.",
             _effort_vs_result,
             (_ops.period_param(default=20),),
+            scale_free=True,
         ),
         # ---- Weinstein ----
         Primitive(
@@ -429,6 +430,7 @@ def primitives() -> tuple[Primitive, ...]:
             "Weinstein stage: 1 basing, 2 advancing, 3 topping, 4 declining.",
             _stage,
             stage_params,
+            scale_free=True,
         ),
         Primitive(
             "stage_basing", Kind.EVENT, "State: Weinstein stage 1.", _stage_basing, stage_params
@@ -488,6 +490,7 @@ def primitives() -> tuple[Primitive, ...]:
             "Fraction below the n-bar high (default 252 bars ~ 52 weeks).",
             _pct_off_high,
             (_ops.period_param(default=_TRADING_DAYS_PER_YEAR),),
+            scale_free=True,
         ),
         Primitive(
             "pct_off_low",
@@ -495,6 +498,7 @@ def primitives() -> tuple[Primitive, ...]:
             "Fraction above the n-bar low (default 252 bars ~ 52 weeks).",
             _pct_off_low,
             (_ops.period_param(default=_TRADING_DAYS_PER_YEAR),),
+            scale_free=True,
         ),
         Primitive(
             "trend_template",

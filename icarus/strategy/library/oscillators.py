@@ -169,7 +169,12 @@ def primitives() -> tuple[Primitive, ...]:
     """Catalogue §4."""
     return (
         Primitive(
-            "rsi", Kind.SERIES, "Wilder-smoothed RSI.", _rsi, (_ops.period_param(default=14),)
+            "rsi",
+            Kind.SERIES,
+            "Wilder-smoothed RSI.",
+            _rsi,
+            (_ops.period_param(default=14),),
+            scale_free=True,
         ),
         Primitive(
             "stoch_k",
@@ -177,6 +182,7 @@ def primitives() -> tuple[Primitive, ...]:
             "Stochastic %K.",
             _stoch_k,
             (_ops.period_param(default=14), IntParam("smooth", 1, 100, default=3)),
+            scale_free=True,
         ),
         Primitive(
             "stoch_d",
@@ -188,6 +194,7 @@ def primitives() -> tuple[Primitive, ...]:
                 IntParam("smooth", 1, 100, default=3),
                 IntParam("signal", 1, 100, default=3),
             ),
+            scale_free=True,
         ),
         Primitive(
             "stoch_rsi",
@@ -195,12 +202,23 @@ def primitives() -> tuple[Primitive, ...]:
             "Stochastic applied to RSI.",
             _stoch_rsi,
             (_ops.period_param(default=14),),
+            scale_free=True,
         ),
         Primitive(
-            "williams_r", Kind.SERIES, "Williams %R.", _williams_r, (_ops.period_param(default=14),)
+            "williams_r",
+            Kind.SERIES,
+            "Williams %R.",
+            _williams_r,
+            (_ops.period_param(default=14),),
+            scale_free=True,
         ),
         Primitive(
-            "cci", Kind.SERIES, "Commodity Channel Index.", _cci, (_ops.period_param(default=20),)
+            "cci",
+            Kind.SERIES,
+            "Commodity Channel Index.",
+            _cci,
+            (_ops.period_param(default=20),),
+            scale_free=True,
         ),
         Primitive(
             "macd",
@@ -212,6 +230,7 @@ def primitives() -> tuple[Primitive, ...]:
                 IntParam("slow", 2, 500, default=26),
                 IntParam("signal", 1, 200, default=9),
             ),
+            scale_free=False,
         ),
         Primitive(
             "macd_signal",
@@ -223,6 +242,7 @@ def primitives() -> tuple[Primitive, ...]:
                 IntParam("slow", 2, 500, default=26),
                 IntParam("signal", 1, 200, default=9),
             ),
+            scale_free=False,
         ),
         Primitive(
             "macd_hist",
@@ -234,6 +254,7 @@ def primitives() -> tuple[Primitive, ...]:
                 IntParam("slow", 2, 500, default=26),
                 IntParam("signal", 1, 200, default=9),
             ),
+            scale_free=False,
         ),
         Primitive(
             "ppo",
@@ -241,6 +262,7 @@ def primitives() -> tuple[Primitive, ...]:
             "MACD in percent — cross-symbol comparable.",
             _ppo,
             (IntParam("fast", 2, 200, default=12), IntParam("slow", 2, 500, default=26)),
+            scale_free=True,
         ),
         Primitive(
             "zscore",
@@ -248,6 +270,7 @@ def primitives() -> tuple[Primitive, ...]:
             "(x - rolling mean) / rolling stdev of any series.",
             _zscore,
             (SeriesParam("series"), _ops.period_param(default=20)),
+            scale_free=True,
         ),
         Primitive(
             "percentile_rank",
@@ -255,6 +278,7 @@ def primitives() -> tuple[Primitive, ...]:
             "Rank of any series within its own trailing window.",
             _percentile_rank,
             (SeriesParam("series"), _ops.period_param(default=100)),
+            scale_free=True,
         ),
         Primitive(
             "distance_from_ma",
@@ -262,9 +286,22 @@ def primitives() -> tuple[Primitive, ...]:
             "(close - SMA) / ATR — ATR-normalised extension.",
             _distance_from_ma,
             (_ops.period_param(default=20), IntParam("atr_period", 2, 200, default=14)),
+            scale_free=True,
         ),
-        Primitive("up_streak", Kind.SERIES, "Consecutive higher closes.", _up_streak),
-        Primitive("down_streak", Kind.SERIES, "Consecutive lower closes.", _down_streak),
+        Primitive(
+            "up_streak",
+            Kind.SERIES,
+            "Consecutive higher closes.",
+            _up_streak,
+            scale_free=True,
+        ),
+        Primitive(
+            "down_streak",
+            Kind.SERIES,
+            "Consecutive lower closes.",
+            _down_streak,
+            scale_free=True,
+        ),
         Primitive(
             "connors_rsi",
             Kind.SERIES,
@@ -275,6 +312,13 @@ def primitives() -> tuple[Primitive, ...]:
                 IntParam("streak_n", 2, 100, default=2),
                 IntParam("rank_n", 2, 500, default=100),
             ),
+            scale_free=True,
         ),
-        Primitive("internal_bar_strength", Kind.SERIES, "(C-L)/(H-L).", _ibs),
+        Primitive(
+            "internal_bar_strength",
+            Kind.SERIES,
+            "(C-L)/(H-L).",
+            _ibs,
+            scale_free=True,
+        ),
     )

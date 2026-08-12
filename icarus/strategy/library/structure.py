@@ -515,6 +515,7 @@ def primitives() -> tuple[Primitive, ...]:
             "HH=2, HL=1, equal=0, LH=-1, LL=-2 for the latest confirmed swing.",
             _swing_sequence,
             (k,),
+            scale_free=True,
         ),
         # ---- structure ----
         Primitive(
@@ -523,6 +524,7 @@ def primitives() -> tuple[Primitive, ...]:
             "+1 bullish (HH+HL), -1 bearish (LH+LL), 0 ranging.",
             _market_structure,
             (k,),
+            scale_free=True,
         ),
         Primitive(
             "structure_bullish",
@@ -693,6 +695,7 @@ def primitives() -> tuple[Primitive, ...]:
             "How far the last sweep below reached, in ATR.",
             _stop_run_extent_low,
             (k, atr_period),
+            scale_free=True,
         ),
         Primitive(
             "stop_run_extent_high",
@@ -700,6 +703,7 @@ def primitives() -> tuple[Primitive, ...]:
             "How far the last sweep above reached, in ATR.",
             _stop_run_extent_high,
             (k, atr_period),
+            scale_free=True,
         ),
         # ---- INTRADAY: defined so they exist in the grammar, refusing on daily bars ----
         Primitive(

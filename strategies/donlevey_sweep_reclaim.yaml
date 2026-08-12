@@ -1,4 +1,13 @@
-# THE THESIS — pre-registered 2026-08-07, before any backtest on this panel had been run.
+# THE THESIS — pre-registered 2026-08-07; rank_by CORRECTED 2026-08-12 (v1 -> v2).
+#
+# v2 changes one line and no part of the thesis. `rank_by` said `momentum: {n: 20}`, and
+# `momentum` returned the change in RUPEES rather than percent — so on a day when more candidates
+# fired than there were slots, the book was filled most-expensive-first instead of strongest-first.
+# The entry rule, the trend filter, the stop, the target and the time stop are untouched, and the
+# word that caused it no longer exists (finding F1, decision D6). This is a bug fix, not a re-tune
+# after seeing results (invariant #25 — a pre-registered rule is not renegotiated once numbers are
+# in); but v1's numbers are void rather than superseded, and v2 is a fresh entry in the trial
+# ledger (invariant #24 — human attempts count as trials too).
 #
 # The distilled Donlevey idea: price runs below a prior swing low, taking out the stops resting
 # there, and then closes back above it within a few bars. The sweep is the liquidity grab; the
@@ -15,7 +24,7 @@
 # donlevey-liquidity-smc.md), NOT tuned on this data. If it fails, the response is a different
 # input — intraday bars, the India-specific feeds — never a re-tuned parameter (invariant #25).
 name: donlevey_sweep_reclaim
-version: 1
+version: 2
 timeframe: 1d
 universe: nse_liquid
 
@@ -27,7 +36,7 @@ entry:
         b: {sma: {n: 200}}
 
 rank_by:
-  momentum: {n: 20}
+  roc: {n: 20}
 
 exit:
   - stop_loss_atr: {atr_mult: 2.0, atr_period: 14}

@@ -164,6 +164,7 @@ def primitives() -> tuple[Primitive, ...]:
             "Average volume over n bars.",
             _volume_sma,
             (_ops.period_param(default=20),),
+            scale_free=False,
         ),
         Primitive(
             "relative_volume",
@@ -171,6 +172,7 @@ def primitives() -> tuple[Primitive, ...]:
             "Volume / its trailing average, excluding today.",
             _relative_volume,
             (_ops.period_param(default=20),),
+            scale_free=True,
         ),
         Primitive(
             "traded_value",
@@ -178,15 +180,29 @@ def primitives() -> tuple[Primitive, ...]:
             "Average rupee turnover — the liquidity filter.",
             _traded_value,
             (_ops.period_param(default=20),),
+            scale_free=True,
         ),
-        Primitive("obv", Kind.SERIES, "On-balance volume.", _obv),
-        Primitive("ad_line", Kind.SERIES, "Accumulation/distribution line.", _ad_line),
+        Primitive(
+            "obv",
+            Kind.SERIES,
+            "On-balance volume.",
+            _obv,
+            scale_free=False,
+        ),
+        Primitive(
+            "ad_line",
+            Kind.SERIES,
+            "Accumulation/distribution line.",
+            _ad_line,
+            scale_free=False,
+        ),
         Primitive(
             "chaikin_money_flow",
             Kind.SERIES,
             "Chaikin money flow.",
             _cmf,
             (_ops.period_param(default=20),),
+            scale_free=True,
         ),
         Primitive(
             "mfi",
@@ -194,6 +210,7 @@ def primitives() -> tuple[Primitive, ...]:
             "Money flow index — volume-weighted RSI.",
             _mfi,
             (_ops.period_param(default=14),),
+            scale_free=True,
         ),
         Primitive(
             "rolling_vwap",
@@ -252,6 +269,7 @@ def primitives() -> tuple[Primitive, ...]:
             "Percent of volume that settled as delivery (India-only, 2011->).",
             _refuses("delivery_pct", "feed values are not threaded into Bars until 1.7"),  # type: ignore[arg-type]
             requires_feed=FEED_DELIVERY,
+            scale_free=True,
         ),
         Primitive(
             "delivery_qty",
@@ -259,6 +277,7 @@ def primitives() -> tuple[Primitive, ...]:
             "Shares that settled as delivery.",
             _refuses("delivery_qty", "feed values are not threaded into Bars until 1.7"),  # type: ignore[arg-type]
             requires_feed=FEED_DELIVERY,
+            scale_free=False,
         ),
         Primitive(
             "fii_net_index_fut",
@@ -266,6 +285,7 @@ def primitives() -> tuple[Primitive, ...]:
             "FII net index-futures position, market-wide.",
             _refuses("fii_net_index_fut", "feed values are not threaded into Bars until 1.7"),  # type: ignore[arg-type]
             requires_feed=FEED_PARTICIPANTS,
+            scale_free=True,
         ),
         Primitive(
             "client_net_index_fut",
@@ -273,6 +293,7 @@ def primitives() -> tuple[Primitive, ...]:
             "Retail net index-futures position — the natural fade.",
             _refuses("client_net_index_fut", "feed values are not threaded into Bars until 1.7"),  # type: ignore[arg-type]
             requires_feed=FEED_PARTICIPANTS,
+            scale_free=True,
         ),
         Primitive(
             "in_fno_ban",
@@ -280,5 +301,6 @@ def primitives() -> tuple[Primitive, ...]:
             "Symbol is in the F&O ban list. A veto, never a signal.",
             _refuses("in_fno_ban", "feed values are not threaded into Bars until 1.7"),  # type: ignore[arg-type]
             requires_feed=FEED_FNO_BAN,
+            scale_free=True,
         ),
     )

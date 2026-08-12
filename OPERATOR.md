@@ -199,6 +199,44 @@ across symbols is nearly always wrong, and it fails silently — it looks like a
 Consequence, accepted: this breaks every existing strategy file that says `momentum`. That is the
 point — those files currently mean something other than what they say.
 
+**Built 2026-08-12 (task 2a). What actually shipped, against the plan above:**
+
+- All three parts done as written. Also added `roc_skip(n, skip)` (finding F22 — 12-1 momentum was
+  inexpressible) and `requires_lt`, so a parameter *pair* that is individually legal and jointly
+  meaningless is refused at parse time rather than returning `nan`.
+- The counts in point 2 were estimates; the real numbers are **93 words that had to declare** and
+  **131 derived** — an `EVENT` is a yes/no and always comparable, a `LEVEL` is a price and never is,
+  so restating that 131 times would have been ceremony and 131 chances to paste the wrong value.
+  Of the 93, **29 came out not-comparable.**
+- All three strategy files are at **v2** and each carries a paragraph saying what changed, why it is
+  a bug fix rather than a post-hoc re-tune (invariant #25), and that **v1's numbers are void rather
+  than superseded**.
+
+**The standard of proof, worth reusing: the split test.** A share split changes a symbol's price and
+share count and nothing else about the company — so it is exactly the transform that separates the
+two classes. Every word claiming to be comparable must come out **unchanged** under it; every word
+denying it must **move**. That second direction matters as much as the first: a flag set to `False`
+"to be safe" silently removes a word from every ranking, and this is what catches it. The sweep
+covers all 76 declared words that can be computed from one symbol's bars, and **14 of 14 deliberate
+re-introductions of the bug were caught**. Nothing weaker would have worked here — a unit test of
+`momentum` passed, and a unit test of `xs_top_n` passed; the defect lived in the join.
+
+**The code review then found three more of the same shape, all fixed before commit** — worth
+recording because two of them were introduced *by this task's own fix*:
+
+- `xs_rank` counted upward from the best (1 = highest) while the simulator fills the book from the
+  largest value down, so ranking by it bought the **weakest** candidates. Refused at parse time.
+  `rank_by` turns out to be the only position a cross-sectional word can occupy, so this retires
+  `xs_rank` (finding F26) — accepted deliberately, because a word that reliably picks the losers is
+  worse than a word nobody can reach, and `xs_percentile` does the job correctly.
+- A mis-declared `requires_lt` pair raised a bare `KeyError` out of the parser, potentially at the
+  first live parse. Now a construction-time refusal like every other `Primitive` check.
+- **The rewritten baseline header claimed a ranking the engine does not perform.** `roc(252)` is
+  `nan` across the whole one-year test window because the warm-up is computed from `entry` only
+  (finding F3), so the control still selects **alphabetically** in every out-of-sample fold. The
+  file now says so in full. This is the danger of correcting a file: the fix was right and the
+  sentence describing it was not, and only re-reading the diff against the engine caught it.
+
 ## 8. Pace and posture
 
 - **Ship fast.** Prefer a working, honest, small thing today over a complete thing next month.

@@ -41,8 +41,15 @@ def _field(name: str) -> Primitive:
         column: Column = getattr(bars, name)
         return column.astype(np.float64, copy=True)
 
+    # None of the five is comparable between symbols: four are prices, and a share count is set by
+    # how the company was capitalised rather than by how much interest it is seeing. The rupee
+    # version of that question is `traded_value`, which is scale-free.
     return Primitive(
-        name=name, kind=Kind.SERIES, summary=f"Raw {name} of each bar.", compute=compute
+        name=name,
+        kind=Kind.SERIES,
+        summary=f"Raw {name} of each bar.",
+        compute=compute,
+        scale_free=False,
     )
 
 
@@ -203,7 +210,29 @@ def _roc(bars: Bars, *, n: int, **_: object) -> Column:
     return _ops.safe_divide(bars.close - past, past) * 100.0
 
 
-def _momentum(bars: Bars, *, n: int, **_: object) -> Column:
+def _roc_skip(bars: Bars, *, n: int, skip: int, **_: object) -> Column:
+    """Percent change from ``n`` bars ago to ``skip`` bars ago — the "12-1" momentum construction.
+
+    Standard cross-sectional momentum measures the twelve-month return but *stops a month short*
+    (Jegadeesh & Titman 1993; Asness, Moskowitz & Pedersen 2013). The skipped month is not a
+    refinement, it is what makes the factor work: the most recent month carries short-horizon
+    reversal, which points the opposite way and cancels much of the signal. Without this word the
+    only expressible form was ``roc(252)``, so a weak result could not be told apart from a
+    faithfully-implemented factor that simply does not pay on NSE (finding F22).
+    """
+    past = _ops.shift(bars.close, n)
+    return _ops.safe_divide(_ops.shift(bars.close, skip) - past, past) * 100.0
+
+
+def _momentum_abs(bars: Bars, *, n: int, **_: object) -> Column:
+    """Change over ``n`` bars **in rupees**.
+
+    Named for its units because the old name — ``momentum`` — did not have them, and three
+    strategies ranked their universe with it believing they were ranking by strength. On this panel
+    (median price ₹470, top 5% above ₹3,748) that is a standing bet on expensive shares. The word
+    survives for within-symbol use, where rupees are the right unit; ``scale_free=False`` is what
+    stops it reaching a cross-section again.
+    """
     return bars.close - _ops.shift(bars.close, n)
 
 
@@ -366,30 +395,68 @@ def primitives() -> tuple[Primitive, ...]:
     """Catalogue §2. Pure — the registry is assembled by the caller, never by import side effect."""
     return (
         *(_field(f) for f in ("open", "high", "low", "close", "volume")),
-        Primitive("typical_price", Kind.SERIES, "(H+L+C)/3.", _typical),
-        Primitive("median_price", Kind.SERIES, "(H+L)/2.", _median_price),
-        Primitive("ohlc4", Kind.SERIES, "(O+H+L+C)/4.", _ohlc4),
+        Primitive("typical_price", Kind.SERIES, "(H+L+C)/3.", _typical, scale_free=False),
+        Primitive("median_price", Kind.SERIES, "(H+L)/2.", _median_price, scale_free=False),
+        Primitive("ohlc4", Kind.SERIES, "(O+H+L+C)/4.", _ohlc4, scale_free=False),
         Primitive(
             "constant",
             Kind.SERIES,
             "A fixed number on every bar — the threshold side of a comparison.",
             _constant,
             (FloatParam("value", -1e9, 1e9),),
+            # Its units are whatever it is compared against, which is usually a price. Refusing it
+            # in a cross-section is right for a second reason anyway: the same number for every
+            # symbol is not an ordering.
+            scale_free=False,
         ),
         Primitive(
-            "sma", Kind.SERIES, "Simple moving average of close.", _sma, (_ops.period_param(),)
+            "sma",
+            Kind.SERIES,
+            "Simple moving average of close.",
+            _sma,
+            (_ops.period_param(),),
+            scale_free=False,
         ),
         Primitive(
-            "ema", Kind.SERIES, "SMA-seeded exponential MA of close.", _ema, (_ops.period_param(),)
+            "ema",
+            Kind.SERIES,
+            "SMA-seeded exponential MA of close.",
+            _ema,
+            (_ops.period_param(),),
+            scale_free=False,
         ),
         Primitive(
-            "wma", Kind.SERIES, "Linearly weighted MA of close.", _wma, (_ops.period_param(),)
+            "wma",
+            Kind.SERIES,
+            "Linearly weighted MA of close.",
+            _wma,
+            (_ops.period_param(),),
+            scale_free=False,
         ),
         Primitive(
-            "hma", Kind.SERIES, "Hull MA — WMA arithmetic, lower lag.", _hma, (_ops.period_param(),)
+            "hma",
+            Kind.SERIES,
+            "Hull MA — WMA arithmetic, lower lag.",
+            _hma,
+            (_ops.period_param(),),
+            scale_free=False,
         ),
-        Primitive("dema", Kind.SERIES, "Double exponential MA.", _dema, (_ops.period_param(),)),
-        Primitive("tema", Kind.SERIES, "Triple exponential MA.", _tema, (_ops.period_param(),)),
+        Primitive(
+            "dema",
+            Kind.SERIES,
+            "Double exponential MA.",
+            _dema,
+            (_ops.period_param(),),
+            scale_free=False,
+        ),
+        Primitive(
+            "tema",
+            Kind.SERIES,
+            "Triple exponential MA.",
+            _tema,
+            (_ops.period_param(),),
+            scale_free=False,
+        ),
         Primitive(
             "kama",
             Kind.SERIES,
@@ -400,6 +467,7 @@ def primitives() -> tuple[Primitive, ...]:
                 IntParam("fast", 2, 100, default=2),
                 IntParam("slow", 2, 500, default=30),
             ),
+            scale_free=False,
         ),
         Primitive(
             "efficiency_ratio",
@@ -407,6 +475,7 @@ def primitives() -> tuple[Primitive, ...]:
             "Net move / summed absolute move. Cheap trend-vs-chop measure.",
             _er,
             (_ops.period_param(),),
+            scale_free=True,
         ),
         Primitive(
             "linreg_slope",
@@ -414,6 +483,9 @@ def primitives() -> tuple[Primitive, ...]:
             "Least-squares slope over n bars.",
             _linreg_slope,
             (_ops.period_param(),),
+            # Rupees per bar. The scale-free cousin is r2, which measures how *cleanly* the window
+            # trends without caring how large the move was in currency.
+            scale_free=False,
         ),
         Primitive(
             "linreg_value",
@@ -421,6 +493,7 @@ def primitives() -> tuple[Primitive, ...]:
             "Fitted regression value at the last bar.",
             _linreg_value,
             (_ops.period_param(),),
+            scale_free=False,
         ),
         Primitive(
             "r2",
@@ -428,14 +501,32 @@ def primitives() -> tuple[Primitive, ...]:
             "Regression R² — how trend-like the window is.",
             _r2,
             (_ops.period_param(),),
+            scale_free=True,
         ),
-        Primitive("roc", Kind.SERIES, "Percent change over n bars.", _roc, (_ops.period_param(),)),
         Primitive(
-            "momentum",
+            "roc",
             Kind.SERIES,
-            "Absolute change over n bars.",
-            _momentum,
+            "Percent change over n bars.",
+            _roc,
             (_ops.period_param(),),
+            scale_free=True,
+        ),
+        Primitive(
+            "roc_skip",
+            Kind.SERIES,
+            "Percent change from n bars ago to skip bars ago — 12-1 momentum.",
+            _roc_skip,
+            (_ops.period_param(), IntParam("skip", 1, _ops.MAX_PERIOD, default=21)),
+            requires_lt=(("skip", "n"),),
+            scale_free=True,
+        ),
+        Primitive(
+            "momentum_abs",
+            Kind.SERIES,
+            "Change over n bars in RUPEES. Not comparable across symbols — see roc.",
+            _momentum_abs,
+            (_ops.period_param(),),
+            scale_free=False,
         ),
         Primitive(
             "adx",
@@ -443,12 +534,23 @@ def primitives() -> tuple[Primitive, ...]:
             "Wilder ADX — trend strength, direction-agnostic.",
             _adx,
             (_ops.period_param(default=14),),
+            scale_free=True,
         ),
         Primitive(
-            "di_plus", Kind.SERIES, "Wilder +DI.", _di_plus, (_ops.period_param(default=14),)
+            "di_plus",
+            Kind.SERIES,
+            "Wilder +DI.",
+            _di_plus,
+            (_ops.period_param(default=14),),
+            scale_free=True,
         ),
         Primitive(
-            "di_minus", Kind.SERIES, "Wilder -DI.", _di_minus, (_ops.period_param(default=14),)
+            "di_minus",
+            Kind.SERIES,
+            "Wilder -DI.",
+            _di_minus,
+            (_ops.period_param(default=14),),
+            scale_free=True,
         ),
         Primitive(
             "aroon_up",
@@ -456,6 +558,7 @@ def primitives() -> tuple[Primitive, ...]:
             "0-100: recency of the n-bar high.",
             _aroon_up,
             (_ops.period_param(default=25),),
+            scale_free=True,
         ),
         Primitive(
             "aroon_down",
@@ -463,6 +566,7 @@ def primitives() -> tuple[Primitive, ...]:
             "0-100: recency of the n-bar low.",
             _aroon_down,
             (_ops.period_param(default=25),),
+            scale_free=True,
         ),
         Primitive(
             "supertrend",
@@ -497,6 +601,7 @@ def primitives() -> tuple[Primitive, ...]:
             "Close from n bars ago (NOT the future-displaced plot).",
             _chikou,
             (_ops.period_param(default=26),),
+            scale_free=False,
         ),
         Primitive(
             "cross_above", Kind.EVENT, "a crosses strictly above b.", _cross_above, _SERIES_PAIR

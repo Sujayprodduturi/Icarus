@@ -651,6 +651,7 @@ def primitives() -> tuple[Primitive, ...]:
             "Mean body-to-range over n bars.",
             _imbalance_ratio,
             (IntParam("n", 2, 200, default=5),),
+            scale_free=True,
         ),
         # ---- blocks ----
         Primitive(
@@ -867,6 +868,7 @@ def primitives() -> tuple[Primitive, ...]:
             "+1/-1/0 from the last two completed higher-timeframe closes.",
             _htf_bias,
             (ChoiceParam("period", ("week", "month"), default="week"),),
+            scale_free=True,
         ),
         # ---- INTRADAY: defined so they exist in the grammar, refusing on daily bars ----
         Primitive(

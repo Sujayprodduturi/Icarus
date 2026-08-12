@@ -345,6 +345,16 @@ class SeriesParam:
 
     name: str
     accepts: tuple[Kind, ...] = (Kind.SERIES, Kind.LEVEL, Kind.CONTEXT)
+    requires_scale_free: bool = False
+    """Refuse an input whose magnitude tracks the symbol's own price.
+
+    See :attr:`Primitive.scale_free` for what that means and why it is not a naming convention.
+
+    Set only where the value is compared **between symbols**. Within one symbol every unit is fine:
+    ``above(close, sma(200))`` compares two rupee quantities on the same instrument and is exactly
+    right. It is the cross-section that breaks — which is why this is a property of the parameter
+    and not of the word supplying it.
+    """
 
     @property
     def required(self) -> bool:
@@ -374,6 +384,16 @@ class Primitive:
     universe and is still an ``EVENT``, so a strategy can use it as a condition. Collapsing the two
     would have forced every cross-sectional word into a kind that cannot be a condition.
 
+    ``scale_free`` says whether comparing this word's output **between two different symbols** is
+    meaningful. A percentage, a ratio, a rank, a bar count and a z-score are all comparable; a rupee
+    quantity is not, because its size tracks the share price rather than the behaviour being
+    measured. Ranking ``close - close[-20]`` across a universe sorts by *price level* wearing a
+    momentum label — the ₹3,000 stock that rose 5% beats the ₹300 one that rose 40% — and the result
+    looks exactly like a working ranker, which is why this had to become a declared property rather
+    than a naming convention. It is **required** for ``SERIES``, ``CONTEXT`` and ``CROSS_SECTIONAL``
+    words and derived for the other two: an ``EVENT`` is a yes/no and always comparable, a ``LEVEL``
+    is a price and never is.
+
     ``intermittent`` says that ``nan`` in this word's output can mean *"no such level exists right
     now"* and not only *"not knowable yet"*. Almost every primitive warms up once and then produces
     a value on every subsequent bar, so a hole in the middle of its output is the fingerprint of a
@@ -392,6 +412,74 @@ class Primitive:
     requires_feed: str | None = None
     intermittent: bool = False
     needs_panel: bool = False
+    requires_lt: tuple[tuple[str, str], ...] = ()
+    """Parameter pairs ``(a, b)`` that must satisfy ``a < b``, checked when the strategy is read.
+
+    Some parameter combinations are individually in range and jointly meaningless — ``roc_skip``
+    with ``skip >= n`` asks for the return over a window that ends before it starts. The honest
+    answer is a refusal, and the range on each parameter alone cannot express it.
+    """
+    unrankable_reason: str | None = None
+    """Why this word may not be used as ``rank_by``, if it may not be. Quoted in the refusal.
+
+    ``rank_by`` means *"a larger value is a better candidate"* — the simulator sorts descending. A
+    word whose own definition promises the opposite ordering is not merely a poor choice there, it
+    silently fills the book with the losers. Declared here rather than listed in the parser so the
+    reason lives beside the computation that causes it.
+    """
+    scale_free: bool | None = None
+    """Never ``None`` after construction — :meth:`__post_init__` resolves or rejects it.
+
+    Typed optional so that "not declared" is representable at the call site and can be *refused*.
+    Every reader treats a falsy value as not-comparable, so the one direction this can fail in is
+    the safe one.
+    """
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "scale_free", self._resolve_scale_free())
+        self._check_requires_lt()
+
+    def _check_requires_lt(self) -> None:
+        """Catch a mis-declared pair when the word is built, not when a strategy first uses it.
+
+        Without this, naming a parameter that does not exist (or a nested series, which has no
+        scalar to compare) surfaces as a bare ``KeyError`` from inside ``parse_strategy`` — and only
+        for a strategy that happens to use this primitive, which could be the first one parsed in
+        production. Everything else about a ``Primitive`` is now validated here; this belongs too.
+        """
+        scalars = {spec.name for spec in self.params if not isinstance(spec, SeriesParam)}
+        for pair in self.requires_lt:
+            unknown = [name for name in pair if name not in scalars]
+            if unknown:
+                raise DslError(
+                    f"primitive {self.name!r} declares requires_lt={pair} but {unknown} "
+                    f"{
+                        'is not a scalar parameter'
+                        if len(unknown) == 1
+                        else 'are not scalar parameters'
+                    } of it; it accepts {sorted(scalars)}"
+                )
+
+    def _resolve_scale_free(self) -> bool:
+        derived = {Kind.EVENT: True, Kind.LEVEL: False}.get(self.kind)
+        if derived is None:
+            if self.scale_free is None:
+                raise DslError(
+                    f"primitive {self.name!r} is a {self.kind} word and must declare "
+                    f"scale_free=True or scale_free=False. It says whether comparing this number "
+                    f"between two symbols is meaningful — a percentage or a ratio yes, a rupee "
+                    f"amount no. There is no safe default: guessing True lets a price-denominated "
+                    f"quantity be ranked across the universe, which sorts by share price while "
+                    f"looking like it sorts by the thing you named."
+                )
+            return self.scale_free
+        if self.scale_free is not None and self.scale_free is not derived:
+            raise DslError(
+                f"primitive {self.name!r} declares scale_free={self.scale_free} but a "
+                f"{self.kind} word is always {derived}: a yes/no compares across symbols, a "
+                f"price never does."
+            )
+        return derived
 
     def spec(self, name: str) -> ParamSpec | None:
         return next((p for p in self.params if p.name == name), None)
@@ -634,6 +722,11 @@ def _rank_by(node: object, ctx: _Context) -> Call | None:
     A yes/no here would sort every candidate into two buckets and leave the choice *within* the
     winning bucket exactly as arbitrary as it was without a ranking, while looking like it had been
     resolved.
+
+    ``rank_by`` decides which of the day's candidates get the limited slots, so it is a comparison
+    *between symbols* and carries the same scale-free requirement as ``xs_*``. This is the second
+    half of finding F1: all three shipped strategies said ``rank_by: momentum``, so even the ones
+    that were not cross-sectional at entry were filling the book price-first.
     """
     if node is None:
         return None
@@ -644,6 +737,10 @@ def _rank_by(node: object, ctx: _Context) -> Call | None:
             f"rather than a number. Ranking needs an ordering — a boolean only re-splits the "
             f"candidates into two groups and leaves the choice inside the winning one arbitrary."
         )
+    primitive = ctx.registry.get(call.primitive)
+    if primitive.unrankable_reason:
+        raise DslError(f"rank_by: {call.primitive!r} may not rank — {primitive.unrankable_reason}")
+    _assert_scale_free(call, ctx, where="rank_by")
     return call
 
 
@@ -776,10 +873,39 @@ def _resolve_params(
                     f"{where}.{spec.name}: {child.primitive!r} is a {child.kind} primitive but "
                     f"a {' or '.join(spec.accepts)} is required here"
                 )
+            if spec.requires_scale_free:
+                _assert_scale_free(child, ctx, where=f"{where}.{spec.name}")
             nested[spec.name] = child
         else:
             literals[spec.name] = spec.validate(value, where=where)  # type: ignore[assignment]
+
+    for lower, upper in primitive.requires_lt:
+        if not literals[lower] < literals[upper]:  # type: ignore[operator]
+            raise DslError(
+                f"{where}: {lower}={literals[lower]} must be less than {upper}={literals[upper]}. "
+                f"Both are individually in range but the pair describes nothing computable."
+            )
     return literals, nested
+
+
+def _assert_scale_free(call: Call, ctx: _Context, *, where: str) -> None:
+    """Refuse to compare a price-denominated quantity between symbols (finding F1).
+
+    Rejected at parse time rather than warned about at run time because the wrong version computes
+    perfectly happily: ``xs_top_n(momentum(20), 10)`` returns ten names every day, all the machinery
+    downstream works, and the only symptom is that the ten names are the expensive ones. A backtest
+    like that is not a failed strategy, it is a *plausible* one — and it took a full result set and
+    an audit to notice. The one place it can be caught for free is when the words are read.
+    """
+    if ctx.registry.get(call.primitive).scale_free:
+        return
+    raise DslError(
+        f"{where}: {call.primitive!r} is denominated in the symbol's own price (or share count), "
+        f"so comparing it between symbols compares price levels, not behaviour — a ₹3,000 stock "
+        f"that rose 5% would outrank a ₹300 one that rose 40%. Use the scale-free form: 'roc' or "
+        f"'roc_skip' for return, 'natr' for volatility, 'ppo' for MACD, 'relative_volume' for "
+        f"volume, or wrap it in 'zscore'/'percentile_rank' to normalise against its own history."
+    )
 
 
 def _default_of(spec: ParamSpec) -> int | float | str:

@@ -26,7 +26,7 @@ Everything below reduces to five shapes. This typology is the spine of `dsl.py`.
 | **Level** | bars → one *price* per bar | `swing_high(5)`, `donchian_upper(20)`, `vwap()`, `order_block_top()` |
 | **Event** | bars → true/false per bar | `bos_up()`, `swept_and_reclaimed_low(20)`, `cross_above(a, b)` |
 | **Context** | external feed → one value per bar | `regime()`, `delivery_pct()`, `fii_index_long_ratio()`, `news_veto()` |
-| **Cross-sectional** | *universe* of bars → rank/score per symbol per bar | `xs_rank(momentum(126))`, `xs_zscore(...)` |
+| **Cross-sectional** | *universe* of bars → rank/score per symbol per bar | `xs_rank(roc(126))`, `xs_zscore(...)` |
 
 The first four are per-symbol and the backtester can evaluate them one symbol at a time.
 **Cross-sectional is different in kind** — it needs every symbol's bar *t* before it can score any
@@ -110,7 +110,7 @@ the connective tissue almost every other school builds on.
 | `dema(n)`, `tema(n)` | Series | READY | Low priority. |
 | `kama(n)`, `vidya(n)` | Series | READY | Adaptive MAs — period responds to efficiency ratio. Genuinely different behaviour, worth having. |
 | `linreg_slope(n)`, `linreg_value(n)`, `r2(n)` | Series | READY | Regression channel maths. `r2` doubles as a trendiness measure. |
-| `roc(n)`, `momentum(n)` | Series | READY | Percentage / absolute change over n bars. The atom of every momentum strategy. |
+| `roc(n)`, `roc_skip(n, skip)`, `momentum_abs(n)` | Series | READY | Percentage change over n bars; the same skipping the most recent `skip` bars (12-1 momentum); and the rupee-denominated form. **Renamed 2026-08-12** — `momentum` meant the rupee version and was being ranked across symbols, which ranks share price (finding F1). `momentum_abs` is `scale_free=False`, so the cross-sectional words now refuse it. |
 | `cross_above(a, b)`, `cross_below(a, b)` | Event | READY | The MA-cross primitive. Must be strict (`a[t-1] <= b[t-1] and a[t] > b[t]`) so a flat touch is not a cross. |
 | `slope_positive(series, n)` | Event | READY | Sign of `linreg_slope`. |
 | `efficiency_ratio(n)` | Series | READY | Kaufman: net move ÷ sum of absolute moves. A clean, cheap trend-vs-chop measure. Underrated. |

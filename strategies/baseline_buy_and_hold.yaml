@@ -1,7 +1,20 @@
-# BASELINE — pre-registered 2026-08-07, before any backtest on this panel had been run.
+# BASELINE — pre-registered 2026-08-07; rank_by CORRECTED 2026-08-12 (v1 -> v2).
+#
+# v2 changes one line. `rank_by` said `momentum: {n: 252}`, which returned the change in RUPEES
+# rather than percent, so the order was by price level. `roc` is the percentage form (finding F1,
+# decision D6). v1's numbers are void; v2 is a fresh trial.
+#
+# ⚠️ AND THE CORRECTION IS STILL INERT HERE, until finding F3 is fixed in step 2b. `longest_lookback`
+# reads integer literals from `entry` only. This entry is `above(close, constant(0.0))`, which has
+# none, so the warm-up computes as **0** — while `roc(252)` needs 252 sessions. The fold span is
+# therefore sliced with no lead-in, the ranker is `nan` across the whole one-year test window, every
+# candidate ties, and the sort falls through to the symbol name. **In every out-of-sample fold this
+# control selects alphabetically.** That is not what the paragraph below wants and it is not what
+# this file says; it is recorded here rather than quietly left for the next reader to discover.
+# Do not re-run the baseline for a number that means anything until 2b lands.
 #
 # Not a strategy. A control. It buys whatever the universe offers, ranked by 252-session
-# momentum so the choice is deterministic rather than alphabetical, and then holds until a 50%
+# return so the choice is deterministic rather than alphabetical, and then holds until a 50%
 # stop or the end of the fold. Its job is to answer two questions no clever strategy can:
 #
 #   1. Does the machinery work end to end on real prices? A baseline that returns nothing, or
@@ -12,7 +25,7 @@
 # The 50% stop is the widest the DSL allows and is here because invariant #16 requires every
 # position to carry a protective stop. It is not a risk rule; it is the floor under one.
 name: baseline_buy_and_hold
-version: 1
+version: 2
 timeframe: 1d
 universe: nse_liquid
 
@@ -25,7 +38,7 @@ entry:
     b: {constant: {value: 0.0}}
 
 rank_by:
-  momentum: {n: 252}
+  roc: {n: 252}
 
 exit:
   - stop_loss_pct: {pct: 0.5}

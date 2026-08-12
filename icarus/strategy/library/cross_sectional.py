@@ -73,12 +73,18 @@ def _min_symbols_param() -> IntParam:
 
 
 def _expr() -> SeriesParam:
-    """What to rank by — any per-symbol expression in the vocabulary.
+    """What to rank by — any **scale-free** per-symbol expression in the vocabulary.
 
     Nested rather than a fixed list of rankable quantities, which is what makes one word cover
-    ``xs_rank(momentum(126))``, ``xs_rank(delivery_pct())`` and everything else at once.
+    ``xs_rank(roc(126))``, ``xs_rank(delivery_pct())`` and everything else at once.
+
+    ``requires_scale_free`` is the fix for finding F1, and the reason the example above says ``roc``
+    where it used to say ``momentum``. Every word here sorts the universe, and sorting a rupee
+    quantity sorts by share price. The check happens at parse time because the broken version *runs*
+    perfectly: ``xs_top_n(momentum(20), 10)`` returned ten names a day for fifteen years, and the
+    only tell was that they were the expensive ten.
     """
-    return SeriesParam("expr")
+    return SeriesParam("expr", requires_scale_free=True)
 
 
 # --------------------------------------------------------------------------------------
@@ -334,6 +340,17 @@ def primitives() -> tuple[Primitive, ...]:
             _xs_rank,
             (_expr(), floor),
             needs_panel=True,
+            scale_free=True,
+            # rank_by is the only position a CROSS_SECTIONAL word can occupy, so this refusal
+            # retires xs_rank rather than narrowing it (finding F26). Kept deliberately: a word
+            # that reliably picks the losers is worse than a word nobody can reach, and
+            # xs_percentile answers the same question with the ordering the simulator expects.
+            unrankable_reason=(
+                "it counts upward from the best (1 = highest), while rank_by fills the book from "
+                "the largest value down. The two orderings are opposite, so ranking by xs_rank "
+                "quietly buys the weakest candidates. Use xs_percentile, where 1.0 = best and the "
+                "orderings agree, or rank on the underlying expression directly"
+            ),
         ),
         Primitive(
             "xs_percentile",
@@ -342,6 +359,7 @@ def primitives() -> tuple[Primitive, ...]:
             _xs_percentile,
             (_expr(), floor),
             needs_panel=True,
+            scale_free=True,
         ),
         Primitive(
             "xs_zscore",
@@ -350,6 +368,7 @@ def primitives() -> tuple[Primitive, ...]:
             _xs_zscore,
             (_expr(), floor),
             needs_panel=True,
+            scale_free=True,
         ),
         Primitive(
             "xs_demean",
@@ -358,6 +377,7 @@ def primitives() -> tuple[Primitive, ...]:
             _xs_demean,
             (_expr(), floor),
             needs_panel=True,
+            scale_free=True,
         ),
         Primitive(
             "xs_top_n",
@@ -386,6 +406,7 @@ def primitives() -> tuple[Primitive, ...]:
             ),
             (_expr(), floor),
             needs_panel=True,
+            scale_free=True,
         ),
         # ---- breadth ----
         Primitive(
@@ -395,6 +416,7 @@ def primitives() -> tuple[Primitive, ...]:
             _breadth_pct_above_ma,
             (_ops.period_param(default=50), floor),
             needs_panel=True,
+            scale_free=True,
         ),
         Primitive(
             "advance_decline_ratio",
@@ -403,6 +425,7 @@ def primitives() -> tuple[Primitive, ...]:
             _advance_decline_ratio,
             (floor,),
             needs_panel=True,
+            scale_free=True,
         ),
         Primitive(
             "new_highs_minus_new_lows",
@@ -411,6 +434,7 @@ def primitives() -> tuple[Primitive, ...]:
             _new_highs_minus_new_lows,
             (_ops.period_param(default=252), floor),
             needs_panel=True,
+            scale_free=True,
         ),
         # ---- versus the benchmark ----
         Primitive(
@@ -420,6 +444,7 @@ def primitives() -> tuple[Primitive, ...]:
             _relative_strength,
             (_ops.period_param(default=126),),
             needs_panel=True,
+            scale_free=True,
         ),
         Primitive(
             "index_above_ma",
@@ -436,6 +461,7 @@ def primitives() -> tuple[Primitive, ...]:
             _benchmark_return,
             (_ops.period_param(default=126),),
             needs_panel=True,
+            scale_free=True,
         ),
         Primitive(
             "beta_to",
@@ -444,6 +470,7 @@ def primitives() -> tuple[Primitive, ...]:
             _beta_to,
             (_ops.period_param(default=126),),
             needs_panel=True,
+            scale_free=True,
         ),
         Primitive(
             "correlation_to",
@@ -452,6 +479,7 @@ def primitives() -> tuple[Primitive, ...]:
             _correlation_to,
             (_ops.period_param(default=126),),
             needs_panel=True,
+            scale_free=True,
         ),
     )
 
