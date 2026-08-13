@@ -83,9 +83,21 @@ never have to look a reference up to follow a sentence.
 - **No session link in commit messages.** Co-author trailer is fine.
 - Repo: `Sujayprodduturi/Icarus`.
 - ⚠️ **Line endings:** the repo is mixed CRLF/LF with `core.autocrlf=false` and no `.gitattributes`.
-  Writing files with Python's `write_text` silently converts CRLF→LF and produces enormous phantom
-  diffs. **Use the Write/Edit tools, not Python file writes.** Verify with
-  `git diff --ignore-cr-at-eol --quiet <file>` before committing.
+  Python's `read_text` converts CRLF→LF on the way *in* (universal newlines), so even
+  `write_bytes(text.encode())` rewrites the whole file. **Use the Write/Edit tools, not Python file
+  writes.** If a script really is the right tool, it must read *and* write bytes and never touch
+  `read_text`.
+- ⚠️ **The check for it.** `git diff --ignore-cr-at-eol --quiet <file>` only catches a file whose
+  *only* change is line endings; a file with both real edits and a mangled ending passes it. The
+  check that actually works compares the two line counts:
+
+  ```sh
+  diff <(git diff --numstat) <(git diff --ignore-cr-at-eol --numstat)
+  ```
+
+  Any file where they disagree has had its endings rewritten. *(Added 2026-08-13 after task 2b
+  turned a 120-line change into a 4,700-line diff across `dsl.py`, `trend.py`, `volume.py` and
+  `TASKS.md` — caught before commit, but only by reading `--stat` and thinking it looked wrong.)*
 
 ## 5. Before committing code
 
@@ -236,6 +248,31 @@ recording because two of them were introduced *by this task's own fix*:
   (finding F3), so the control still selects **alphabetically** in every out-of-sample fold. The
   file now says so in full. This is the danger of correcting a file: the fix was right and the
   sentence describing it was not, and only re-reading the diff against the engine caught it.
+
+### The `longest_lookback` fix — built 2026-08-13 (task 2b, findings F3 and F28)
+
+Approved as: widen the scope from `entry` alone to `entry` + `rank_by` + `exit`, and let a word
+declare that its history requirement cannot be bounded so a strategy using it is refused. Both
+shipped. Two things came out differently and are worth keeping:
+
+- **`psar` is not what I twice said it was.** I first marked it "no finite lead-in works"; the test
+  disproved that. I then called it "settles after ~500 sessions"; the test disproved that too. What
+  it actually does is **oscillate** — matching full history at 300 sessions of lead-in, missing at
+  700, matching again at 900 — because its acceleration factor resets at whichever trend reversal
+  falls first in the slice. The flag was renamed from `unbounded_lookback` to `opaque_lookback` to
+  say the true thing: nothing in the word tells the engine how much history to grant it. **The
+  general lesson is the one from task 2a: measure the property, do not declare it.** A declaration
+  is a claim; only a measurement is evidence, and here the measurement was right twice when I was
+  not.
+
+- **A bigger finding fell out (F29), left open on purpose.** The lead-in a word is granted is its own
+  widest parameter, and for **111 of ~180** words that is too little. Recursive words are the worst:
+  given exactly 14 sessions, `rsi(14)` is **32% out** on the first bar of a span and `macd` is **41%
+  out**. The count is pinned by a test so it cannot grow quietly. The likely fix is small and
+  structural — **the lead-in and the purge are the same number today and should not be.** Reading
+  extra history before a span is not leakage (a live strategy would have had it) so a lead-in can be
+  generous almost for free; a purge costs folds and should stay tight. Not built, because it moves
+  every number and that is an operator call.
 
 ## 8. Pace and posture
 

@@ -101,7 +101,10 @@ def test_the_rupee_form_survives_under_a_name_that_says_so() -> None:
         "{atr: {n: 14}}",  # a price range
         "{macd: {}}",  # an EMA difference, in rupees
         "{volume: {}}",  # a share count
-        "{obv: {}}",  # cumulative share count
+        "{volume_sma: {n: 20}}",  # an averaged share count
+        # `obv` would belong here too and is deliberately absent: as of task 2b it is refused a
+        # step earlier, for depending on history no lead-in can supply (finding F28). A test that
+        # passes for the wrong reason is not a test.
     ],
 )
 def test_xs_top_n_refuses_an_expression_that_is_not_comparable_across_symbols(expr: str) -> None:

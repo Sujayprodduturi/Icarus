@@ -56,7 +56,7 @@ from icarus.common.logging import get_logger
 from icarus.strategy.dsl import Bars, Composite, DslError, Panel
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Sequence
+    from collections.abc import Iterator, Mapping, Sequence
 
     from icarus.common.config import Backtest as BacktestConfig
     from icarus.common.config import DataSplit
@@ -100,13 +100,33 @@ class Window:
 def longest_lookback(strategy: StrategyCandidate) -> int:
     """The widest window the strategy could be looking back over, as a session count.
 
-    **Deliberately over-inclusive**: it takes the largest integer literal anywhere in the tree,
+    **Deliberately over-inclusive**: it takes the largest integer literal anywhere in the strategy,
     rather than trying to recognise which parameters are lookbacks. Parameter names are not a
     reliable signal (``n``, ``k``, ``period``, ``slope_n``, ``search``, ``legs``…), and the failure
     modes are wildly asymmetric — purging a few sessions too many costs a little data, while
     missing one lets the training window leak into the test window with no symptom at all.
+
+    **Reads all three blocks, not just ``entry`` (finding F3).** It used to read ``entry`` alone,
+    which was wrong twice over: ``rank_by`` decides which candidates get the scarce slots, and an
+    ``exit`` rule carries the ATR period that sizes the stop. Both are computed over the same span
+    and both need the same history. The live casualty was ``baseline_buy_and_hold``, whose entry is
+    "price is above zero" and therefore contains no integer at all: it was granted a **zero**
+    lead-in while its ``rank_by`` asked for ``roc(252)``, so its ranker was ``nan`` across the whole
+    one-year test window, every candidate tied, and the sort fell through to the symbol name. The
+    control built to prove the machinery works was selecting alphabetically.
+
+    ``exit`` contributes some integers that are not lookbacks at all — ``time_stop(bars: 20)`` is a
+    holding period. That is the over-inclusive policy working as intended, not an oversight.
     """
-    return max(_integer_literals(strategy.entry), default=0)
+    return max(_strategy_integers(strategy), default=0)
+
+
+def _strategy_integers(strategy: StrategyCandidate) -> Iterator[int]:
+    yield from _integer_literals(strategy.entry)
+    if strategy.rank_by is not None:
+        yield from _integer_literals(strategy.rank_by)
+    for rule in strategy.exits:
+        yield from _whole_numbers(rule.literals)
 
 
 def _integer_literals(node: Condition) -> Iterator[int]:
@@ -114,11 +134,16 @@ def _integer_literals(node: Condition) -> Iterator[int]:
         for term in node.terms:
             yield from _integer_literals(term)
         return
-    for value in node.literals.values():
-        if isinstance(value, int) and not isinstance(value, bool):
-            yield value
+    yield from _whole_numbers(node.literals)
     for child in node.nested.values():
         yield from _integer_literals(child)
+
+
+def _whole_numbers(literals: Mapping[str, int | float | str]) -> Iterator[int]:
+    """``bool`` is an ``int`` in Python, and a flag set to ``True`` is not a one-bar lookback."""
+    for value in literals.values():
+        if isinstance(value, int) and not isinstance(value, bool):
+            yield value
 
 
 def walk_forward_windows(

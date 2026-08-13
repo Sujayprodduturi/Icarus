@@ -185,16 +185,22 @@ def primitives() -> tuple[Primitive, ...]:
         Primitive(
             "obv",
             Kind.SERIES,
-            "On-balance volume.",
+            "On-balance volume. Cumulative from bar one — no lead-in reproduces it.",
             _obv,
             scale_free=False,
+            # A running total from the first bar of whatever series it is handed, so slicing the
+            # panel at a fold boundary shifts it by however much was cut off. Measured at two
+            # lead-ins, the zero it would be granted and a generous 900: it disagrees with full
+            # history at both, on all three test series.
+            opaque_lookback=True,
         ),
         Primitive(
             "ad_line",
             Kind.SERIES,
-            "Accumulation/distribution line.",
+            "Accumulation/distribution line. Cumulative from bar one — no lead-in reproduces it.",
             _ad_line,
             scale_free=False,
+            opaque_lookback=True,  # same running-total shape as obv
         ),
         Primitive(
             "chaikin_money_flow",

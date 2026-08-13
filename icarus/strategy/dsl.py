@@ -373,9 +373,10 @@ class SeriesParam:
 class Primitive:
     """One word in the vocabulary: its name, its parameter rules, and how it computes itself.
 
-    ``intraday_only``, ``requires_feed``, ``intermittent`` and ``needs_panel`` are the honesty
-    flags. They are declared here — beside the computation — precisely so that adding a primitive
-    cannot forget them.
+    ``intraday_only``, ``requires_feed``, ``intermittent``, ``needs_panel``, ``scale_free``,
+    ``opaque_lookback`` and ``unrankable_reason`` are the honesty flags. They are declared here —
+    beside the computation — precisely so that adding a primitive cannot forget them. Each one
+    exists because a word once claimed something it could not deliver and nothing caught it.
 
     ``needs_panel`` says the word cannot be computed from one symbol's bars at all: it is handed a
     :class:`Panel` instead of :class:`Bars`, computes the whole universe at once, and returns either
@@ -418,6 +419,31 @@ class Primitive:
     Some parameter combinations are individually in range and jointly meaningless — ``roc_skip``
     with ``skip >= n`` asks for the return over a window that ends before it starts. The honest
     answer is a refusal, and the range on each parameter alone cannot express it.
+    """
+    opaque_lookback: bool = False
+    """How much history this word needs cannot be read off its parameters (finding F28).
+
+    The backtester simulates a span by reading some sessions of history in front of it, and it
+    sizes that lead-in from the largest integer in the strategy. For most words that is a fair
+    reading — a 20-session average is written ``sma(20)``. These three defeat it outright, and all
+    three are granted a lead-in of **zero**:
+
+    * ``obv`` and ``ad_line`` are running totals from the first bar. There is no finite lead-in
+      that reproduces them, at any size.
+    * ``psar`` does not converge as history grows — it *oscillates*, matching full history at 300
+      sessions of lead-in, missing at 700, matching again at 900, because its acceleration factor
+      resets at whichever trend reversal falls first in the slice. And both its parameters are
+      decimals, so the largest-integer rule finds no number in it at all.
+
+    Measured rather than assumed; ``test_dsl_lookback.py`` derives both facts and would fail if a
+    word were marked here without deserving it. Refused at parse time rather than warned about,
+    because the failure is invisible: the word returns a full column of plausible numbers either
+    way, and only a side-by-side run against full history shows the difference.
+
+    **This is the extreme end of a wider problem, not the whole of it (finding F29).** About a
+    hundred other words also need more history than their own widest parameter — recursive ones
+    like ``rsi`` and ``macd`` most of all. They are granted *something*, which is why they are not
+    refused here, and the general fix is a separate decision.
     """
     unrankable_reason: str | None = None
     """Why this word may not be used as ``rank_by``, if it may not be. Quoted in the refusal.
@@ -843,6 +869,14 @@ def _assert_available(primitive: Primitive, ctx: _Context, *, where: str) -> Non
             f"{where}: {primitive.name!r} needs the {primitive.requires_feed!r} feed, which is not "
             f"available. It refuses rather than defaulting — a filter that silently passes "
             f"everything reports an edge that depended on a filter which was not running."
+        )
+    if primitive.opaque_lookback:
+        raise DslError(
+            f"{where}: nothing in {primitive.name!r} says how much history it needs, so the "
+            f"backtester grants it whatever its widest whole-number parameter says — which for "
+            f"this word is not what it needs — and each fold computes a different number from the "
+            f"same bars, every one of them plausible. Rewriting it as a change over a fixed "
+            f"window would be safe, but the DSL has no series arithmetic yet (finding F22)."
         )
 
 

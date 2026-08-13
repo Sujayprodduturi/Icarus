@@ -578,12 +578,20 @@ def primitives() -> tuple[Primitive, ...]:
         Primitive(
             "psar",
             Kind.LEVEL,
-            "Parabolic SAR — stateful, forward-only.",
+            "Parabolic SAR — stateful, forward-only. No lead-in reproduces it.",
             _psar,
             (
                 FloatParam("step", 0.001, 0.5, default=0.02),
                 FloatParam("maximum", 0.01, 1.0, default=0.2),
             ),
+            # Doubly unreachable by the lead-in heuristic. Its acceleration factor is carried
+            # forward through an entire trend, so the state at any bar depends on where the last
+            # reversal was — a distance nothing bounds; and both its parameters are decimals, so
+            # the largest-integer rule sees no number at all and would grant it a lead-in of zero.
+            # Measured: it does not drift steadily toward the right answer, it oscillates —
+            # matching full history at 300 sessions of lead-in, missing at 700, matching again at
+            # 900. So no lead-in can be named and defended.
+            opaque_lookback=True,
         ),
         Primitive(
             "ichimoku_tenkan",

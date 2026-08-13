@@ -4,14 +4,13 @@
 # rather than percent, so the order was by price level. `roc` is the percentage form (finding F1,
 # decision D6). v1's numbers are void; v2 is a fresh trial.
 #
-# ⚠️ AND THE CORRECTION IS STILL INERT HERE, until finding F3 is fixed in step 2b. `longest_lookback`
-# reads integer literals from `entry` only. This entry is `above(close, constant(0.0))`, which has
-# none, so the warm-up computes as **0** — while `roc(252)` needs 252 sessions. The fold span is
-# therefore sliced with no lead-in, the ranker is `nan` across the whole one-year test window, every
-# candidate ties, and the sort falls through to the symbol name. **In every out-of-sample fold this
-# control selects alphabetically.** That is not what the paragraph below wants and it is not what
-# this file says; it is recorded here rather than quietly left for the next reader to discover.
-# Do not re-run the baseline for a number that means anything until 2b lands.
+# FIXED 2026-08-13 in step 2b (finding F3). Between v2 and now this correction was inert: the
+# lead-in was computed from `entry` alone, this entry is `above(close, constant(0.0))` which holds
+# no number at all, so the engine granted **0** sessions of history while `roc(252)` needs 252. The
+# ranker was `nan` across the whole one-year test window, every candidate tied, and the sort fell
+# through to the symbol name — the control selected alphabetically in every out-of-sample fold.
+# `longest_lookback` now reads `rank_by` and `exit` too. Cost: the wider purge drops this strategy
+# from 8 folds to 7.
 #
 # Not a strategy. A control. It buys whatever the universe offers, ranked by 252-session
 # return so the choice is deterministic rather than alphabetical, and then holds until a 50%

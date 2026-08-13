@@ -117,7 +117,7 @@ the connective tissue almost every other school builds on.
 | `adx(n)`, `di_plus(n)`, `di_minus(n)` | Series | READY | Wilder's directional movement. ADX is the canonical "is there a trend" filter. |
 | `aroon_up(n)`, `aroon_down(n)` | Series | READY | Bars since the n-bar high/low. Structurally similar to Donchian. |
 | `supertrend(n, mult)` | Series+Level | READY | ATR-banded trailing trend line. Very widely used in Indian retail algos specifically. |
-| `psar(step, max)` | Level | READY | Parabolic SAR. Stateful — must be computed forward-only, which is a good test of our no-look-ahead discipline. |
+| `psar(step, max)` | Level | **REFUSED 2026-08-13** | Parabolic SAR. Stateful and forward-only, which was meant to be a good test of our no-look-ahead discipline — and it was, but it failed a different one. Its value depends on where the last trend reversal fell, so cutting history changes it *without* converging as the cut moves back (matches at 300 sessions of lead-in, misses at 700, matches at 900); and both parameters are decimals, so the lead-in rule finds no number in it and grants zero. `opaque_lookback=True` (finding F28). |
 | `ichimoku_*` (tenkan, kijun, senkou A/B, chikou) | Level | READY | Displaced averages. **The chikou span is displaced *backwards* — a naive implementation is a look-ahead bug.** Worth having precisely because it forces the guard. |
 
 ## 3. Volatility, range and risk
@@ -166,8 +166,9 @@ the connective tissue almost every other school builds on.
 |---|---|---|---|
 | `volume_sma(n)`, `relative_volume(n)` | Series | READY | Today's volume ÷ average. |
 | `dollar_volume(n)` / `traded_value(n)` | Series | READY | **Our liquidity filter.** Rupee turnover, not share count — the only honest cross-symbol liquidity measure. Feeds the capacity model (1.8b). |
-| `obv()` | Series | READY | On-balance volume. |
-| `ad_line()`, `chaikin_money_flow(n)` | Series | READY | |
+| `obv()` | Series | **REFUSED 2026-08-13** | On-balance volume. A running total from bar one, so no lead-in of any size reproduces it once the panel is sliced at a fold boundary. `opaque_lookback=True` (finding F28). Usable again if the DSL gains series arithmetic (F22), since the *difference* of a running total over a fixed window is well defined. |
+| `chaikin_money_flow(n)` | Series | READY | |
+| `ad_line()` | Series | **REFUSED 2026-08-13** | Same running-total shape as `obv`. `opaque_lookback=True` (finding F28). |
 | `mfi(n)` | Series | READY | Volume-weighted RSI. |
 | `vwap()` | Level | READY *(session-anchored: INTRADAY)* | On daily bars only a rolling/anchored VWAP is honest; true intraday session VWAP needs Phase 2 data. **Two distinct primitives, not one.** |
 | `anchored_vwap(anchor_event)` | Level | READY | Anchored to a swing point or event. Daily-computable. |
