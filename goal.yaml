@@ -130,6 +130,34 @@ backtest:
   # and wasteful for another, and the too-small case fails silently.
   embargo_sessions: 5
   starting_equity_inr: 100000      # the sim's book size; NOT the live seed tier (that is Phase 2)
+  # Added 2026-08-14 (task 2c, finding F4). Before this, a position whose symbol stopped printing
+  # bars was carried forever: never closed, never counted, its capital neither lost nor gained,
+  # and its slot held for the rest of the fold. Measured on the current panel: 71 times a symbol
+  # is tradable one session and dark the next, 53 of those staying dark 60+ sessions, one for
+  # 2,840. 20 sessions is about a calendar month -- long enough that an ordinary trading halt
+  # resolves, short enough that a delisting does not hold a seat for years.
+  #
+  # This number carries its OWN dated log rather than riding on `registered: 2026-08-05` above.
+  # The first draft argued it was safe to sit inside the registered block because neither
+  # direction flatters a result. That was wrong: writing a dead holding off sooner frees a slot
+  # sooner, and in a book that discards 94-99.99% of its signals for want of a slot, that changes
+  # which later signals are taken. It is result-affecting and editable, which is precisely the
+  # shape invariant #25 covers -- so it gets the same append-only treatment as min_sharpe, and
+  # cannot borrow a provenance from a date that predates it. The loader asserts the live value
+  # equals the newest entry.
+  stale_position_sessions: 20
+  stale_position_sessions_amendments:
+    - value: 20
+      set_on: 2026-08-14
+      results_existed: true
+      acknowledged_post_hoc: true
+      reason: >
+        Introduced with the fix itself (task 2c, finding F4), after the 2026-08-07 backtest
+        existed -- hence acknowledged_post_hoc. It is not a loosening: before this the threshold
+        was effectively infinite and a dead holding was never written off at all, so any finite
+        value is stricter than what it replaced. 20 sessions ~ one calendar month, chosen so an
+        ordinary trading halt is carried through rather than closed at a price nobody could have
+        got, while a delisting does not hold one of four slots for the rest of the fold.
 
 learning:
   reflection_every_trades: 15      # seed: per-strategy (5 was statistical noise; BUILD_MAP M3)

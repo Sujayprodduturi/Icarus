@@ -192,6 +192,29 @@ def test_an_empty_amendment_log_is_rejected(tmp_path: Path, repo_root: Path) -> 
         _load_dict(tmp_path, raw)
 
 
+def test_the_stale_position_threshold_carries_the_same_log(repo_root: Path) -> None:
+    """Added 2026-08-14 (task 2c). The first draft of that field simply sat inside the ``backtest``
+    block, borrowing the ``registered: 2026-08-05`` date the loader pins — a provenance five
+    sessions older than the field. The argument for it, that neither direction of the threshold
+    flatters a result, was disproved by the task's own test: writing a dead holding off sooner
+    frees a slot sooner, and in a book discarding 94-99.99% of its signals for want of a slot that
+    changes which later signals are taken."""
+    cfg = load_goal(repo_root / "goal.yaml")
+    log = cfg.backtest.stale_position_sessions_amendments
+    assert log[-1].value == cfg.backtest.stale_position_sessions
+    assert log[-1].acknowledged_post_hoc, "introduced after results existed; it must be signed"
+
+
+def test_editing_the_stale_position_threshold_without_logging_it_is_rejected(
+    tmp_path: Path, repo_root: Path
+) -> None:
+    """The mechanism has to bite on the new field too, not just on the one it was written for."""
+    raw = _valid_raw(repo_root)
+    raw["backtest"]["stale_position_sessions"] = 3
+    with pytest.raises(ConfigError, match="edit the log, not just the value"):
+        _load_dict(tmp_path, raw)
+
+
 def test_amendments_must_be_chronological(tmp_path: Path, repo_root: Path) -> None:
     """Out-of-order entries would let a later decision be filed as if it came first."""
     raw = _valid_raw(repo_root)

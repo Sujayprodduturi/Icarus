@@ -81,6 +81,7 @@ def _sim(goal: GoalConfig, **realism: object) -> PortfolioSimulator:
         risk=goal.risk,
         costs=CostModel(goal.costs),
         fills=FillModel(_realism(**realism)),
+        stale_after_sessions=20,
     )
 
 
@@ -222,7 +223,12 @@ def test_the_heat_cap_binds_even_when_every_trade_is_individually_legal(
     symbols = [f"S{i}" for i in range(4)]
     panel = _panel({s: FLAT for s in symbols})
     tight = goal.risk.model_copy(update={"max_portfolio_heat": 0.011})
-    sim = PortfolioSimulator(risk=tight, costs=CostModel(goal.costs), fills=FillModel(_realism()))
+    sim = PortfolioSimulator(
+        risk=tight,
+        costs=CostModel(goal.costs),
+        fills=FillModel(_realism()),
+        stale_after_sessions=20,
+    )
     result = sim.run(
         _strategy(),  # type: ignore[arg-type]
         panel,

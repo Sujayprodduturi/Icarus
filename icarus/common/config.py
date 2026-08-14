@@ -10,6 +10,7 @@ edit to ``goal.yaml`` cannot loosen them — e.g. the crypto leverage ceiling ca
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import date
 from pathlib import Path
 from typing import Annotated
@@ -43,8 +44,11 @@ class _Strict(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
 
-class SharpeAmendment(_Strict):
-    """One dated decision about ``objective.min_sharpe``.
+class Amendment(_Strict):
+    """One dated decision about a number that is allowed to move.
+
+    Written for ``objective.min_sharpe`` and reused since for any threshold that must stay
+    live-editable without being able to pretend it was always there (invariant #25).
 
     O8 was left open specifically so the figure could be settled *before* any metric sheet
     existed, and the operator asked (2026-08-02) that it stay changeable afterwards. Both are
@@ -66,14 +70,39 @@ class SharpeAmendment(_Strict):
     acknowledged_post_hoc: bool = False
 
     @model_validator(mode="after")
-    def _post_hoc_changes_must_be_signed(self) -> SharpeAmendment:
+    def _post_hoc_changes_must_be_signed(self) -> Amendment:
         if self.results_existed and not self.acknowledged_post_hoc:
             raise ValueError(
-                f"min_sharpe amendment on {self.set_on} declares results_existed: true but not "
-                f"acknowledged_post_hoc: true. Changing the bar after seeing a result is allowed, "
+                f"the amendment on {self.set_on} declares results_existed: true but not "
+                f"acknowledged_post_hoc: true. Changing a number after seeing a result is allowed, "
                 f"but it must be signed, not slipped in (invariant #25)."
             )
         return self
+
+
+def assert_traceable(live: float, history: Sequence[Amendment], name: str) -> None:
+    """The live figure must be the newest recorded decision, and the record must be sane.
+
+    Without this the amendment log would be decorative: someone could edit the value and leave the
+    history untouched, which is worse than having no log at all — it would assert a provenance that
+    is false.
+
+    One function rather than one per field, because this is the mechanism invariant #25 prescribes
+    for *any* threshold that has to stay live-editable, and a rule with two homes is a rule that can
+    drift apart.
+    """
+    if not history:
+        raise ValueError(
+            f"{name}_amendments is empty — the live {name} must be traceable to a dated decision"
+        )
+    dates = [entry.set_on for entry in history]
+    if dates != sorted(dates):
+        raise ValueError(f"{name}_amendments must be in chronological order, got {dates}")
+    if history[-1].value != live:
+        raise ValueError(
+            f"{name} is {live} but the latest amendment ({history[-1].set_on}) records "
+            f"{history[-1].value} — edit the log, not just the value, or the history is a fiction"
+        )
 
 
 class Objective(_Strict):
@@ -81,7 +110,7 @@ class Objective(_Strict):
     target_return_30d: float
     max_drawdown: _Fraction
     min_sharpe: float
-    min_sharpe_amendments: tuple[SharpeAmendment, ...]
+    min_sharpe_amendments: tuple[Amendment, ...]
     min_sortino: float
     min_calmar: float
     min_profit_factor: float
@@ -99,23 +128,7 @@ class Objective(_Strict):
         leave the history untouched, which is worse than having no log at all — it would assert a
         provenance that is false.
         """
-        history = self.min_sharpe_amendments
-        if not history:
-            raise ValueError(
-                "objective.min_sharpe_amendments is empty — the live min_sharpe must be traceable "
-                "to a dated decision (O8)"
-            )
-        dates = [entry.set_on for entry in history]
-        if dates != sorted(dates):
-            raise ValueError(
-                f"objective.min_sharpe_amendments must be in chronological order, got {dates}"
-            )
-        if history[-1].value != self.min_sharpe:
-            raise ValueError(
-                f"objective.min_sharpe is {self.min_sharpe} but the latest amendment "
-                f"({history[-1].set_on}) records {history[-1].value} — edit the log, not just the "
-                f"value, or the history is a fiction"
-            )
+        assert_traceable(self.min_sharpe, self.min_sharpe_amendments, "objective.min_sharpe")
         return self
 
 
@@ -600,6 +613,20 @@ class Backtest(_Strict):
     step_years: _Positive
     embargo_sessions: _PosInt
     starting_equity_inr: _Positive
+    stale_position_sessions: _PosInt
+    """Sessions a held symbol may print no bar before the position is written off (finding F4).
+
+    **Carries its own amendment log rather than riding on this block's ``registered`` date.** The
+    first version of this field simply sat here, with a comment arguing that neither direction
+    flatters a result. That argument was wrong, and this task's own test disproves it: writing a
+    dead holding off sooner frees a slot sooner, and in a book that discards 94-99.99% of its
+    signals for want of one, that changes which later signals are taken and therefore the result.
+    So it is result-affecting and editable — exactly the shape invariant #25 covers — and leaving
+    it inside a block whose ``registered`` date the loader pins would let it borrow a provenance
+    from 2026-08-05 that it does not have.
+    """
+
+    stale_position_sessions_amendments: tuple[Amendment, ...]
 
     @model_validator(mode="after")
     def _registration_holds(self) -> Backtest:
@@ -614,6 +641,11 @@ class Backtest(_Strict):
                 "window skips calendar time, and the skipped years are out-of-sample data that "
                 "silently never gets tested"
             )
+        assert_traceable(
+            self.stale_position_sessions,
+            self.stale_position_sessions_amendments,
+            "backtest.stale_position_sessions",
+        )
         return self
 
 

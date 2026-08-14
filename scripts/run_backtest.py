@@ -150,6 +150,46 @@ def _print_sheet(results: list[BacktestResult], goal: object) -> None:
         )
         print(f"{r.strategy:<26} {cells}")
 
+    # The purge is derived per strategy, so a wider lookback costs folds and moves the start date.
+    # Two strategies on this sheet can therefore be measured over different periods, and the table
+    # above puts their numbers side by side as though they were not. Printing the spans is the
+    # stop-gap until step 3c makes the comparison a common-window one (finding F31).
+    print("\n" + "-" * 100)
+    print("THE SPANS ARE NOT THE SAME — compare the numbers above with that in mind")
+    print("-" * 100)
+    for r in results:
+        if not r.folds:
+            continue
+        purge = r.folds[0].window.purge_sessions
+        print(
+            f"{r.strategy:<26} {len(r.folds)} folds  "
+            f"{r.folds[0].test_from}..{r.folds[-1].test_to}   purge {purge} sessions"
+        )
+
+    # Every position must end as a trade, but not every ending is a sale. A symbol that stops
+    # printing bars is written off at the last price it ever traded at — nobody was there to sell
+    # to, so that price is an assumption. Its size belongs on the sheet (finding F4).
+    print("\n" + "-" * 100)
+    print("CLOSED AT A PRICE NOBODY QUOTED, AND EXITS THAT DID NOT HAPPEN")
+    print("-" * 100)
+    for r in results:
+        marks = sum(f.stale_marks for f in r.folds)
+        value = sum((f.stale_mark_value for f in r.folds), Decimal(0))
+        unfilled = sum(f.unfilled_exits for f in r.folds)
+        marked = "no marked exits" if not marks else f"{marks} marked"
+        print(
+            f"{r.strategy:<26} {marked:<18} gross {float(value):>13,.0f}   "
+            f"{unfilled} exits refused or capped mid-run"
+        )
+    # Both numbers or neither. The first version of this section said "none — every exit met a real
+    # bar" whenever the mark count was zero, which was a claim it had not checked: an exit the fill
+    # model refused leaves capital exposed through a different door, was already being counted, and
+    # was never shown anywhere.
+    print(
+        "\n  marked = closed at the last price the symbol printed, because no trade was possible.\n"
+        "  refused/capped = the fill model would not fill the exit; the position stayed open."
+    )
+
 
 if __name__ == "__main__":
     sys.exit(main())

@@ -274,6 +274,39 @@ shipped. Two things came out differently and are worth keeping:
   generous almost for free; a purge costs folds and should stay tight. Not built, because it moves
   every number and that is an operator call.
 
+### Writing off a dead holding — built 2026-08-14 (task 2c, finding F4)
+
+**Operator decision (2026-08-14):** a position in a symbol that has stopped trading is closed at the
+**last price it ever printed**, not at zero, with the count and the gross rupees printed on the
+metric sheet. The last print is the optimistic reading — a stock usually stops because something
+went wrong — and it was chosen over inventing a haircut nobody derived, on condition the exposure
+is visible and can be stress-tested later.
+
+Two things came out differently from the plan and are worth keeping:
+
+- **The threshold got its own amendment log.** It first went into the pre-registered `backtest:`
+  block with a comment arguing that neither direction flatters a result. That argument was wrong,
+  and the task's own test disproves it: writing a dead holding off sooner frees a slot sooner, and
+  in a book discarding 94-99.99% of its signals for want of a slot, that changes which later
+  signals are taken. So it is result-affecting and editable — the exact shape invariant #25 covers
+  — and sitting inside a block whose `registered: 2026-08-05` the loader pins would have let it
+  borrow a provenance five sessions older than itself. It now carries the same append-only dated
+  log as `objective.min_sharpe`, and the mechanism was generalised into one shared function so
+  there is one implementation rather than two that can drift.
+
+- **The first pass fixed half the bug, and the review found the other half.** The write-off covered
+  the case where the symbol prints *no bar*. It did not cover the last bar existing while the
+  closing order is capped by participation or refused outright — 4,998 of 5,000 shares in the
+  reproduction, orphaned exactly as before. Nothing may now survive the final bar by any route.
+  Three more came with it: a dark holding was being marked at **zero** in the equity curve (a fake
+  drawdown, then a fake spike, straight into the Sharpe the gate reads); entry charges were
+  re-booked in full on every partial exit chunk; and dating the write-off at the session it was
+  noticed while pricing it twenty sessions earlier could flip a trade from short- to long-term for
+  tax. **The lesson is narrower than "review works": fixing the visible half of a bug can make the
+  invisible half look closed.** The test that would have caught it is the one that asks whether
+  every share bought ends up in exactly one closed trade, not whether the case I was thinking about
+  produces a trade.
+
 ## 8. Pace and posture
 
 - **Ship fast.** Prefer a working, honest, small thing today over a complete thing next month.

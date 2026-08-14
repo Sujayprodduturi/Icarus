@@ -93,6 +93,21 @@ class FoldResult:
     out_of_sample: Metrics
     trades: tuple[ClosedTrade, ...]
     skipped: dict[str, int]
+    stale_marks: int
+    stale_mark_value: Decimal
+    """Positions closed at a price nobody quoted, and the gross rupees involved.
+
+    On the sheet beside the metrics rather than buried, because they are the part of the result the
+    operator has to take on trust: nothing traded at that price, it was carried from the last bar
+    the symbol printed (finding F4)."""
+
+    unfilled_exits: int
+    """Exits the fill model refused or capped mid-run, leaving the position open and still exposed.
+
+    Surfaced for the same reason as the marks: it was being counted and then never shown, so a run
+    could reassure the operator that nothing was assumed while capital had been left exposed by an
+    exit that silently did not happen."""
+
     equity_curve: tuple[tuple[datetime, Decimal], ...]
     """The fold's own out-of-sample curve, kept so the folds can be stitched into one continuous
     record afterwards. A summary cannot be un-summarised."""
@@ -107,6 +122,9 @@ class FoldResult:
             "in_sample": self.in_sample.as_json(),
             "out_of_sample": self.out_of_sample.as_json(),
             "skipped": self.skipped,
+            "stale_marks": self.stale_marks,
+            "stale_mark_value": str(self.stale_mark_value),
+            "unfilled_exits": self.unfilled_exits,
         }
 
 
@@ -186,6 +204,9 @@ def run_walk_forward(
                 out_of_sample=_metrics(test, goal),
                 trades=tuple(test.trades),
                 skipped={k.value: v for k, v in test.skipped.items()},
+                stale_marks=test.stale_marks,
+                stale_mark_value=test.stale_mark_value,
+                unfilled_exits=test.unfilled_exits,
                 equity_curve=tuple(test.equity),
             )
         )
@@ -245,6 +266,7 @@ def _run_span(
         costs=CostModel(goal.costs),
         fills=FillModel(goal.execution_realism),
         segment=Segment.EQUITY_DELIVERY,
+        stale_after_sessions=goal.backtest.stale_position_sessions,
     )
     run = simulator.run(
         strategy,

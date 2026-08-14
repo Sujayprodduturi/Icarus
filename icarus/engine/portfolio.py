@@ -69,6 +69,15 @@ class ExitReason(enum.StrEnum):
     TAKE_PROFIT = "take_profit"
     TIME_STOP = "time_stop"
     END_OF_DATA = "end_of_data"
+    STALE_MARK = "stale_mark"
+    """The symbol stopped printing bars while the position was open, so it was written off at the
+    last price it ever traded at (finding F4).
+
+    A separate reason rather than folding into ``END_OF_DATA`` because these two are not equally
+    trustworthy. An ``END_OF_DATA`` exit happened against a real bar at a price somebody quoted; a
+    ``STALE_MARK`` exit is an **assumption** — nobody was there to sell to. Blending them would put
+    a made-up price into the same column as a measured one, and the metric sheet could not tell the
+    operator how much of the P&L rests on the made-up half."""
 
 
 class Skipped(enum.StrEnum):
@@ -102,6 +111,12 @@ class OpenPosition:
     """
 
     entry_charges: Charges
+    entry_quantity: int
+    """What was bought. ``quantity`` shrinks as partial fills drain the position; this does not.
+
+    Needed because ``entry_charges`` is the cost of the whole entry, and each chunk closed must
+    carry only its share of it."""
+
     stop_price: Decimal
     risk_per_share: Decimal
     take_profit: Decimal | None
@@ -109,6 +124,12 @@ class OpenPosition:
     trailing: bool = False
     bars_held: int = 0
     peak_close: Decimal = Decimal(0)
+    dark_sessions: int = 0
+    """Consecutive sessions the symbol has printed no bar. Reset by any bar that arrives.
+
+    Counted rather than inferred from the panel because "how long has *this holding* been unable to
+    trade" is a property of the position, not of the symbol: a name can go dark, come back, and go
+    dark again while we hold it, and only the current run matters."""
 
     @property
     def open_risk(self) -> Decimal:
@@ -166,6 +187,14 @@ class RunResult:
     skipped: dict[Skipped, int] = field(default_factory=dict)
     unfilled_exits: int = 0
     ambiguous_selection_days: int = 0
+    stale_marks: int = 0
+    """Positions closed at a price nobody quoted, because the symbol had stopped printing bars."""
+    stale_mark_value: Decimal = Decimal(0)
+    """Gross rupees exited at those prices — the exposure the operator has to take on trust.
+
+    Reported beside the count because the count alone cannot say whether this mattered: two stale
+    exits out of four hundred trades is noise, and two that between them carried a fifth of the
+    book is the result."""
 
     def record_skip(self, reason: Skipped) -> None:
         self.skipped[reason] = self.skipped.get(reason, 0) + 1
@@ -201,11 +230,13 @@ class PortfolioSimulator:
         costs: CostModel,
         fills: FillModel,
         segment: Segment = Segment.EQUITY_DELIVERY,
+        stale_after_sessions: int,
     ) -> None:
         self._risk = risk
         self._costs = costs
         self._fills = fills
         self._segment = segment
+        self._stale_after = stale_after_sessions
 
     def run(
         self,
@@ -260,7 +291,18 @@ class PortfolioSimulator:
             index = panel.index_of(symbol)
             bar = _sim_bar(panel, index, t, ts)
             if bar is None:
+                # No bar means the symbol did not trade, so no exit can *execute* — carrying the
+                # position is right, and for an ordinary halt it is what would really have
+                # happened. What was wrong was carrying it forever: this branch used to `continue`
+                # even on the last bar of the span, so a holding in a delisted name was never
+                # closed, never counted as a trade, contributed to neither realised nor unrealised
+                # equity, and kept one of the four slots for good. The capital simply left the
+                # accounts (finding F4).
+                position.dark_sessions += 1
+                if position.dark_sessions >= self._stale_after:
+                    realised += self._write_off(book, panel, index, symbol, t, result)
                 continue
+            position.dark_sessions = 0
             position.bars_held += 1
             position.peak_close = max(position.peak_close, bar.close)
             self._trail_stop(position, float(stops[symbol][t]))
@@ -286,7 +328,10 @@ class PortfolioSimulator:
                 exit_ts=fill.ts,
                 exit_price=fill.price,
                 reason=reason,
-                entry_charges=position.entry_charges,
+                entry_charges=_scaled(
+                    position.entry_charges,
+                    Decimal(fill.filled_quantity) / Decimal(position.entry_quantity),
+                ),
                 exit_charges=charges,
                 risk_per_share=position.risk_per_share,
             )
@@ -296,7 +341,76 @@ class PortfolioSimulator:
                 del book[symbol]
             else:
                 position.quantity -= fill.filled_quantity
+
+        # Nothing may survive the last bar of the span. Writing off only the *no-bar* case left the
+        # same hole open through a different door: an end-of-data exit that the fill model caps by
+        # participation, or refuses outright, leaves a residual in the book and the span then ends
+        # around it — 700 of 2,500 shares never becoming a trade, invisible to the log, the win
+        # rate and the tax ledger, and never charged an exit cost. Mid-run an unfilled exit
+        # correctly leaves the position open and exposed; on the final bar there is no "later" for
+        # it to be exposed into, and the only honest treatment is a mark (finding F4, second half).
+        if final:
+            for symbol in list(book):
+                realised += self._write_off(book, panel, panel.index_of(symbol), symbol, t, result)
         return realised
+
+    def _write_off(
+        self,
+        book: dict[str, OpenPosition],
+        panel: Panel,
+        index: int,
+        symbol: str,
+        t: int,
+        result: RunResult,
+    ) -> Decimal:
+        """Close a position at a price we **marked** rather than one we transacted at.
+
+        Two ways to arrive here, sharing one epistemic status — no trade happened at this price:
+
+        * the symbol stopped printing bars, so there was no bar and no counterparty at all;
+        * the span ended with the position still open, because the closing order could not be
+          filled in full against the last bar.
+
+        **Deliberately not routed through the FillModel.** Everywhere else, an exit is an order
+        meeting a bar, and the fill model's job is to be pessimistic about whether it met it at all
+        (invariant #12 — touch is not fill). Here there is no bar and no counterparty: nobody was
+        offering that price, or any price. Fabricating a bar so the fill model had something to
+        chew on would dress an assumption up as a measurement. The trade is booked directly and
+        tagged ``STALE_MARK`` so the metric sheet can separate it out.
+
+        The exit charges *are* applied, because the pessimistic reading is that closing this costs
+        what closing anything costs. It is the one part of the write-off that is not a guess.
+
+        Marking at the last traded close is the **optimistic** choice, and knowingly so (operator,
+        2026-08-14): a stock usually stops printing because something went wrong, so the last print
+        flatters the outcome. The alternative — writing it to zero — overstates the loss wherever
+        the name later resumed. Rather than invent a haircut nobody derived, the count and the
+        rupee value are reported so the assumption is visible and can be stress-tested.
+        """
+        position = book.pop(symbol)
+        price, at = _last_traded_close(panel, index, t)
+        charges = self._costs.charges(
+            self._segment, OrderSide.SELL, price, Decimal(position.quantity)
+        )
+        trade = ClosedTrade(
+            symbol=symbol,
+            quantity=position.quantity,
+            entry_ts=position.entry_ts,
+            entry_price=position.entry_price,
+            exit_ts=_ts_at(panel, at),
+            exit_price=price,
+            reason=ExitReason.STALE_MARK,
+            entry_charges=_scaled(
+                position.entry_charges,
+                Decimal(position.quantity) / Decimal(position.entry_quantity),
+            ),
+            exit_charges=charges,
+            risk_per_share=position.risk_per_share,
+        )
+        result.trades.append(trade)
+        result.stale_marks += 1
+        result.stale_mark_value += price * position.quantity
+        return trade.net_pnl
 
     def _exit_intent(
         self, position: OpenPosition, bar: SimBar, ts: datetime, *, final: bool
@@ -464,6 +578,7 @@ class PortfolioSimulator:
                 entry_charges=self._costs.charges(
                     self._segment, OrderSide.BUY, fill.price, Decimal(filled)
                 ),
+                entry_quantity=filled,
                 stop_price=fill.price - stop_distance,
                 risk_per_share=stop_distance,
                 take_profit=plan.target_for(fill.price, stop_distance),
@@ -488,9 +603,15 @@ class PortfolioSimulator:
         for symbol, position in book.items():
             if position.entry_ts > ts:
                 continue
-            close = panel.bars[panel.index_of(symbol)].close[t]
-            if np.isfinite(close):
-                total += (_dec(float(close)) - position.entry_price) * position.quantity
+            # A dark session used to drop the position out of the mark entirely, which is not
+            # "unknown", it is **zero**: a holding up 20,000 rupees vanished from equity the day
+            # its symbol stopped printing and reappeared as realised P&L up to twenty sessions
+            # later. Two invented daily returns of about 2%, a genuine peak-to-trough between
+            # them, and both feed the volatility, the Sharpe and the max-drawdown the stop gate
+            # reads. Carrying the last traded price is what a broker statement does, and it makes
+            # the curve flat across the gap instead of a hole with a spike after it.
+            price, _at = _last_traded_close(panel, panel.index_of(symbol), t)
+            total += (price - position.entry_price) * position.quantity
         return total
 
 
@@ -521,6 +642,52 @@ def _sim_bar(panel: Panel, index: int, t: int, ts: datetime) -> SimBar | None:
     price = [_dec(float(v)) for v in values]
     return SimBar(
         ts=ts, open=price[0], high=price[1], low=price[2], close=price[3], volume=price[4]
+    )
+
+
+def _last_traded_close(panel: Panel, index: int, t: int) -> tuple[Decimal, int]:
+    """The most recent close this symbol printed at or before bar ``t``, **and which bar it was**.
+
+    The bar comes back with the price because the two have to travel together. Dating a write-off
+    at the session it was *noticed* while pricing it at a session up to twenty earlier stretches the
+    holding period by the whole dark stretch — and the holding period is what buckets the trade as
+    short- or long-term for tax. A position entered 2020-01-05 whose last print is 2020-12-20 is
+    350 days held and taxed at the short-term rate; noticed on 2021-01-20 it becomes 381 days and
+    taxed long-term, a real after-tax difference decided by a price that never existed on that date.
+
+    Raises rather than returning a default. A position can only have been opened against a real
+    bar, so a holding with no prior close anywhere in the span is not a data gap — it is the
+    simulator having lost track of its own book, and the honest response to that is to stop
+    (invariant #10: fail safe, not silent).
+    """
+    finite = np.flatnonzero(np.isfinite(panel.bars[index].close[: t + 1]))
+    if finite.size == 0:
+        raise ValueError(
+            f"cannot write off {panel.symbols[index]}: it has printed no close at or before bar "
+            f"{t}, so the book holds a position that could not have been opened"
+        )
+    at = int(finite[-1])
+    return _dec(float(panel.bars[index].close[at])), at
+
+
+def _scaled(charges: Charges, fraction: Decimal) -> Charges:
+    """``charges`` scaled by the fraction of the position this trade actually covers.
+
+    A position drained by partial fills becomes several ``ClosedTrade`` rows, and each was being
+    handed the entry charge for the **whole** entry. A 2,500-share position closing in nine chunks
+    booked ₹2,673 of entry cost against ₹297 actually paid — straight into net P&L, expectancy and
+    the tax ledger, in the direction that understates the strategy.
+    """
+    return replace(
+        charges,
+        brokerage=charges.brokerage * fraction,
+        stt=charges.stt * fraction,
+        exchange_txn=charges.exchange_txn * fraction,
+        sebi_fee=charges.sebi_fee * fraction,
+        gst=charges.gst * fraction,
+        stamp_duty=charges.stamp_duty * fraction,
+        dp_charge=charges.dp_charge * fraction,
+        turnover=charges.turnover * fraction,
     )
 
 

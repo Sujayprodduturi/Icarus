@@ -6,13 +6,14 @@ Phase-by-phase tasks for Claude Code. **Build in order.** Each task lists accept
 
 Legend: `[ ]` todo · `[x]` done (AC demonstrated, tests green) · `MUST`/`SHOULD` per PRD · **V:** = how to verify.
 
-**Progress:** Phase 0 ✅ complete (17/17 incl. v2 hardening) · Phase 1 in progress — data layer (1.1, 1.1b, 1.1c, 1.1d) + CostModel (1.5) + TaxModel (1.6) + the pre-registered stop gate (1.0g) + **the whole Strategy DSL (1.4a, 1.4b, 1.4c)** + the backtester and fill model (1.7, 1.7b) + the panel builder and runner (1.7c, 1.7d) + the core metric battery (1.8, partial) done. **224 primitives** (3 refused at parse time since 2b — see finding F28), 803 unit tests, ruff + mypy clean.
+**Progress:** Phase 0 ✅ complete (17/17 incl. v2 hardening) · Phase 1 in progress — data layer (1.1, 1.1b, 1.1c, 1.1d) + CostModel (1.5) + TaxModel (1.6) + the pre-registered stop gate (1.0g) + **the whole Strategy DSL (1.4a, 1.4b, 1.4c)** + the backtester and fill model (1.7, 1.7b) + the panel builder and runner (1.7c, 1.7d) + the core metric battery (1.8, partial) done. **224 primitives** (3 refused at parse time since 2b — see finding F28), 821 unit tests, ruff + mypy clean.
 
 **Current work is the post-backtest repair plan**, not the numbered list below. The ranked findings
 and the ordered step list live in `docs/reviews/2026-08-09-post-backtest-audit.md` §6 and §6c;
 decisions live in `OPERATOR.md` §7b/§7c. Step **2a** (units in the strategy vocabulary — finding F1)
 is ✅ done 2026-08-12, and **2b** (the engine's idea of how far back a strategy looks — findings
-F3 and F28) is ✅ done 2026-08-13. Next is **2c** (orphaned positions are never closed — F4).
+F3 and F28) is ✅ done 2026-08-13, and **2c** (positions in symbols that stop trading — F4) is ✅ done
+2026-08-14. Next is **2d** (the book can spend money it does not have — F6).
 
 **🔴 THE ENGINE HAS NOW RUN END-TO-END ON REAL DATA (2026-08-07).** 2,962 sessions × 693 point-in-time symbols, 2011-01-03 → 2022-12-30, lockbox untouched. Three pre-registered strategies, **all three FAIL** the pre-registered stop gate:
 

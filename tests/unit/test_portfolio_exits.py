@@ -53,7 +53,12 @@ def _sim(goal: GoalConfig) -> PortfolioSimulator:
         slippage_bps=5.0,
         tick_size_inr=0.05,
     )
-    return PortfolioSimulator(risk=goal.risk, costs=CostModel(goal.costs), fills=FillModel(realism))
+    return PortfolioSimulator(
+        risk=goal.risk,
+        costs=CostModel(goal.costs),
+        fills=FillModel(realism),
+        stale_after_sessions=20,
+    )
 
 
 def _strategy(exits: str) -> object:

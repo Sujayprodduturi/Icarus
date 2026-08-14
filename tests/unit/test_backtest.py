@@ -15,8 +15,8 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pytest
 
+from icarus.common.config import Amendment, DataSplit
 from icarus.common.config import Backtest as BacktestConfig
-from icarus.common.config import DataSplit
 from icarus.engine.backtest import (
     LockboxExhausted,
     LockboxGuard,
@@ -47,6 +47,16 @@ CONFIG = BacktestConfig(
     step_years=1.0,
     embargo_sessions=5,
     starting_equity_inr=100_000,
+    stale_position_sessions=20,
+    stale_position_sessions_amendments=(
+        Amendment(
+            value=20,
+            set_on=date(2026, 8, 14),
+            results_existed=True,
+            acknowledged_post_hoc=True,
+            reason="fixture",
+        ),
+    ),
 )
 
 
