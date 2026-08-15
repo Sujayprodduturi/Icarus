@@ -23,6 +23,7 @@ from pathlib import Path
 from icarus.common.config import load_goal
 from icarus.common.logging import get_logger
 from icarus.engine.panelbuild import load_panel
+from icarus.engine.portfolio import Skipped
 from icarus.engine.runner import DEFAULT_TRIAL_LEDGER, BacktestResult, read_trials, run_walk_forward
 from icarus.strategy.dsl import parse_strategy
 from icarus.strategy.library import default_registry
@@ -189,6 +190,31 @@ def _print_sheet(results: list[BacktestResult], goal: object) -> None:
         "\n  marked = closed at the last price the symbol printed, because no trade was possible.\n"
         "  refused/capped = the fill model would not fill the exit; the position stayed open."
     )
+
+    # Signals the book could not act on. These were counted from the beginning and printed nowhere,
+    # which is how "94-99.99% of every strategy's signals were discarded for want of a slot" — the
+    # single largest fact about the first backtest — stayed invisible until somebody read the JSON.
+    # `insufficient_cash` is the one to watch for decision D9: a strategy failing on cash rather
+    # than on edge is NEEDS_MORE_CAPITAL, which is a different verdict from a bad strategy.
+    print("\n" + "-" * 100)
+    print("SIGNALS THE BOOK COULD NOT TAKE (a strategy is only worth the trades it can act on)")
+    print("-" * 100)
+    for r in results:
+        totals: dict[str, int] = {}
+        for fold in r.folds:
+            for reason, count in fold.skipped.items():
+                totals[reason] = totals.get(reason, 0) + count
+        # **Entries, not closed trades.** One entry drains into several `ClosedTrade` rows when a
+        # partial fill splits it, so counting rows would inflate the numerator by up to the number
+        # of chunks — and would do so worst in exactly the thin-liquidity runs this line exists to
+        # describe. And `already_held` is dropped from the denominator: a signal on a name we
+        # already own is not one the book turned away, it is the same idea firing twice.
+        taken = len({(t.symbol, t.entry_ts) for t in r.oos_trades})
+        refused = sum(v for k, v in totals.items() if k != Skipped.ALREADY_HELD.value)
+        offered = taken + refused
+        share = f"{taken / offered:.2%}" if offered else "-"
+        detail = "  ".join(f"{k}={v:,}" for k, v in sorted(totals.items())) or "none"
+        print(f"{r.strategy:<26} took {taken:>6,} of {offered:>9,} ({share:>7})   {detail}")
 
 
 if __name__ == "__main__":

@@ -86,6 +86,14 @@ class Skipped(enum.StrEnum):
 
     NO_SLOT = "no_slot"
     HEAT_CAP = "heat_cap"
+    INSUFFICIENT_CASH = "insufficient_cash"
+    """The account could not pay for the shares (finding F6).
+
+    Counted rather than shrunk to fit. Buying what you can afford is what a real account does, but
+    it would silently change the position size the strategy specified, and it would erase the one
+    signal that decision D9 exists to read: a strategy that works and is simply too big for the
+    money is ``NEEDS_MORE_CAPITAL``, not a worse strategy. A skip counter says that out loud."""
+
     ROUNDS_TO_ZERO = "rounds_to_zero"
     NO_STOP_DISTANCE = "no_stop_distance"
     ENTRY_NOT_FILLED = "entry_not_filled"
@@ -530,20 +538,39 @@ class PortfolioSimulator:
                 result.ambiguous_selection_days += 1
             else:
                 candidates.sort(key=lambda s: (-_rank_of(ranks[s], t), s))
-        # Everything past the last free slot is a trade the book had no room for. Counted, not
-        # dropped: "the strategy fired 900 times and we could take 300 of them" is a fact about
-        # the strategy, and a simulator that silently discards the other 600 reports a hit rate
-        # measured on a sample it chose.
-        for _ in candidates[max(free_slots, 0) :]:
-            result.record_skip(Skipped.NO_SLOT)
         if free_slots <= 0:
+            # Counted, not dropped: "the strategy fired 900 times and we could take 300 of them" is
+            # a fact about the strategy, and a simulator that silently discards the other 600
+            # reports a hit rate measured on a sample it chose.
+            for _ in candidates:
+                result.record_skip(Skipped.NO_SLOT)
             return
 
         heat_used = sum((p.open_risk for p in book.values()), Decimal(0))
         heat_cap = _dec(self._risk.max_portfolio_heat) * equity
         risk_budget = _dec(strategy.sizing.risk_r) * equity
+        committed = _committed_cash(book)
+        if committed > equity:
+            # Cannot happen by construction — cash falls only by an outlay this method has already
+            # checked, and rises on every close — which is exactly why it is cheap to assert. A
+            # future refactor that broke the identity would otherwise show up as a slightly
+            # optimistic equity curve and nothing else (invariant #10: fail safe, not silent).
+            raise ValueError(
+                f"the book holds {committed} of stock against a {equity} account — cash is "
+                f"negative, which the entry path is supposed to make unreachable"
+            )
 
-        for symbol in candidates[:free_slots]:
+        # Slots are filled by what can actually be taken, in rank order — not by position in the
+        # list. Recording the overflow up front (the old shape) meant a top-ranked candidate
+        # refused for cash left its slot **empty** while a cheaper one behind it had already been
+        # written off as having no room. Latent while the only refusals were rare; routine once
+        # the cash gate exists, because at the tight-stop end the most expensive candidate is
+        # systematically the one that blocks the slot.
+        taken = 0
+        for symbol in candidates:
+            if taken >= free_slots:
+                result.record_skip(Skipped.NO_SLOT)
+                continue
             index = panel.index_of(symbol)
             bar = _sim_bar(panel, index, t + 1, _ts_at(panel, t + 1))
             stop_distance = _dec(float(stops[symbol][t]))
@@ -569,15 +596,31 @@ class PortfolioSimulator:
                 result.record_skip(Skipped.ENTRY_NOT_FILLED)
                 continue
             filled = fill.filled_quantity
+            entry_charges = self._costs.charges(
+                self._segment, OrderSide.BUY, fill.price, Decimal(filled)
+            )
+            outlay = fill.price * filled + entry_charges.total
+            if committed + outlay > equity:
+                # **The account cannot buy what it cannot pay for.** Nothing checked this before:
+                # slots, heat, whole shares and the fill were all tested, and the rupee cost was
+                # not. Size is `risk_budget / stop_distance`, which has no upper bound — the
+                # narrower the stop the larger the position — and the heat cap cannot catch it
+                # because stop distance *cancels* out of heat, leaving every position at exactly
+                # `risk_r` however big it is. Measured on this panel, the widest single position a
+                # 2x-ATR stop would ask for is 77 times the account, and 0.45% of tradable
+                # symbol-days would produce one over 100% of it. This is the delivery segment,
+                # where leverage is not merely unwise but unavailable (finding F6).
+                result.record_skip(Skipped.INSUFFICIENT_CASH)
+                continue
+            committed += outlay
+            taken += 1
             book[symbol] = OpenPosition(
                 symbol=symbol,
                 quantity=filled,
                 entry_price=fill.price,
                 entry_ts=fill.ts,
                 decided_at=ts,
-                entry_charges=self._costs.charges(
-                    self._segment, OrderSide.BUY, fill.price, Decimal(filled)
-                ),
+                entry_charges=entry_charges,
                 entry_quantity=filled,
                 stop_price=fill.price - stop_distance,
                 risk_per_share=stop_distance,
@@ -642,6 +685,26 @@ def _sim_bar(panel: Panel, index: int, t: int, ts: datetime) -> SimBar | None:
     price = [_dec(float(v)) for v in values]
     return SimBar(
         ts=ts, open=price[0], high=price[1], low=price[2], close=price[3], volume=price[4]
+    )
+
+
+def _committed_cash(book: Mapping[str, OpenPosition]) -> Decimal:
+    """Rupees spent on what is held and not yet returned — cost basis plus acquisition charges.
+
+    ``equity`` in the simulator is the *realised* book: cash plus the cost of open positions. So
+    cash is ``equity - committed``, and the identity is exact only if the entry charge is
+    pro-rated the same way :func:`_scaled` pro-rates it on the way out. A position half sold has
+    already had half its entry charge deducted from equity through ``net_pnl``; counting the whole
+    charge here would deduct that half twice and understate cash — a small, conservative error, and
+    still an error, capable of refusing a position at the margin that the account could pay for.
+    """
+    return sum(
+        (
+            p.entry_price * p.quantity
+            + p.entry_charges.total * Decimal(p.quantity) / Decimal(p.entry_quantity)
+            for p in book.values()
+        ),
+        Decimal(0),
     )
 
 

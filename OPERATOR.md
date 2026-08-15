@@ -307,6 +307,50 @@ Two things came out differently from the plan and are worth keeping:
   every share bought ends up in exactly one closed trade, not whether the case I was thinking about
   produces a trade.
 
+### The cash constraint — built 2026-08-15 (task 2d, finding F6)
+
+**Operator decision (2026-08-15):** fix the cash constraint now; leave the concentration cap as a
+separate decision. A position the account cannot pay for is **skipped and counted**, never shrunk
+to fit.
+
+Why skipped rather than shrunk, since buying what you can afford is what a real account does:
+shrinking silently changes the position size the strategy specified, and it erases the one signal
+decision D9 exists to read. A strategy that works and is merely too big for the money is
+`NEEDS_MORE_CAPITAL` — a different verdict from a bad strategy — and a skip counter says so out
+loud where a quiet size-down would not.
+
+**No knob for the leverage ceiling.** Total deployment is capped at 100% of the book and that is
+not configurable, because this is the delivery segment: leverage there is not a preference anyone
+should be able to set, it is unavailable.
+
+Two things worth keeping:
+
+- **The heat cap looked like it should have caught this and mathematically never could.** Heat is
+  `stop_distance x quantity`, and quantity is `risk_budget / stop_distance` — the stop distance
+  cancels. Every position contributes exactly `risk_r` to heat however large it is, so four
+  positions always total 2.0% against a cap of 2.0%: the cap equals the ceiling and can never bind.
+  A guard can be present, correct, and structurally incapable of firing. **Worth asking of every
+  other limit in the system: is there an input that makes it unable to bind?**
+
+- **The skip counts were being recorded and printed nowhere.** "94-99.99% of every strategy's
+  signals were discarded for want of a slot" — the largest single fact about the first backtest —
+  was sitting in the JSON the whole time. It now prints on the sheet. A number that is computed and
+  not shown is not much better than one that was never computed.
+
+- **A new guard made an old sloppiness matter.** Candidates beyond the free slots were being
+  labelled `no_slot` *before* the loop ran. Harmless while refusals were rare; once the cash gate
+  existed, a top-ranked candidate refused for cash left its slot **empty** while a cheaper one
+  behind it had already been written off as having no room — the book under-deploying and the skip
+  table blaming a slot that stayed open. Slots are now filled by what can actually be taken.
+  Worth generalising: *adding a way for something to fail can turn an existing approximation into
+  a bug.*
+
+- **And I asserted the consequences of the invariant, not the invariant.** Every test checked a
+  refusal here or a cost basis there; none said "cash is never negative", which is the thing the
+  change actually establishes and the thing a future refactor would break silently. The engine now
+  recomputes committed cash each entry pass and raises if it exceeds the book, and a test hands it
+  a book it could not have bought to prove the guard is wired up rather than decorative.
+
 ## 8. Pace and posture
 
 - **Ship fast.** Prefer a working, honest, small thing today over a complete thing next month.
