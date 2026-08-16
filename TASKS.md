@@ -15,10 +15,20 @@ is ✅ done 2026-08-12, and **2b** (the engine's idea of how far back a strategy
 F3 and F28) is ✅ done 2026-08-13, and **2c** (positions in symbols that stop trading — F4) is ✅ done
 2026-08-14, and **2d** (the book could spend money it does not have — F6) is ✅ done
 2026-08-15, and **2e** (config that lies, in both directions — F11, F36, F37) is ✅ done
+2026-08-16, and **2f** (the guards that don't guard — F29, F30, F38–F44) is ✅ done
 2026-08-16. **Step 2 is complete.** Next is Step 3 — the signal test (3a), two capital rows
-(3b) and the common-window comparison (3c). Two engine findings stay open by decision:
-**F29** (the lead-in and the purge are one number and should be two) and **F38** (the stop
-gate reads cost-net, not tax-net, numbers though its config says otherwise).
+(3b) and the common-window comparison (3c).
+
+**Every number produced before 2f is superseded.** Fold boundaries moved (the embargo now enters
+the seam arithmetic), indicator values at the start of every span changed (`evaluate_once`
+replaced the warm-up prefix), and the stop gate is stricter (it reads after-tax metrics and adds
+an after-tax P&L check). Nothing measured before 2026-08-16 is comparable with anything measured
+after it — which is why 2f came before Step 3 and not after.
+
+**One engine finding stays open by decision: F40** — with the strategy now evaluated over the
+whole span, the purge no longer prevents what it was introduced to prevent, and with an anchored
+window every later fold still trains on every earlier test period. What the gap should be is an
+operator decision, recorded rather than settled.
 
 **🔴 THE ENGINE HAS NOW RUN END-TO-END ON REAL DATA (2026-08-07).** 2,962 sessions × 693 point-in-time symbols, 2011-01-03 → 2022-12-30, lockbox untouched. Three pre-registered strategies, **all three FAIL** the pre-registered stop gate:
 

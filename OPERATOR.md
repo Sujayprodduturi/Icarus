@@ -113,6 +113,14 @@ alongside.)*
 reintroduce the bug and confirm the test fails. Two tests in this repo have passed while asserting
 nothing.
 
+**Run the mutation check *after* the commit, never before.** *(2026-08-16, task 2f.)* A harness
+that restores each file with `git checkout --` will silently delete uncommitted work — it did,
+losing hours of `runner.py` and `backtest.py`, recovered only because an earlier `git stash` had
+left a dangling commit. Snapshot file contents in memory and write them back; commit first so a
+mistake costs nothing. And normalise line endings: **every file here is CRLF**, so a multi-line
+anchor written with `\n` matches nothing, and a harness that treats "anchor not found" as anything
+other than a failure will report a mutation as caught when it was never applied.
+
 ## 6. Strategy direction
 
 - **Matt Donlevey's mechanical SMC / liquidity method is the DNA** of Icarus strategies
@@ -433,6 +441,79 @@ The common thread: I fixed the instance I was looking at rather than the class i
 Same shape as task 2c, where the write-off closed the no-bar case and left the unfilled-exit case
 open. **When a fix has a natural partner — a sibling field, a second call site, the other half of a
 pair — the partner is where the next bug is.**
+
+### The guards that don't guard — task 2f, 2026-08-16 (F29, F30, F38–F44)
+
+You asked for this one to be scoped by looking at the whole system rather than by the findings I
+happened to be holding. So it was scoped **mechanically**: a behavioural probe of every config
+value and every parameter pair, instead of a reading of the audit. That found more than the audit
+had, and the code review afterwards found more still. Seven of the eleven review findings were
+real defects in work I had just called done.
+
+**The gate was reading pre-tax numbers under a heading that said AFTER TAX.** F38 was supposed to
+fix exactly this, and I pointed `gate_verdict` at the after-tax record and stopped. But
+`expectancy_r`, `win_rate` and `trades` are derived from the *trade ledger*, and tax never touches
+a trade — so the after-tax expectancy was **identical to the pre-tax one by construction**. Two of
+three checks were unchanged. A strategy at +0.03R before tax and negative after 20% STCG would
+have passed. The fix invents nothing per-trade (tax is annual, on the aggregate, with set-off
+between buckets): the pre-tax check is now **labelled** "before tax", and "P&L after tax > 0" sits
+beside it. Strictly harder to pass, which is the only direction the gate may move once results
+exist.
+
+**And the tax was being under-charged twice over.** The bill was applied *after* the curve point
+was written, so the last financial year's bill — landing on the final index by definition — hit
+nothing at all. And it was divided by `starting_equity × compounded index` when each fold resets
+the book to `starting_equity`, so a bill worth 40% of the account that earned it was charged as
+10% once the strategy had quadrupled. **Both errors flattered the strategy, and both landed on the
+number the gate reads.** That is the third time in this sequence a bug has been one-directional
+and in the promotable direction; it is worth treating one-directional as a smell in itself.
+
+**I over-applied a rule, which is the same failure as under-applying it.** `requires_lt` refuses a
+parameter pair that is individually legal and jointly meaningless. It had one user; I added
+fourteen more by scanning for parameter *names* that looked ordered — `fast`/`slow`,
+`confirm`/`n`, `slope_n`/`n`. **Nine of the fourteen were wrong.** `stage(n=50, slope_n=63)` is a
+quarterly slope on a ten-week moving average; `darvas(n=3, confirm=20)` asks a short high to hold
+longer. Both are ordinary things to want, and the parser had started refusing them. The measured
+rule is **inversion, not oddity**: refuse a pair only when transposing it makes the word mean the
+opposite of its own name. Six qualify. The test now re-measures the sign flip on every run rather
+than trusting a list — because the list is exactly what went wrong.
+
+Having just been caught fixing instances instead of classes, I had over-corrected into applying a
+class-wide rule without checking the instances. **Both failures come from not looking at the
+thing itself.**
+
+**Two process lessons, both learned the hard way in this task:**
+
+- **A guard that looks redundant may be the second half of a pair.** I flagged
+  `fill_requires_trade_through` and `next_bar_execution` as inert because flipping them changed
+  nothing, and wired the code to read them. But the loader *pins both true* — the flags are config
+  restating a guarantee the code makes unconditionally, which is the belt-and-braces shape the
+  crypto leverage ceiling already uses. Reading them collapsed two independent guarantees into
+  one. Reverted; a test caught it. **"Changing this changes nothing" can mean well-protected, not
+  dead.**
+- **Never write `git checkout --` into a script that runs against uncommitted work.** My mutation
+  harness restored each file with `git checkout --` after testing it, and destroyed several hours
+  of uncommitted work in `runner.py` and `backtest.py`. It was recoverable only because an earlier
+  `git stash` had left a dangling commit. The harness now snapshots file contents in memory and
+  writes them back, and mutation runs happen **after** the commit, never before. Related: every
+  file here is CRLF, so a multi-line anchor written with `\n` silently matches nothing — the
+  harness normalises, and reports a bad anchor as a failure rather than a pass.
+
+**A definition of done that nobody enforces is not a definition of done.** Checking that 2f had
+not added `mypy` errors showed the baseline was never zero: **23 errors**, all stale `type: ignore`
+suppressions, in a repo whose `CLAUDE.md` requires it clean. Clearing them exposed **12 real type
+errors underneath**, including an `int < str` comparison inside the sweep that validates
+`requires_lt` pairs. All 35 are fixed and `mypy` is clean across 119 files for the first time.
+
+**One thing deliberately not settled: F40.** Now that the strategy is evaluated over the whole
+span, the purge no longer prevents what it was introduced to prevent — and it never was a leak,
+because reading history you would genuinely have had is what a live system does every morning.
+What survives is that the gap keeps the in-sample and out-of-sample *trading* periods apart, and
+that it will matter in Phase 2 when the Inventor starts fitting per fold. Separately, `goal.yaml`
+described an embargo that runs *after* each test window while the code widens the gap *before* it;
+the wording now matches the code. The real question — with an anchored window every later fold
+trains on every earlier test period, and no gap before the test window changes that — is **yours
+to decide**, not mine to settle quietly. Cost of the change as it stands is 5 sessions.
 
 ## 8. Pace and posture
 

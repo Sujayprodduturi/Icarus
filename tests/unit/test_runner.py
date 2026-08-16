@@ -172,14 +172,23 @@ sizing:
 
 
 def _metrics_stub(
-    *, sharpe_lower: float | None = None, trades: int = 0, expectancy: float = 0.0
+    *,
+    sharpe_lower: float | None = None,
+    trades: int = 0,
+    expectancy: float = 0.0,
+    sharpe_point: float | None = None,
 ) -> Metrics:
     nan = float("nan")
-    sharpe = (
-        SharpeEstimate(nan, nan, nan, nan, 0, 0.95)
-        if sharpe_lower is None
-        else SharpeEstimate(sharpe_lower + 1.0, sharpe_lower, sharpe_lower + 2.0, 1.0, trades, 0.95)
-    )
+    if sharpe_point is not None:
+        sharpe = SharpeEstimate(
+            sharpe_point, sharpe_point - 1.0, sharpe_point + 1.0, 1.0, trades, 0.95
+        )
+    elif sharpe_lower is None:
+        sharpe = SharpeEstimate(nan, nan, nan, nan, 0, 0.95)
+    else:
+        sharpe = SharpeEstimate(
+            sharpe_lower + 1.0, sharpe_lower, sharpe_lower + 2.0, 1.0, trades, 0.95
+        )
     return Metrics(
         sharpe=sharpe,
         sortino=nan,
@@ -315,6 +324,27 @@ def test_a_run_appends_to_the_ledger_rather_than_replacing_it(tmp_path: Path) ->
     assert record_trial(path, strategy, _result(), origin="operator") == 1
     assert record_trial(path, strategy, _result(), origin="operator") == 2
     assert len(read_trials(path)) == 2
+
+
+def test_the_ledger_records_the_sharpe_the_gate_actually_judges(tmp_path: Path) -> None:
+    """Finding F43. The ledger wrote only the pre-tax Sharpe while the gate moved to the after-tax
+    one, so the DSR correction in 1.9 — which reads this file — and the promotion decision it
+    exists to correct would have been computed on two different quantities.
+
+    Both are recorded, and they are asserted to be *different* here: a mutation that pointed the
+    new field back at the pre-tax record would otherwise pass unnoticed.
+    """
+    strategy = parse_strategy(STRATEGY, registry=default_registry(), max_risk_r=0.005)
+    path = tmp_path / "trials.json"
+    result = BacktestResult(
+        strategy="probe",
+        oos=_metrics_stub(sharpe_point=2.0),
+        oos_after_tax=_metrics_stub(sharpe_point=1.0),
+    )
+    record_trial(path, strategy, result, origin="operator")
+    entry = read_trials(path)[0]
+    assert entry["oos_sharpe"] == 2.0
+    assert entry["oos_sharpe_after_tax"] == 1.0
 
 
 def test_a_human_run_is_recorded_with_the_same_weight_as_an_inventor_run(tmp_path: Path) -> None:
