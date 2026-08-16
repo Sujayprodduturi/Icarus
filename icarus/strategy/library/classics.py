@@ -379,6 +379,13 @@ def primitives() -> tuple[Primitive, ...]:
     vol_n = _ops.period_param("vol_n", default=50)
     vol_mult = FloatParam("vol_mult", 1.0, 10.0, default=1.5)
     k = IntParam("k", 1, 100, default=3)
+    # No `requires_lt=(("slope_n", "n"),)`, deliberately. It was added on 2026-08-16 and removed
+    # the same day, because it was asserted from the shape of the parameter names rather than
+    # measured. `_stage` compares an `n`-bar moving average with itself `slope_n` bars ago, so
+    # `slope_n >= n` is a longer-horizon slope on a shorter average — `stage(n=50, slope_n=63)` is
+    # a quarterly slope on a ten-week MA, which is a perfectly ordinary thing to ask for and was
+    # being refused at parse time. Contrast `macd`, where transposing `fast`/`slow` flips the sign
+    # on 100% of bars: that word comes to mean the opposite of its name, and is refused for it.
     stage_params = (
         _ops.period_param(default=_WEINSTEIN_MA_BARS),
         _ops.period_param("slope_n", default=_TRADING_DAYS_PER_MONTH),
@@ -433,7 +440,11 @@ def primitives() -> tuple[Primitive, ...]:
             scale_free=True,
         ),
         Primitive(
-            "stage_basing", Kind.EVENT, "State: Weinstein stage 1.", _stage_basing, stage_params
+            "stage_basing",
+            Kind.EVENT,
+            "State: Weinstein stage 1.",
+            _stage_basing,
+            stage_params,
         ),
         Primitive(
             "stage_advancing",
@@ -443,7 +454,11 @@ def primitives() -> tuple[Primitive, ...]:
             stage_params,
         ),
         Primitive(
-            "stage_topping", Kind.EVENT, "State: Weinstein stage 3.", _stage_topping, stage_params
+            "stage_topping",
+            Kind.EVENT,
+            "State: Weinstein stage 3.",
+            _stage_topping,
+            stage_params,
         ),
         Primitive(
             "stage_declining",
@@ -453,6 +468,11 @@ def primitives() -> tuple[Primitive, ...]:
             stage_params,
         ),
         # ---- Darvas ----
+        # No `requires_lt` on `confirm`/`n`, deliberately. It was added on 2026-08-16 and removed
+        # the same day: `confirm` is how many bars a fresh `n`-bar high must stand unexceeded
+        # before the box is real, and there is nothing degenerate about requiring a 3-bar high to
+        # hold for 20 sessions. Measured, it produces a distinct, meaningful column. See the note
+        # on `stage_params` above.
         Primitive(
             "darvas_box_top",
             Kind.LEVEL,

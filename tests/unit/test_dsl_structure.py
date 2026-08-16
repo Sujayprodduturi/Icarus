@@ -14,6 +14,7 @@ have taken, and it propagates into every break, pool and zone defined in terms o
 from __future__ import annotations
 
 import numpy as np
+import numpy.typing as npt
 import pytest
 
 from icarus.strategy.dsl import Bars, Call, DslError, Timeframe, evaluate, parse_strategy
@@ -67,7 +68,7 @@ def _bars(spec: dict[str, list[float]], **override: list[float]) -> Bars:
     )
 
 
-def _value(name: str, bars: Bars, **params: object) -> np.ndarray:
+def _value(name: str, bars: Bars, **params: object) -> npt.NDArray[np.float64]:
     registry = default_registry()
     primitive = registry.get(name)
     literals: dict[str, int | float | str] = {}

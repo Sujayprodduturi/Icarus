@@ -157,10 +157,17 @@ backtest:
   min_train_years: 3.0             # first test window opens 2014; ~9 out-of-sample years follow
   test_window_years: 1.0
   step_years: 1.0
-  # Embargo: sessions dropped after each test window before training resumes. Purge is NOT here --
-  # it is derived from the strategy's own longest lookback, because a 252-day word leaks 252 days
-  # across the seam and a 20-day word leaks 20. One constant would be too small for one strategy
-  # and wasteful for another, and the too-small case fails silently.
+  # Embargo: extra sessions added to the gap between the end of training and the start of the
+  # test window. Purge is NOT here -- it is derived from the strategy's own longest lookback,
+  # because a 252-day word spans 252 days across the seam and a 20-day word spans 20. One constant
+  # would be too small for one strategy and wasteful for another, and the too-small case fails
+  # silently.
+  #
+  # Reworded 2026-08-16. This used to read "sessions dropped after each test window before training
+  # resumes", which is the standard anchored-window embargo and is NOT what the code does -- the
+  # code widens the gap *before* the test window. The wording now matches the behaviour. Whether
+  # the documented scheme is the one we want (it would exclude every earlier test window from every
+  # later fold's training) is finding F40, open for decision.
   embargo_sessions: 5
   starting_equity_inr: 100000      # the sim's book size; NOT the live seed tier (that is Phase 2)
   # Added 2026-08-14 (task 2c, finding F4). Before this, a position whose symbol stopped printing

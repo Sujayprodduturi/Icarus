@@ -73,7 +73,7 @@ def _realism(**overrides: object) -> ExecutionRealism:
         "slippage_bps": 5.0,
         "tick_size_inr": 0.05,
     }
-    return ExecutionRealism(**(base | overrides))  # type: ignore[arg-type]
+    return ExecutionRealism(**(base | overrides))
 
 
 def _sim(goal: GoalConfig, **realism: object) -> PortfolioSimulator:

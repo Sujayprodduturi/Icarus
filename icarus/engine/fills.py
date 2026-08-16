@@ -164,6 +164,9 @@ class FillModel:
 
     def execute(self, intent: Intent, bar: SimBar) -> FillResult:
         """Execute ``intent`` against ``bar``, which must be strictly after the decision bar."""
+        # Unconditional, like the trade-through test, and for the same reason: the loader pins
+        # `next_bar_execution` true (invariant #13), so it is config restating a guarantee the
+        # code makes, not a switch over it. Both halves, independently.
         if bar.ts <= intent.decided_at:
             raise ValueError(
                 f"execution bar {bar.ts} is not after the decision at {intent.decided_at} — a "
@@ -195,6 +198,14 @@ class FillModel:
         """
         limit = intent.limit_price
         assert limit is not None  # guaranteed by Intent.__post_init__
+        # **Unconditional, and `execution_realism.fill_requires_trade_through` is not consulted.**
+        # That is deliberate and was briefly undone on 2026-08-16 before a test caught it. The flag
+        # looked inert — flipping it changes nothing — so it was wired up to drive this line. But
+        # the loader *pins it true* (invariant #12), so the flag was never a switch: it is config
+        # asserting the same guarantee the code enforces, which is the belt-and-braces shape
+        # CLAUDE.md §0 asks for and the crypto leverage ceiling already uses. Reading it here
+        # replaced two independent guarantees with one, and made the safety depend on the config
+        # assert surviving. A guard that looks redundant may be the second half of a pair.
         through = bar.low < limit if intent.side is OrderSide.BUY else bar.high > limit
         if not through:
             return self._nothing(intent, NoFillReason.NOT_TRADED_THROUGH)

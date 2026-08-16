@@ -16,7 +16,7 @@ derived by hand in the comment above the fixture. Two classes of bug are the tar
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict
 
 import numpy as np
 import pytest
@@ -73,11 +73,29 @@ def _compute(name: str, bars: Bars, **params: object) -> npt.NDArray[np.float64]
 #   bar 3: low 11 is inside the band but has not reached the far edge (10) — a partial retrace
 #          leaves the gap live, which is the reading that makes it usable as an entry zone.
 #   bar 4: low 9.5 <= 10 — traded clean through. The gap is filled and stops existing.
-GAP = {
+class _Ohlc(TypedDict):
+    """Typed so ``_bars(**GAP)`` checks. A plain dict widens to ``list[float]`` for every key,
+    including ``start: str``, which mypy has to reject."""
+
+    high: list[float]
+    low: list[float]
+    close: list[float]
+
+
+GAP: _Ohlc = {
     "high": [10.0, 11.0, 15.0, 16.0, 14.0],
     "low": [9.0, 10.0, 12.0, 11.0, 9.5],
     "close": [9.5, 10.5, 14.0, 12.0, 10.0],
 }
+
+
+def _pad(src: _Ohlc, *, keep: int, repeat: int) -> _Ohlc:
+    """First ``keep`` bars, then the last of those repeated — a long flat tail after the setup."""
+    return {
+        "high": [*src["high"][:keep], *([src["high"][keep - 1]] * repeat)],
+        "low": [*src["low"][:keep], *([src["low"][keep - 1]] * repeat)],
+        "close": [*src["close"][:keep], *([src["close"][keep - 1]] * repeat)],
+    }
 
 
 def test_a_fair_value_gap_is_not_reported_before_its_third_bar() -> None:
@@ -103,8 +121,7 @@ def test_a_filled_gap_stops_being_reported_on_the_bar_it_fills() -> None:
 
 def test_an_expired_gap_stops_being_reported() -> None:
     """A gap from four years ago is not a level anyone is trading — `max_age` is load-bearing."""
-    padded = {key: [*values[:4], *([values[3]] * 30)] for key, values in GAP.items()}
-    top = _compute("fvg_up_top", _bars(**padded), max_age=5)
+    top = _compute("fvg_up_top", _bars(**_pad(GAP, keep=4, repeat=30)), max_age=5)
     assert top[3] == pytest.approx(12.0)
     assert np.isnan(top[10])
 
@@ -354,7 +371,7 @@ def test_a_steadily_falling_series_is_stage_four() -> None:
 #   bar 5: 12.5 does not exceed it -> the box is real from *here*, never from bar 3.
 #          floor = min(low[4], low[5]) = 11.2
 #   bar 7: close 13.8 clears 13.0 -> breakout, and the box stops being reported
-DARVAS = {
+DARVAS: _Ohlc = {
     "high": [10.0, 10.5, 11.0, 13.0, 12.0, 12.5, 12.8, 14.0],
     "low": [9.0, 9.5, 10.0, 11.0, 11.2, 11.5, 11.8, 12.5],
     "close": [9.8, 10.2, 10.8, 12.8, 11.5, 12.0, 12.4, 13.8],

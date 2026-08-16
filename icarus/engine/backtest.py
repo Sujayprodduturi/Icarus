@@ -181,12 +181,32 @@ def walk_forward_windows(
     last = development[-1] + 1
 
     windows: list[Window] = []
-    test_start = development[0] + train_min + purge
+    # `purge + embargo`, not `purge`. The embargo was read from config, stamped on every window and
+    # printed in the fold record, and never once entered the arithmetic — setting it to 100 gave
+    # byte-identical windows while the log line said 100 (finding F30).
+    #
+    # **What this gap actually buys, stated honestly (finding F40).** The purge's original
+    # justification was that "a 200-session average on the first test day is built from training
+    # days". That is now true of *every* test day by construction, because `evaluate_once`
+    # deliberately evaluates the strategy over the whole span — and it is not a leak, it is what a
+    # live system does on any given morning. So the gap is not preventing the thing it was
+    # introduced to prevent. Two real things remain:
+    #   1. It keeps the in-sample and out-of-sample *trading* periods separated by a gap, so
+    #      `sharpe_decay` compares genuinely distinct stretches rather than adjacent ones.
+    #   2. It is the harness being correct in advance of Phase 2. Nothing here fits parameters per
+    #      fold today — strategies are pre-registered and the in-sample record is measured, not
+    #      optimised against — so no choice made in training can leak. The moment the Inventor
+    #      starts fitting per fold, it can, and the gap has to already be there.
+    # The deeper question the gap does *not* answer — with an anchored window, every later fold
+    # trains on every earlier test period, and no gap before the test window changes that — is
+    # recorded as F40 for an operator decision rather than settled quietly here.
+    seam = purge + embargo
+    test_start = development[0] + train_min + seam
     while test_start + test_len <= last:
         windows.append(
             Window(
                 train_start=development[0],
-                train_end=test_start - purge,
+                train_end=test_start - seam,
                 test_start=test_start,
                 test_end=test_start + test_len,
                 purge_sessions=purge,
@@ -197,8 +217,9 @@ def walk_forward_windows(
     if not windows:
         raise DslError(
             f"no walk-forward window fits: {len(development)} sessions available, but one fold "
-            f"needs {train_min} training + {purge} purged + {test_len} test sessions. Either the "
-            f"panel is too short or the strategy's longest lookback ({purge}) is too wide for it."
+            f"needs {train_min} training + {purge} purged + {embargo} embargoed + {test_len} "
+            f"test sessions. Either the panel is too short or the strategy's longest lookback "
+            f"({purge}) is too wide for it."
         )
     log.info(
         "walk-forward windows built",
@@ -387,6 +408,31 @@ def slice_panel(panel: Panel, start: int, end: int) -> Panel:
     return Panel.build(bars, tradable, benchmark=benchmark)
 
 
+def assert_panel_stops_before_lockbox(panel: Panel, split: DataSplit) -> None:
+    """Refuse a panel that reaches into the lockbox at all.
+
+    **Separate from the window check, and stricter.** While each fold was evaluated on its own
+    slice, a panel reaching past ``lockbox_start`` could not matter: the future was *absent* from
+    the array the DSL ever saw. Evaluating once over the whole span
+    (:func:`~icarus.engine.runner.evaluate_once`) removed that slicing, and with it the structural
+    guarantee — the only remaining defence was that every primitive is causal, which is true and
+    tested but is a property of 223 words rather than a property of the data. ``build_panel
+    --lockbox`` exists and produces exactly the panel that would rely on it.
+
+    Kept out of :func:`assert_no_lockbox_overlap` deliberately: that function answers "do these
+    windows touch the lockbox", which is a question worth being able to ask *about a panel that
+    spans it* — the test that proves :func:`walk_forward_windows` never reaches the lockbox has to
+    build such a panel to prove anything. Folding the two together made that test unable to run.
+    """
+    dates = _dates_of(panel)
+    if dates and dates[-1] >= split.lockbox_start:
+        raise DslError(
+            f"this panel runs to {dates[-1]}, at or past lockbox_start {split.lockbox_start} — "
+            f"the walk-forward path evaluates the strategy over the whole panel, so a panel that "
+            f"contains the lockbox puts it in reach. Build one that stops before it (invariant #26)"
+        )
+
+
 def assert_no_lockbox_overlap(windows: Sequence[Window], panel: Panel, split: DataSplit) -> None:
     """Refuse a fold that reaches into the lockbox.
 
@@ -411,6 +457,7 @@ __all__ = [
     "LockboxUse",
     "Window",
     "assert_no_lockbox_overlap",
+    "assert_panel_stops_before_lockbox",
     "lockbox_window",
     "longest_lookback",
     "slice_panel",

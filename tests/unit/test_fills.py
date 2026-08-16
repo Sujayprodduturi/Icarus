@@ -19,6 +19,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
+from pydantic import ValidationError
 
 from icarus.common.config import ExecutionRealism
 from icarus.common.types import OrderSide
@@ -45,7 +46,7 @@ def _config(**overrides: object) -> ExecutionRealism:
         "slippage_bps": 5.0,
         "tick_size_inr": 0.05,
     }
-    return ExecutionRealism(**(base | overrides))  # type: ignore[arg-type]
+    return ExecutionRealism(**(base | overrides))
 
 
 def _model(**overrides: object) -> FillModel:
@@ -333,3 +334,41 @@ def test_zero_slippage_is_rejected() -> None:
     a touch, and it would be an easy thing to set to zero 'just to see'."""
     with pytest.raises(ValueError):
         _config(slippage_bps=0.0)
+
+
+# --------------------------------------------------------------------------------------
+# Two guarantees that look like one (finding F30, and the correction to it)
+# --------------------------------------------------------------------------------------
+#
+# A behavioural probe flagged `fill_requires_trade_through` and `next_bar_execution` as inert:
+# flipping either changes nothing. That reading was wrong, and acting on it made things worse
+# before these tests caught it. The loader *pins both true* — they cannot be flipped — and the
+# code enforces both unconditionally. Config asserting what code guarantees is the belt-and-
+# braces shape CLAUDE.md §0 prescribes (the crypto leverage ceiling is the same pattern), not a
+# dead switch. Wiring the code to read the config collapsed two independent guarantees into one
+# and made the safety depend on the assert surviving. Both halves are pinned here, separately.
+# --------------------------------------------------------------------------------------
+
+
+def test_the_code_refuses_a_touch_whatever_the_config_says() -> None:
+    """Half one: the strict test does not consult the flag, so removing the flag cannot relax it."""
+    bar = _bar("100", "101", "99", "100")
+    intent = _intent(OrderKind.RESTING_LIMIT, limit="99")  # resting exactly AT the low
+    result = _model().execute(intent, bar)
+    assert not result.filled
+    assert result.reason is NoFillReason.NOT_TRADED_THROUGH
+
+
+def test_the_config_refuses_to_turn_either_guarantee_off() -> None:
+    """Half two: and the loader will not accept a file that asks for the optimistic version."""
+    with pytest.raises(ValidationError, match="invariant #12"):
+        _config(fill_requires_trade_through=False)
+    with pytest.raises(ValidationError, match="invariant #13"):
+        _config(next_bar_execution=False)
+
+
+def test_the_code_refuses_a_same_bar_trade_whatever_the_config_says() -> None:
+    bar = _bar("100", "101", "99", "100")
+    same_bar = Intent(OrderSide.BUY, OrderKind.MARKETABLE_LIMIT, 10, bar.ts)
+    with pytest.raises(ValueError, match="invariant #13"):
+        _model().execute(same_bar, bar)

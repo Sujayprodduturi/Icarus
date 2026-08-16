@@ -5,18 +5,19 @@ hand-made arrays — the fill model, the portfolio simulator, the window arithme
 words — and not one of them had ever seen a real NSE price. This joins them and runs them over
 the development span.
 
-**What it does per fold.** Slice the panel to the fold's test window plus a warm-up prefix,
-evaluate the strategy matrix-wise over that slice, hand the resulting signal/stop/rank columns to
-the portfolio simulator, and keep the trades. Folds are then stitched into one continuous
-out-of-sample record.
+**What it does per fold.** Evaluate the strategy matrix-wise once over the whole development span,
+slice the resulting signal/stop/rank columns to the fold's window, hand those to the portfolio
+simulator, and keep the trades. Folds are then stitched into one continuous out-of-sample record.
 
-**The warm-up prefix is not a leak.** A 200-session moving average is ``nan`` for the first 200
-bars of any slice, so a fold evaluated on its test window alone would spend its first year unable
-to fire and would report a fold-length-dependent result. The slice therefore starts
-``longest_lookback`` sessions early and :func:`_gate_signals` blanks every signal before
-``test_start``, so the warm-up bars feed the indicators and can never open a position. That is
-exactly what a live system does on the morning it starts: it reads history to compute today's
-average, it does not trade yesterday.
+**There is no warm-up prefix, because there is no slicing before evaluation.** The strategy is
+evaluated **once, over the whole development span**, and each fold slices the resulting columns.
+That is what a live system has on the morning it starts — all the history there is — and it is
+not look-ahead, because every primitive is causal, so bar *t* holds the same value whether it was
+computed from ``[0..t]`` or from the whole series. The previous design gave each fold a lead-in of
+``longest_lookback`` sessions, which is right for an average and wrong for anything recursive: a
+Wilder-smoothed word needs about twenty times its own window to agree with full history, and
+``rsi(200)`` needs more sessions than this panel contains, so no lead-in was both sufficient and
+affordable (finding F29). See :func:`evaluate_once`.
 
 **Stitching compounds returns, it does not add rupees.** Each fold starts from the same nominal
 equity, so concatenating the curves would show a sawtooth. Compounding the per-session returns
@@ -46,6 +47,7 @@ from icarus.agents.data.cache import write_atomic_json
 from icarus.common.logging import get_logger
 from icarus.engine.backtest import (
     assert_no_lockbox_overlap,
+    assert_panel_stops_before_lockbox,
     longest_lookback,
     slice_panel,
     walk_forward_windows,
@@ -59,7 +61,7 @@ from icarus.engine.portfolio import (
     RunResult,
     stop_distance_from_exits,
 )
-from icarus.engine.taxmodel import RealizedTrade, TaxModel
+from icarus.engine.taxmodel import RealizedTrade, TaxModel, financial_year
 from icarus.strategy.dsl import DslError, evaluate_universe
 from icarus.strategy.library import _ops
 
@@ -135,6 +137,21 @@ class BacktestResult:
     strategy: str
     folds: list[FoldResult] = field(default_factory=list)
     oos: Metrics | None = None
+    oos_after_tax: Metrics | None = None
+    """The same record with each year's tax bill deducted on the day it falls due.
+
+    **This is what the stop gate reads**, from 2026-08-16. `stop_gate.net_of_cost_and_tax` had been
+    asserted `True` by the loader since the gate was written, with the message "gross-only metrics
+    are a bug", and was read by no code: the gate tested Sharpe, trade count and expectancy off a
+    curve net of **costs only**, while tax was computed afterwards and printed as an informational
+    line (finding F38). CLAUDE.md §5 requires cost *and tax* inside every backtest and invariant #21
+    gates on alpha after both.
+
+    Tax is annual on the aggregate, so it cannot be spread across sessions without inventing a
+    liability that never existed. It is deducted in one step at the last session of each financial
+    year — which is lumpy, and is lumpy in reality too. The pre-tax record stays beside it so the
+    drag is visible rather than absorbed."""
+
     oos_trades: list[ClosedTrade] = field(default_factory=list)
     tax_years: list[FinancialYearTax] = field(default_factory=list)
     tax_total: Decimal = Decimal(0)
@@ -146,6 +163,9 @@ class BacktestResult:
             "folds": [f.as_json() for f in self.folds],
             "out_of_sample_stitched": self.oos.as_json() if self.oos else None,
             "sharpe_decay_is_to_oos": round(self.sharpe_decay, 3),
+            "out_of_sample_after_tax": (
+                self.oos_after_tax.as_json() if self.oos_after_tax else None
+            ),
             "tax_total_inr": float(self.tax_total),
             "tax_by_year": [
                 {"fy": t.fy_start_year, "tax_inr": float(t.total_tax)} for t in self.tax_years
@@ -163,10 +183,16 @@ def run_walk_forward(
 ) -> BacktestResult:
     """Run every walk-forward fold and stitch the out-of-sample record.
 
-    The lockbox is unreachable from here: :func:`walk_forward_windows` stops short of it and
-    :func:`assert_no_lockbox_overlap` checks the same thing from the other direction. Both, because
-    an overlap turns the held-out slice into training data and leaves no trace in any metric.
+    The lockbox is unreachable from here, checked three ways: the panel may not contain it at all
+    (:func:`assert_panel_stops_before_lockbox`), :func:`walk_forward_windows` stops short of it,
+    and :func:`assert_no_lockbox_overlap` checks the windows from the other direction. All three,
+    because an overlap turns the held-out slice into training data and leaves no trace in any
+    metric — there is no number afterwards that looks wrong.
     """
+    # The panel first, then the windows. `evaluate_once` runs the strategy over everything the
+    # panel contains, so a panel that includes the lockbox puts it in reach however careful the
+    # window arithmetic is (invariant #26).
+    assert_panel_stops_before_lockbox(panel, goal.data_split)
     windows = walk_forward_windows(panel, strategy, goal.backtest, goal.data_split)
     assert_no_lockbox_overlap(windows, panel, goal.data_split)
     if not windows:
@@ -177,21 +203,14 @@ def run_walk_forward(
         )
 
     result = BacktestResult(strategy=strategy.name)
-    warmup = longest_lookback(strategy)
+    # Once, over the whole span, rather than per fold over a slice with a lead-in in front of it.
+    # See `evaluate_once` for why the lead-in could not be made large enough to be honest.
+    columns = evaluate_once(strategy, panel, registry)
     dates = [str(t)[:10] for t in panel.ts]
 
     for i, window in enumerate(windows):
-        # The SAME warm-up treatment on both sides. Training used to be called with warmup=0,
-        # so its curve kept the unavoidable lead-in of dead, zero-return sessions while the test
-        # curve had its prefix trimmed. Padding a return series with zeros scales its Sharpe by
-        # about sqrt(active/total), so the in-sample figure was depressed and the headline
-        # "was it fitted" decay ratio came out correspondingly too generous.
-        train = _run_span(
-            strategy, panel, window.train_start, window.train_end, warmup, goal, registry
-        )
-        test = _run_span(
-            strategy, panel, window.test_start, window.test_end, warmup, goal, registry
-        )
+        train = _run_span(strategy, panel, window.train_start, window.train_end, columns, goal)
+        test = _run_span(strategy, panel, window.test_start, window.test_end, columns, goal)
         result.folds.append(
             FoldResult(
                 index=i,
@@ -219,14 +238,22 @@ def run_walk_forward(
         )
 
     result.oos_trades = [t for fold in result.folds for t in fold.trades]
+    stitched, books = _stitch(result.folds)
     result.oos = summarise(
-        _stitch(result.folds),
+        stitched,
         result.oos_trades,
         confidence_level=goal.stop_gate.sharpe_confidence_level,
-        sessions_open=_sessions_held(result.oos_trades, _session_days(_stitch(result.folds))),
+        sessions_open=_sessions_held(result.oos_trades, _session_days(stitched)),
     )
     result.sharpe_decay = _decay_across_folds(result.folds)
     result.tax_years, result.tax_total = _tax(result.oos_trades, goal)
+    after_tax = _after_tax_curve(stitched, books, result.tax_years)
+    result.oos_after_tax = summarise(
+        after_tax,
+        result.oos_trades,
+        confidence_level=goal.stop_gate.sharpe_confidence_level,
+        sessions_open=_sessions_held(result.oos_trades, _session_days(after_tax)),
+    )
 
     if ledger is not None:
         record_trial(ledger, strategy, result, origin="operator")
@@ -238,28 +265,73 @@ def run_walk_forward(
 # --------------------------------------------------------------------------------------
 
 
+@dataclass(frozen=True, slots=True)
+class _Columns:
+    """The strategy evaluated once, over the whole development span."""
+
+    signals: dict[str, Column]
+    stops: dict[str, Column]
+    ranks: dict[str, Column] | None
+
+    def slice(
+        self, start: int, end: int
+    ) -> tuple[dict[str, Column], dict[str, Column], dict[str, Column] | None]:
+        return (
+            {s: c[start:end] for s, c in self.signals.items()},
+            {s: c[start:end] for s, c in self.stops.items()},
+            None if self.ranks is None else {s: c[start:end] for s, c in self.ranks.items()},
+        )
+
+
+def evaluate_once(strategy: StrategyCandidate, panel: Panel, registry: Registry) -> _Columns:
+    """Compute every column the simulator needs, over the full development history.
+
+    **This replaces the warm-up prefix, and it is not an optimisation — it is the only correct
+    version.** Each fold used to be evaluated on its own slice, preceded by ``longest_lookback``
+    sessions of lead-in, on the reasoning that a 200-session average needs 200 sessions. That is
+    true of an average and false of everything recursive: measured against full history, a
+    Wilder-smoothed word needs roughly **twenty times** its own window before it agrees, so
+    ``rsi(14)`` given fourteen sessions was **32% out** on the first bar of every span and ``macd``
+    41% out. Worse, the error has no fix by enlargement — ``rsi(200)`` needs more sessions than
+    this panel contains, so no multiplier exists that is both sufficient and affordable
+    (finding F29).
+
+    Evaluating over the whole span removes the approximation instead of tuning it. **It is not
+    look-ahead**: every primitive is causal — proved by ``test_no_primitive_sees_the_future`` — so
+    the value at bar *t* is identical whether it was computed from ``[0..t]`` or from the whole
+    series. What changes is that the earlier bars are no longer *missing*, which is exactly the
+    state a live system is in: on the morning it starts it has all the history there is.
+
+    **The lockbox is kept out of reach by refusing the panel, not by trusting causality.** Removing
+    the per-fold slicing removed the property that made the future *absent* from the array the DSL
+    ever saw, leaving causality as the only defence — true, and tested, but a property of 223 words
+    rather than of the data. :func:`~icarus.engine.backtest.assert_no_lockbox_overlap` therefore
+    rejects a panel that reaches past ``lockbox_start`` before this is ever called (invariant #26).
+
+    It is also cheaper: one evaluation instead of two per fold.
+    """
+    return _Columns(
+        signals=evaluate_universe(strategy.entry, panel, registry),
+        stops=_stops(strategy, panel),
+        ranks=(
+            evaluate_universe(strategy.rank_by, panel, registry)
+            if strategy.rank_by is not None
+            else None
+        ),
+    )
+
+
 def _run_span(
     strategy: StrategyCandidate,
     panel: Panel,
     start: int,
     end: int,
-    warmup: int,
+    columns: _Columns,
     goal: GoalConfig,
-    registry: Registry,
 ) -> RunResult:
-    """Simulate ``[start, end)``, reading ``warmup`` sessions of history before it."""
-    frm = max(0, start - warmup)
-    window = slice_panel(panel, frm, end)
-    gate = start - frm
-
-    signals = evaluate_universe(strategy.entry, window, registry)
-    _gate_signals(signals, gate)
-    stops = _stops(strategy, window)
-    ranks = (
-        evaluate_universe(strategy.rank_by, window, registry)
-        if strategy.rank_by is not None
-        else None
-    )
+    """Simulate ``[start, end)`` against columns already computed over the whole span."""
+    window = slice_panel(panel, start, end)
+    signals, stops, ranks = columns.slice(start, end)
 
     simulator = PortfolioSimulator(
         risk=goal.risk,
@@ -278,24 +350,7 @@ def _run_span(
         starting_equity=Decimal(str(goal.backtest.starting_equity_inr)),
         ranks=ranks,
     )
-    # Drop the warm-up prefix from the equity curve. Its points are real — equity simply sat flat
-    # because no signal could fire — but leaving them in would dilute every return-based metric
-    # with sessions the fold was not actually being measured over.
-    run.equity = run.equity[gate:]
     return run
-
-
-def _gate_signals(signals: dict[str, Column], gate: int) -> None:
-    """Blank every signal in the warm-up prefix, in place.
-
-    Zero rather than ``nan``: the simulator reads a signal as "fire if truthy", and ``nan`` is
-    truthy. A ``nan`` here would open a position on every warm-up bar of every symbol — the exact
-    opposite of the intent, and it would look like an unusually active strategy rather than a bug.
-    """
-    if gate <= 0:
-        return
-    for column in signals.values():
-        column[:gate] = 0.0
 
 
 def _stops(strategy: StrategyCandidate, panel: Panel) -> dict[str, Column]:
@@ -361,7 +416,104 @@ def _sessions_held(trades: Sequence[ClosedTrade], sessions: frozenset[int]) -> i
     return len(days & sessions)
 
 
-def _stitch(folds: Sequence[FoldResult]) -> list[tuple[datetime, Decimal]]:
+def gate_verdict(result: BacktestResult, goal: GoalConfig) -> tuple[str, list[tuple[str, bool]]]:
+    """PASS or FAIL against the pre-registered gate, and every check that produced it.
+
+    Lifted out of the metric-sheet printer on 2026-08-16. It had been three lines inside a
+    ``print`` loop, which meant the single most consequential decision in Phase 1 — does this
+    strategy get money — was the only logic in the engine with no test at all. A mutation pointing
+    it at the pre-tax record passed the whole suite.
+
+    Reads :attr:`BacktestResult.oos_after_tax`, because ``stop_gate.net_of_cost_and_tax`` says so
+    and, until this was written, nothing did (finding F38).
+
+    **Only the curve-derived checks are after tax, and the labels now say which are not.** The
+    first version of this function read ``oos_after_tax`` and stopped there, under a heading that
+    said AFTER TAX — but :func:`~icarus.engine.metrics.summarise` derives ``expectancy_r``,
+    ``win_rate`` and ``trades`` from the *trade ledger*, and tax never touches a trade. So
+    ``oos_after_tax.expectancy_r`` was identical to the pre-tax figure, and a strategy at +0.03R
+    before tax and negative after it passed an "expectancy > 0R" check labelled after-tax. That is
+    F38 surviving inside its own fix (finding F42).
+
+    Tax cannot honestly be attributed to individual trades — it is annual, on the aggregate, with
+    set-off rules between buckets — so no per-trade after-tax expectancy is invented here. The
+    pre-tax check keeps its pre-registered form and is labelled truthfully, and the aggregate it
+    could not see is added as a check of its own. That makes the gate strictly harder to pass,
+    which is the only direction it may be moved once results exist (invariant #25).
+    """
+    metrics = result.oos_after_tax
+    if metrics is None:
+        return "NO RESULT", []
+    bound = goal.stop_gate.require_sharpe_lower_bound_above
+    promote = goal.stop_gate.trade_count_promote
+    after_tax_pnl = sum((t.net_pnl for t in result.oos_trades), Decimal(0)) - result.tax_total
+    checks = [
+        (
+            f"Sharpe lower bound > {bound} (after tax)",
+            metrics.sharpe.is_estimable and metrics.sharpe.lower > bound,
+        ),
+        (f"trades >= {promote}", metrics.trades >= promote),
+        ("expectancy > 0R (before tax)", metrics.expectancy_r > 0),
+        ("P&L after tax > 0", after_tax_pnl > 0),
+    ]
+    return ("PASS" if all(ok for _, ok in checks) else "FAIL"), checks
+
+
+def _after_tax_curve(
+    curve: Sequence[tuple[datetime, Decimal]],
+    books: Sequence[Decimal],
+    years: Sequence[FinancialYearTax],
+) -> list[tuple[datetime, Decimal]]:
+    """The stitched curve with each year's tax deducted on the session it falls due.
+
+    **Tax cannot be spread across sessions.** It is annual on the aggregate — that is the whole
+    reason ``taxmodel`` consumes a ledger and returns one bill per year — so smoothing it into a
+    per-session drag would invent a liability that never existed on any of those days. It lands in
+    one step at the last session of the financial year, which is lumpy, and is lumpy in a real
+    account too.
+
+    The curve is a **return index anchored at 1.0**, not rupees, so a rupee bill has to be
+    converted where it lands. It is converted against ``books[i]`` — the fold-local rupee account
+    the trades were actually sized against — and **not** against ``starting_equity x index``. The
+    first version did the latter, which understated the drag by exactly the compounding factor: a
+    ₹40,000 bill earned on a ₹1,00,000 book is 40% of it, but once the stitched index reached 4.0
+    it was being charged as 10%. The error flattered the strategy in direct proportion to how well
+    it had compounded, and it landed on the number the gate reads (finding F41).
+
+    The deduction is applied to the session it falls due on, **before** that point is emitted. The
+    first version appended first, so a bill only bit from the *next* session onward — and since the
+    last financial year's last session is the final point of the curve, its bill hit nothing at all
+    and silently vanished from the gated metrics.
+    """
+    if not curve or not years:
+        return list(curve)
+    due = {y.fy_start_year: y.total_tax for y in years}
+    # Last index wins, so this ends up holding the final session of each financial year.
+    last_session_of = {financial_year(ts): i for i, (ts, _v) in enumerate(curve)}
+    # Fail loud rather than absorb (invariant #10). `_stitch` drops each fold's opening bar, so a
+    # financial year whose only trade exited on one of those has no representative point on the
+    # curve — and its bill would otherwise be dropped here with nothing said, leaving the sheet
+    # showing two after-tax numbers that disagree.
+    orphaned = sorted(set(due) - set(last_session_of))
+    if orphaned:
+        raise ValueError(
+            f"tax is due for FY {orphaned} but the stitched curve has no session in those years, "
+            f"so {sum(due[fy] for fy in orphaned)} rupees of tax would go uncharged — refusing to "
+            f"report an after-tax curve that is missing part of the tax"
+        )
+    bill_at = {i: due[fy] for fy, i in last_session_of.items() if fy in due}
+
+    out: list[tuple[datetime, Decimal]] = []
+    carry = Decimal(1)
+    for i, (ts, value) in enumerate(curve):
+        bill = bill_at.get(i, Decimal(0))
+        if bill > 0 and books[i] > 0:
+            carry *= max(Decimal(0), (books[i] - bill) / books[i])
+        out.append((ts, value * carry))
+    return out
+
+
+def _stitch(folds: Sequence[FoldResult]) -> tuple[list[tuple[datetime, Decimal]], list[Decimal]]:
     """One continuous equity curve from the folds' out-of-sample curves, by compounding returns.
 
     Folds each restart from the same nominal equity, so concatenating rupee values would produce a
@@ -371,8 +523,16 @@ def _stitch(folds: Sequence[FoldResult]) -> list[tuple[datetime, Decimal]]:
 
     Anchored at 1.0 rather than at the starting equity: this curve is a return series, and giving
     it a rupee scale it never had would invite it to be read as a P&L.
+
+    Returns the **fold-local rupee book** alongside it, one entry per curve point. That is the
+    account the trades of that session were actually sized against, and it is not
+    ``starting_equity x index``: the index compounds across folds while the simulated book resets
+    to ``starting_equity`` at the start of each one. Anything that has to convert rupees into a
+    fraction of the account — the tax bill, so far — needs the book that earned them, not the
+    counterfactual compounded one (finding F41).
     """
     curve: list[tuple[datetime, Decimal]] = []
+    books: list[Decimal] = []
     equity = Decimal(1)
     for fold in folds:
         previous: Decimal | None = None
@@ -380,8 +540,9 @@ def _stitch(folds: Sequence[FoldResult]) -> list[tuple[datetime, Decimal]]:
             if previous is not None and previous > 0:
                 equity *= value / previous
                 curve.append((ts, equity))
+                books.append(value)
             previous = value
-    return curve
+    return curve, books
 
 
 def _decay_across_folds(folds: Sequence[FoldResult]) -> float:
@@ -465,6 +626,15 @@ def record_trial(
             "oos_sharpe": (
                 round(result.oos.sharpe.point, 4)
                 if result.oos and result.oos.sharpe.is_estimable
+                else None
+            ),
+            # Both, from 2026-08-16. The ledger recorded only the pre-tax Sharpe while the gate
+            # moved to the after-tax one, so the DSR correction in 1.9 — which reads this file —
+            # would have been computed on a different quantity from the promotion decision it is
+            # meant to correct (finding F43).
+            "oos_sharpe_after_tax": (
+                round(result.oos_after_tax.sharpe.point, 4)
+                if result.oos_after_tax and result.oos_after_tax.sharpe.is_estimable
                 else None
             ),
             "oos_trades": len(result.oos_trades),

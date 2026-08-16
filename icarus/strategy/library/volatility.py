@@ -345,6 +345,11 @@ def primitives() -> tuple[Primitive, ...]:
             Kind.SERIES,
             "Rank of current volatility in its own history.",
             _vol_percentile,
+            # No `requires_lt=(("n", "lookback"),)`. Added 2026-08-16 and removed the same day: a
+            # 252-bar volatility ranked against only its own last 20 values is a coarse percentile
+            # built from heavily overlapping windows, which is statistically weak — but weak is a
+            # configuration choice, not a defect the parser gets to refuse. The percentile is still
+            # a percentile, and it does not invert.
             (_ops.period_param(default=20), IntParam("lookback", 10, 2000, default=252)),
             scale_free=True,
         ),

@@ -24,7 +24,13 @@ from icarus.common.config import load_goal
 from icarus.common.logging import get_logger
 from icarus.engine.panelbuild import load_panel
 from icarus.engine.portfolio import Skipped
-from icarus.engine.runner import DEFAULT_TRIAL_LEDGER, BacktestResult, read_trials, run_walk_forward
+from icarus.engine.runner import (
+    DEFAULT_TRIAL_LEDGER,
+    BacktestResult,
+    gate_verdict,
+    read_trials,
+    run_walk_forward,
+)
 from icarus.strategy.dsl import parse_strategy
 from icarus.strategy.library import default_registry
 
@@ -84,11 +90,8 @@ def _mean_in_sample(result: BacktestResult) -> float:
 
 def _print_sheet(results: list[BacktestResult], goal: object) -> None:
     """The operator-facing summary. Losses and refusals are as prominent as the returns (§8)."""
-    bound = goal.stop_gate.require_sharpe_lower_bound_above  # type: ignore[attr-defined]
-    promote = goal.stop_gate.trade_count_promote  # type: ignore[attr-defined]
-
     print("\n" + "=" * 100)
-    print("WALK-FORWARD OUT-OF-SAMPLE — stitched across folds, net of costs")
+    print("WALK-FORWARD OUT-OF-SAMPLE — stitched across folds, net of costs (BEFORE tax)")
     print("=" * 100)
     header = (
         f"{'strategy':<26}{'trades':>8}{'Sharpe':>9}{'95% CI':>18}{'CAGR':>9}"
@@ -117,20 +120,20 @@ def _print_sheet(results: list[BacktestResult], goal: object) -> None:
     )
 
     print("\n" + "-" * 100)
-    print("AGAINST THE PRE-REGISTERED STOP GATE (goal.yaml, fixed 2026-08-01)")
+    print("AGAINST THE PRE-REGISTERED STOP GATE (goal.yaml, fixed 2026-08-01) — AFTER TAX")
     print("-" * 100)
+    # **After tax, from 2026-08-16.** `stop_gate.net_of_cost_and_tax: true` had been asserted by
+    # the loader and read by nothing: the gate tested a curve net of costs only while tax was
+    # computed afterwards and printed below as an informational line (finding F38). CLAUDE.md §5
+    # requires cost and tax inside every backtest; invariant #21 gates on alpha after both.
+    # A strategy with no after-tax record prints its NO RESULT row rather than vanishing. The row
+    # used to be computed and then dropped by `if not checks: continue`, so on the one table that
+    # decides whether a strategy gets money, a strategy that produced nothing looked like a
+    # strategy that was never run.
     for r in results:
-        m = r.oos
-        if m is None:
-            continue
-        checks = [
-            (f"Sharpe lower bound > {bound}", m.sharpe.is_estimable and m.sharpe.lower > bound),
-            (f"trades >= {promote}", m.trades >= promote),
-            ("expectancy > 0R", m.expectancy_r > 0),
-        ]
-        verdict = "PASS" if all(ok for _, ok in checks) else "FAIL"
+        verdict, checks = gate_verdict(r, goal)  # type: ignore[arg-type]
         detail = "  ".join(f"{'OK' if ok else 'NO':>2} {label}" for label, ok in checks)
-        print(f"{r.strategy:<26} {verdict:<5} {detail}")
+        print(f"{r.strategy:<26} {verdict:<9} {detail or 'no out-of-sample record to judge'}")
 
     print("\n" + "-" * 100)
     print("TAX ON THE OUT-OF-SAMPLE LEDGER (settled annually, not per trade)")
@@ -141,6 +144,23 @@ def _print_sheet(results: list[BacktestResult], goal: object) -> None:
             f"{r.strategy:<26} after-cost P&L {float(gross):>14,.0f}   "
             f"tax {float(r.tax_total):>12,.0f}   after-tax {float(gross - r.tax_total):>14,.0f}"
         )
+
+    # What the tax actually costs the metrics, rather than only the P&L. The gate reads the second
+    # row; the first is kept beside it so the drag is visible instead of absorbed.
+    print("\n" + "-" * 100)
+    print("WHAT TAX DOES TO THE METRICS (the gate reads the after-tax row)")
+    print("-" * 100)
+    print(f"{'strategy':<26}{'':>10}{'Sharpe':>9}{'95% CI':>18}{'CAGR':>9}{'maxDD':>9}")
+    for r in results:
+        for label, m in (("before tax", r.oos), ("AFTER TAX", r.oos_after_tax)):
+            if m is None:
+                continue
+            ci = f"[{m.sharpe.lower:.2f}, {m.sharpe.upper:.2f}]" if m.sharpe.is_estimable else "-"
+            name = r.strategy if label == "before tax" else ""
+            print(
+                f"{name:<26}{label:>10}{m.sharpe.point:>9.2f}{ci:>18}"
+                f"{m.cagr:>8.1%}{m.max_drawdown:>9.1%}"
+            )
 
     print("\n" + "-" * 100)
     print("PER-FOLD OUT-OF-SAMPLE SHARPE (a strategy alive in one fold only is not a strategy)")

@@ -22,6 +22,7 @@ from icarus.engine.backtest import (
     LockboxGuard,
     Window,
     assert_no_lockbox_overlap,
+    assert_panel_stops_before_lockbox,
     lockbox_window,
     longest_lookback,
     slice_panel,
@@ -117,7 +118,27 @@ def test_a_wider_lookback_widens_the_purge_gap_in_the_windows() -> None:
     wide = walk_forward_windows(panel, _strategy(252), CONFIG, SPLIT)  # type: ignore[arg-type]
     assert narrow[0].purge_sessions == 20
     assert wide[0].purge_sessions == 252
-    assert wide[0].test_start - wide[0].train_end == 252
+    # The seam is purge PLUS embargo. It was purge alone until 2026-08-16: `embargo_sessions` was
+    # read, stamped on every window and printed in the fold record while never entering the
+    # arithmetic, so setting it to 100 produced byte-identical windows (finding F30).
+    assert wide[0].test_start - wide[0].train_end == 252 + CONFIG.embargo_sessions
+
+
+def test_the_embargo_widens_the_seam_and_is_not_merely_reported() -> None:
+    """Purge guards backwards, embargo forwards, and they stack.
+
+    A 200-session average on the first test day is built from training days — that is the purge.
+    Training that runs right up to the seam has also seen the conditions the test is about to be
+    scored on, and with an anchored window every later fold trains on every earlier test period —
+    that is the embargo. Different directions, so the gap is the sum.
+    """
+    panel = _panel()
+    none = CONFIG.model_copy(update={"embargo_sessions": 1})
+    wide = CONFIG.model_copy(update={"embargo_sessions": 60})
+    a = walk_forward_windows(panel, _strategy(20), none, SPLIT)  # type: ignore[arg-type]
+    b = walk_forward_windows(panel, _strategy(20), wide, SPLIT)  # type: ignore[arg-type]
+    assert a[0].test_start - a[0].train_end == 21
+    assert b[0].test_start - b[0].train_end == 80
 
 
 # --------------------------------------------------------------------------------------
@@ -239,6 +260,27 @@ def test_a_window_reaching_into_the_lockbox_is_caught() -> None:
     )
     with pytest.raises(DslError, match="contaminates the lockbox"):
         assert_no_lockbox_overlap([bad], panel, SPLIT)
+
+
+def test_a_panel_containing_the_lockbox_is_refused_outright() -> None:
+    """The structural guarantee that whole-span evaluation removed, put back.
+
+    While each fold was evaluated on its own slice, a panel reaching past ``lockbox_start`` could
+    not matter — the future was physically absent from the array the DSL saw. ``evaluate_once``
+    deleted that slicing, leaving only the causality of 223 primitives between the held-out slice
+    and the strategy. Causality is true and tested, but it is a property of the vocabulary, not of
+    the data, and ``build_panel --lockbox`` produces exactly the panel that would lean on it.
+    """
+    with pytest.raises(DslError, match="at or past lockbox_start"):
+        assert_panel_stops_before_lockbox(_panel(), SPLIT)
+
+
+def test_a_development_panel_is_accepted() -> None:
+    """The guard must not refuse the ordinary case — `build_panel` stops the day before."""
+    panel = _panel()
+    dates = [d.astype("datetime64[D]").astype(date) for d in panel.ts]
+    cutoff = next(i for i, d in enumerate(dates) if d >= SPLIT.lockbox_start)
+    assert_panel_stops_before_lockbox(slice_panel(panel, 0, cutoff), SPLIT)
 
 
 def test_the_lockbox_window_starts_where_the_development_span_ends() -> None:

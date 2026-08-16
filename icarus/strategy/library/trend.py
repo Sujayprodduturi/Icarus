@@ -468,6 +468,7 @@ def primitives() -> tuple[Primitive, ...]:
                 IntParam("slow", 2, 500, default=30),
             ),
             scale_free=False,
+            requires_lt=(("fast", "slow"),),
         ),
         Primitive(
             "efficiency_ratio",

@@ -231,6 +231,7 @@ def primitives() -> tuple[Primitive, ...]:
                 IntParam("signal", 1, 200, default=9),
             ),
             scale_free=False,
+            requires_lt=(("fast", "slow"),),
         ),
         Primitive(
             "macd_signal",
@@ -243,6 +244,7 @@ def primitives() -> tuple[Primitive, ...]:
                 IntParam("signal", 1, 200, default=9),
             ),
             scale_free=False,
+            requires_lt=(("fast", "slow"),),
         ),
         Primitive(
             "macd_hist",
@@ -255,6 +257,7 @@ def primitives() -> tuple[Primitive, ...]:
                 IntParam("signal", 1, 200, default=9),
             ),
             scale_free=False,
+            requires_lt=(("fast", "slow"),),
         ),
         Primitive(
             "ppo",
@@ -263,6 +266,7 @@ def primitives() -> tuple[Primitive, ...]:
             _ppo,
             (IntParam("fast", 2, 200, default=12), IntParam("slow", 2, 500, default=26)),
             scale_free=True,
+            requires_lt=(("fast", "slow"),),
         ),
         Primitive(
             "zscore",

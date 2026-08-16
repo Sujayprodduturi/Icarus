@@ -247,7 +247,11 @@ def _call_of(primitive: Primitive) -> Call:
             # produced compared equal to itself, quietly dropping the word from the sweep.
             literals[spec.name] = 1.0 if spec.name == "value" else 60
     for lower, upper in primitive.requires_lt:
-        assert literals[lower] < literals[upper], (
+        lo_v, hi_v = literals[lower], literals[upper]
+        assert isinstance(lo_v, int | float) and isinstance(hi_v, int | float), (
+            f"{primitive.name} declares an ordered pair on a non-numeric parameter"
+        )
+        assert lo_v < hi_v, (
             f"the sweep built {primitive.name} with {lower}={literals[lower]} and "
             f"{upper}={literals[upper]}, which the parser would reject — it would be measuring a "
             f"column no strategy can ask for"
@@ -371,3 +375,116 @@ def test_how_many_words_are_still_short_changed_is_pinned_not_ignored() -> None:
         f"was raised. If the first went down, update it and say what fixed it; if either went up, "
         f"a word was added without enough history or without a chart shape this series produces."
     )
+
+
+# --------------------------------------------------------------------------------------
+# Parameter pairs that are individually legal and jointly meaningless (finding F39)
+# --------------------------------------------------------------------------------------
+
+_ORDERED = {
+    "macd": ("fast", "slow"),
+    "macd_signal": ("fast", "slow"),
+    "macd_hist": ("fast", "slow"),
+    "ppo": ("fast", "slow"),
+    "kama": ("fast", "slow"),
+    "roc_skip": ("skip", "n"),
+}
+
+# Words that take a plausible-looking ordered pair and are deliberately NOT constrained, with the
+# measurement that settled each one. This half of the list is the more important half: the first
+# version of this table had fifteen entries, nine of them arrived at by pattern-matching parameter
+# *names* rather than by asking what the word does, and every one of those nine refused
+# configurations that are perfectly well defined.
+_UNCONSTRAINED = {
+    "trend_template": "takes fast/slow; transposing them changes the output not at all",
+    "vol_percentile": "n/lookback transposed is a coarse percentile — weak, not degenerate",
+    "stage": "slope_n >= n is a longer-horizon slope on a shorter MA; meaningful",
+    "stage_basing": "as stage",
+    "stage_advancing": "as stage",
+    "stage_topping": "as stage",
+    "stage_declining": "as stage",
+    "darvas_box_top": "confirm >= n asks a short high to hold longer; meaningful",
+    "darvas_box_bottom": "as darvas_box_top",
+    "darvas_breakout_up": "as darvas_box_top",
+}
+
+
+def test_every_word_with_an_ordered_pair_declares_it() -> None:
+    """The list is the finding, and the test of membership is **inversion, not oddity**.
+
+    ``requires_lt`` shipped in task 2b with one user, and 2f then applied it to fourteen more by
+    scanning for parameter names that looked ordered — ``fast``/``slow``, ``confirm``/``n``,
+    ``slope_n``/``n``. Nine of those fourteen were wrong, and wrong in the direction that matters
+    least visibly: the parser began refusing strategies that were fine. That is the same
+    "fixed the instance, not the class" reflex this repo keeps catching, wearing the opposite
+    costume — over-applying a rule is as much a failure to think as under-applying it.
+
+    The standard a pair has to meet is that transposing it makes the word mean **the opposite of
+    its own name**, so a strategy reading ``macd > 0`` is silently short. Measured on real bars:
+    ``macd``, ``macd_signal``, ``macd_hist``, ``ppo`` and ``roc_skip`` flip sign on 100% of bars;
+    ``kama``'s correlation between trend-cleanliness and smoothing speed goes +0.978 to -0.978, so
+    it smooths *most* exactly where its docstring says it smooths least. Merely unusual is not
+    enough — see :data:`_UNCONSTRAINED`.
+    """
+    declared = {p.name: p.requires_lt for p in default_registry() if p.requires_lt}
+    assert {k: v[0] for k, v in declared.items()} == _ORDERED
+
+
+@pytest.mark.parametrize("word", sorted(_UNCONSTRAINED))
+def test_a_plausible_pair_that_was_measured_and_left_alone(word: str) -> None:
+    """Refusing a legal configuration is a real cost, so each of these carries its measurement.
+
+    Named individually rather than asserted as "everything else is unconstrained", because the
+    point is that somebody looked at each one. A future word that needs a constraint should fail
+    :func:`test_every_word_with_an_ordered_pair_declares_it`, not slip through here.
+    """
+    assert not default_registry().get(word).requires_lt, _UNCONSTRAINED[word]
+
+
+@pytest.mark.parametrize("word", sorted(_ORDERED))
+def test_the_transposed_pair_is_refused_at_parse_time(word: str) -> None:
+    lo, hi = _ORDERED[word]
+    primitive = default_registry().get(word)
+    literals = {
+        s.name: getattr(s, "default", None) or 5 for s in primitive.params if s.name != "series"
+    }
+    literals[lo], literals[hi] = 40, 10  # transposed: lo must be < hi
+    lines = ["  above:", f"    a: {{{word}: {literals}}}", "    b: {constant: {value: 0.0}}"]
+    with pytest.raises(DslError, match="must be less than"):
+        _parse(_strategy(entry="\n".join(lines)))
+
+
+def test_the_constrained_words_really_do_invert() -> None:
+    """The membership rule, enforced rather than described.
+
+    Without this, :data:`_ORDERED` is an assertion that somebody once measured something. Here the
+    sign flip is re-measured on every run for the five sign-carrying words, so a word cannot be
+    added to the list on the strength of its parameter names — which is exactly how nine wrong
+    entries got in.
+    """
+    registry = default_registry()
+    bars = _bars(11, slice(None))
+    for word in ("macd", "macd_signal", "macd_hist", "ppo", "roc_skip"):
+        primitive = registry.get(word)
+        lower, upper = _ORDERED[word]
+        call = _call_of(primitive)
+        ordered = evaluate(call, bars, registry)
+        swapped = Call(
+            primitive=word,
+            kind=primitive.kind,
+            literals={
+                **call.literals,
+                lower: call.literals[upper],
+                upper: call.literals[lower],
+            },
+            nested=call.nested,
+        )
+        transposed = evaluate(swapped, bars, registry)
+        both = ~np.isnan(ordered) & ~np.isnan(transposed)
+        both &= (np.abs(ordered) > 1e-9) & (np.abs(transposed) > 1e-9)
+        assert both.sum() > 100, f"{word}: too few comparable bars to judge"
+        flipped = float((np.sign(ordered[both]) != np.sign(transposed[both])).mean())
+        assert flipped == 1.0, (
+            f"{word} transposed does NOT mean the opposite — it flips sign on only {flipped:.1%} "
+            f"of bars, so `requires_lt` is refusing a configuration that is merely unusual"
+        )

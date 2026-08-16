@@ -42,7 +42,7 @@ def _quality(**over: object) -> DataQualityConfig:
         "stale_sessions_symbol_veto": 2,
         "stale_plane_halt_ratio": 0.5,
     }
-    return DataQualityConfig(**(base | over))  # type: ignore[arg-type]
+    return DataQualityConfig(**(base | over))
 
 
 def _universe(**over: object) -> UniverseConfig:
@@ -53,7 +53,7 @@ def _universe(**over: object) -> UniverseConfig:
         "dividend_convention": "price_return",
         "history_years": 5,
     }
-    return UniverseConfig(**(base | over))  # type: ignore[arg-type]
+    return UniverseConfig(**(base | over))
 
 
 def _write_days(

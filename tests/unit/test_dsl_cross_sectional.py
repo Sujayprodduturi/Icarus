@@ -99,7 +99,9 @@ def _call(name: str, registry: Registry, **params: object) -> Call:
             assert value is not None, f"{name}.{spec.name} needs a value in this test"
             literals[spec.name] = value  # type: ignore[assignment]
         else:
-            nested[spec.name] = params.get(spec.name) or _call("close", registry)  # type: ignore[arg-type]
+            supplied = params.get(spec.name)
+            assert supplied is None or isinstance(supplied, Call)
+            nested[spec.name] = supplied or _call("close", registry)
     return Call(primitive=name, kind=primitive.kind, literals=literals, nested=nested)
 
 
