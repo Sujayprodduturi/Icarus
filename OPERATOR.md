@@ -351,6 +351,43 @@ Two things worth keeping:
   recomputes committed cash each entry pass and raises if it exceeds the book, and a test hands it
   a book it could not have bought to prove the guard is wired up rather than decorative.
 
+### The LTCG threshold — fixed 2026-08-16 (finding F35), found by a review that was not looking for it
+
+The operator asked for a `code-review` and a `ponytail-audit` before task 2e, as a safety check on
+removing config. Neither was aimed at the tax model. The review found that the long-term threshold
+was `ltcg_holding_months * 30` = **360 days**, where the statute counts twelve calendar months, so
+every delivery trade held 361 to 365 days was mis-bucketed.
+
+**What hid it was a comment.** The line above the constant said the approximation "errs toward STCG
+(the higher rate) more often than not" — a confident, absolute, untested claim about direction.
+Exactly the `momentum` shape from task 2a: a description asserting the opposite of the code, which
+is worse than no description, because it answers the question a reader was about to ask.
+
+**And I did it again in the fix.** My replacement said the old code erred "in our favour, always".
+It does not. A *gain* in the band was under-taxed; a *loss* was under-valued, because with no
+inter-bucket set-off an LTCG loss shelters future gains at 12.5% where an STCG loss shelters them
+at 20% — ₹20,800 worse on a ₹100,000 loss followed by a ₹100,000 gain. Same absolute untested
+claim, sign flipped, one commit later. The rule now has a test behind it.
+
+**And I overstated the blast radius, twice, to the operator.** I said the bug sat "on the number
+the stop gate reads". It does not: the gate checks Sharpe, trade count and expectancy, all built
+from an equity curve that is net of **costs only**. Tax is computed afterwards and printed as an
+informational line, and `stop_gate.net_of_cost_and_tax` is asserted `True` by the loader and read
+by nothing (finding F38). The tax bug made a reported number wrong; it changed no verdict.
+
+**Two durable lessons:**
+
+- **Run the reviews before the task, not only before the commit.** §5 says run them before
+  committing. That would have found nothing here — the working tree was clean. Pointing them at
+  existing code, because the operator asked, is what surfaced a money bug in the gate path.
+- **A prose claim about direction deserves the same suspicion as a number.** "Errs toward the higher
+  rate" is a testable statement, and it was never tested. Where a comment claims a bias, the test
+  should pin the bias.
+
+Also worth recording: my first version of the month-end test asserted that 2024-01-31 plus 365 days
+was long-term. It lands on 2025-01-30, a day *short* of the anniversary. The code was right and the
+test was wrong — which is the argument for writing calendar boundaries as dates rather than offsets.
+
 ## 8. Pace and posture
 
 - **Ship fast.** Prefer a working, honest, small thing today over a complete thing next month.

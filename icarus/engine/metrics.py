@@ -74,7 +74,14 @@ class SharpeEstimate:
 
 @dataclass(frozen=True, slots=True)
 class Metrics:
-    """The battery. Every field is net of cost and tax, on the series it was handed."""
+    """The battery, computed on the series it was handed — which is net of **costs only**.
+
+    This said "net of cost and tax" until 2026-08-16 and it was never true. The equity curve the
+    simulator produces has charges subtracted per fill; tax is annual on the aggregate, so it is
+    computed afterwards by ``runner._tax`` over the closed-trade ledger and reported separately.
+    Nothing here has ever been after-tax, and `stop_gate.net_of_cost_and_tax` — asserted `True`
+    in the loader and read by no code — does not change that (finding F38).
+    """
 
     # Return shape
     sharpe: SharpeEstimate

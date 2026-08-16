@@ -14,7 +14,7 @@ Three things here matter more than the rest:
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -344,25 +344,156 @@ def test_buckets_do_not_offset_each_other_and_that_is_conservative(model: TaxMod
 # --------------------------------------------------------------------------------------
 # Bucket classification
 # --------------------------------------------------------------------------------------
+def _held(days: int, *, frm: str = "2024-01-02") -> dict[str, datetime]:
+    """Entry and exit timestamps ``days`` apart, at an ordinary NSE close in IST."""
+    bought = datetime.fromisoformat(f"{frm}T10:00:00+00:00")  # 15:30 IST
+    return {"entry_ts": bought, "exit_ts": bought + timedelta(days=days)}
+
+
 def test_intraday_and_fno_classification_is_fixed_law(model: TaxModel) -> None:
-    assert model.bucket_for(Segment.EQUITY_INTRADAY, holding_days=0) is Bucket.EQUITY_SPECULATIVE
-    assert model.bucket_for(Segment.EQUITY_FUTURES, holding_days=0) is Bucket.NONSPECULATIVE
-    assert model.bucket_for(Segment.EQUITY_OPTIONS, holding_days=400) is Bucket.NONSPECULATIVE
+    assert model.bucket_for(Segment.EQUITY_INTRADAY, **_held(0)) is Bucket.EQUITY_SPECULATIVE
+    assert model.bucket_for(Segment.EQUITY_FUTURES, **_held(0)) is Bucket.NONSPECULATIVE
+    assert model.bucket_for(Segment.EQUITY_OPTIONS, **_held(400)) is Bucket.NONSPECULATIVE
 
 
 def test_delivery_as_capital_gains_splits_on_holding_period(model: TaxModel) -> None:
     """The configured default (operator decision, 31 Jul 2026): delivery is an investment, so the
     holding period is what decides the rate."""
-    assert model.bucket_for(Segment.EQUITY_DELIVERY, holding_days=30) is Bucket.STCG
-    assert model.bucket_for(Segment.EQUITY_DELIVERY, holding_days=400) is Bucket.LTCG
+    assert model.bucket_for(Segment.EQUITY_DELIVERY, **_held(30)) is Bucket.STCG
+    assert model.bucket_for(Segment.EQUITY_DELIVERY, **_held(400)) is Bucket.LTCG
+
+
+def test_the_split_is_twelve_calendar_months_and_not_three_hundred_and_sixty_days(
+    model: TaxModel,
+) -> None:
+    """The bug this replaced: ``ltcg_holding_months * 30`` made the threshold 360 days.
+
+    Every delivery trade held 361 to 365 days was booked long-term at 12.5% with the ₹1.25L
+    exemption, when the statute charges 20% with none — cheaper, on the number the stop gate reads.
+    A fold's test window is about 365 calendar days, so the baseline control, which holds to the
+    end of the fold, sits right in that band.
+    """
+    # 2024-01-02 + 12 calendar months = 2025-01-02. 2024 is a leap year, so that is 366 days.
+    for days in (300, 360, 361, 365, 366):
+        assert model.bucket_for(Segment.EQUITY_DELIVERY, **_held(days)) is Bucket.STCG, days
+    assert model.bucket_for(Segment.EQUITY_DELIVERY, **_held(367)) is Bucket.LTCG
+
+
+def test_the_anniversary_itself_is_short_term(model: TaxModel) -> None:
+    """One day more conservative than the common reading, deliberately.
+
+    Counting the holding period from the day *after* acquisition would make the anniversary day
+    366 and therefore long-term. The boundary is ambiguous by a day; STCG is the higher rate, so
+    that is the direction to be wrong in. Flagged for the CA alongside O7.
+    """
+    non_leap = _held(365, frm="2025-01-02")  # 2025-01-02 -> 2026-01-02, exactly twelve months
+    assert model.bucket_for(Segment.EQUITY_DELIVERY, **non_leap) is Bucket.STCG
+    assert model.bucket_for(Segment.EQUITY_DELIVERY, **_held(366, frm="2025-01-02")) is Bucket.LTCG
+
+
+@pytest.mark.parametrize(
+    ("bought", "sold", "expected"),
+    [
+        # 31 Jan + 12 months = 31 Jan. A leap year sits in between, so the anniversary is day 366
+        # — which is why counting days here goes wrong in the direction that costs money.
+        ("2024-01-31", "2025-01-30", Bucket.STCG),
+        ("2024-01-31", "2025-01-31", Bucket.STCG),
+        ("2024-01-31", "2025-02-01", Bucket.LTCG),
+        # 29 Feb + 12 months has no 29 Feb to land on and clamps to the 28th.
+        ("2024-02-29", "2025-02-28", Bucket.STCG),
+        ("2024-02-29", "2025-03-01", Bucket.LTCG),
+    ],
+)
+def test_a_month_end_purchase_lands_on_the_calendar_and_not_on_a_day_count(
+    model: TaxModel, bought: str, sold: str, expected: Bucket
+) -> None:
+    """Month ends are where calendar bugs live, so each boundary is pinned by date, not by offset.
+
+    Written by offset first, and the offsets were wrong: I asserted that 2024-01-31 plus 365 days
+    was long-term, when it lands on 2025-01-30 — a day *short* of the anniversary. The code was
+    right and the test was wrong, which is the argument for stating these as dates.
+    """
+    entry = datetime.fromisoformat(f"{bought}T10:00:00+00:00")
+    exit_ = datetime.fromisoformat(f"{sold}T10:00:00+00:00")
+    assert model.bucket_for(Segment.EQUITY_DELIVERY, entry_ts=entry, exit_ts=exit_) is expected
+
+
+def test_the_exit_date_is_read_on_the_ist_calendar(model: TaxModel) -> None:
+    """Every tax boundary is an IST boundary (invariant #22). A sale at 19:00 UTC is already the
+    next day in India, and for a trade sitting on the anniversary that decides the rate."""
+    bought = datetime.fromisoformat("2025-01-02T10:00:00+00:00")
+    on_the_line = datetime.fromisoformat("2026-01-02T13:00:00+00:00")  # 18:30 IST, still the 2nd
+    over_the_line = datetime.fromisoformat("2026-01-02T19:00:00+00:00")  # 00:30 IST on the 3rd
+    assert model.bucket_for(Segment.EQUITY_DELIVERY, entry_ts=bought, exit_ts=on_the_line) is (
+        Bucket.STCG
+    )
+    assert model.bucket_for(Segment.EQUITY_DELIVERY, entry_ts=bought, exit_ts=over_the_line) is (
+        Bucket.LTCG
+    )
+
+
+def test_the_entry_date_is_read_on_the_ist_calendar_too(model: TaxModel) -> None:
+    """The other end of the same boundary, and it had no test at all.
+
+    Every other case here buys at 10:00 UTC — 15:30 IST, the NSE close — where the UTC and IST
+    dates coincide, so replacing the entry conversion with a plain UTC date left all fifty tests
+    green. A purchase at 19:00 UTC is already the next day in India, which moves the anniversary
+    by one and with it the rate. Crypto is 24/7 and will make this ordinary rather than exotic.
+    """
+    late = datetime.fromisoformat("2025-01-02T19:00:00+00:00")  # 00:30 IST on 3 January
+    sold = datetime.fromisoformat("2026-01-03T10:00:00+00:00")  # 15:30 IST on 3 January
+    # IST: bought the 3rd, sold the 3rd a year later -> the anniversary itself -> short-term.
+    assert model.bucket_for(Segment.EQUITY_DELIVERY, entry_ts=late, exit_ts=sold) is Bucket.STCG
+    # Reading the entry in UTC would date it 2 January and make the same sale long-term.
+    utc_dated = datetime.fromisoformat("2025-01-02T10:00:00+00:00")
+    assert model.bucket_for(Segment.EQUITY_DELIVERY, entry_ts=utc_dated, exit_ts=sold) is (
+        Bucket.LTCG
+    )
+
+
+def test_the_old_threshold_was_wrong_in_both_directions_not_just_in_our_favour(
+    model: TaxModel,
+) -> None:
+    """Pins the directional claim the docstring makes, because an untested one caused this bug.
+
+    A *gain* in the 361-365 day band was under-taxed: 12.5% with the exemption instead of 20%.
+    A *loss* in the same band was under-valued — with no inter-bucket set-off an LTCG loss shelters
+    future gains at 12.5% where an STCG loss shelters them at 20%. The first draft of the fix
+    described the old code as wrong "in our favour, always", which is the same absolute untested
+    claim as the comment it replaced, with the sign flipped.
+    """
+    gain, loss = Decimal(100_000), Decimal(-100_000)
+    later = datetime(2027, 6, 1, tzinfo=UTC)
+
+    as_ltcg = model.annual_tax([_trade(Bucket.LTCG, str(gain))])
+    as_stcg = model.annual_tax([_trade(Bucket.STCG, str(gain))])
+    assert as_ltcg[0].total_tax < as_stcg[0].total_tax  # the old bucket was cheaper on a win
+
+    def carried(bucket: Bucket) -> Decimal:
+        years = model.annual_tax(
+            [
+                _trade(bucket, str(loss)),
+                RealizedTrade(bucket=Bucket.STCG, pnl=gain, exit_ts=later),
+            ]
+        )
+        return sum((y.total_tax for y in years), Decimal(0))
+
+    assert carried(Bucket.LTCG) > carried(Bucket.STCG)  # and dearer on a loss
+
+
+def test_a_sale_before_its_purchase_is_refused(model: TaxModel) -> None:
+    """Not defensive clutter: the two timestamps now travel separately, so transposing them is a
+    live possibility, and the quiet outcome would be a negative holding booked as short-term."""
+    with pytest.raises(ValueError, match="cannot be sold"):
+        model.bucket_for(Segment.EQUITY_DELIVERY, **_held(-5))
 
 
 def test_delivery_as_business_ignores_holding_period(tax_cfg: TaxConfig) -> None:
     """The alternative reading stays reachable in one config edit: under business income there is no
     STCG/LTCG split at all. O7 (CA confirmation) may yet flip us here."""
     business = TaxModel(tax_cfg.model_copy(update={"equity_delivery": "nonspeculative_business"}))
-    assert business.bucket_for(Segment.EQUITY_DELIVERY, holding_days=1) is Bucket.NONSPECULATIVE
-    assert business.bucket_for(Segment.EQUITY_DELIVERY, holding_days=500) is Bucket.NONSPECULATIVE
+    assert business.bucket_for(Segment.EQUITY_DELIVERY, **_held(1)) is Bucket.NONSPECULATIVE
+    assert business.bucket_for(Segment.EQUITY_DELIVERY, **_held(500)) is Bucket.NONSPECULATIVE
 
 
 def test_capital_gains_is_the_cheaper_reading_so_o7_still_matters(tax_cfg: TaxConfig) -> None:
@@ -371,13 +502,13 @@ def test_capital_gains_is_the_cheaper_reading_so_o7_still_matters(tax_cfg: TaxCo
     comes back the other way, every after-tax metric gets worse, not better."""
     capital = TaxModel(tax_cfg)
     business = TaxModel(tax_cfg.model_copy(update={"equity_delivery": "nonspeculative_business"}))
-    short_hold = 30
+    short_hold = _held(30)
 
     [as_capital] = capital.annual_tax(
-        [_trade(capital.bucket_for(Segment.EQUITY_DELIVERY, holding_days=short_hold), "10000")]
+        [_trade(capital.bucket_for(Segment.EQUITY_DELIVERY, **short_hold), "10000")]
     )
     [as_business] = business.annual_tax(
-        [_trade(business.bucket_for(Segment.EQUITY_DELIVERY, holding_days=short_hold), "10000")]
+        [_trade(business.bucket_for(Segment.EQUITY_DELIVERY, **short_hold), "10000")]
     )
     assert as_capital.total_tax < as_business.total_tax
 

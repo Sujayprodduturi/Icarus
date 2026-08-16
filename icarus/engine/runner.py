@@ -420,7 +420,14 @@ def _tax(trades: Sequence[ClosedTrade], goal: GoalConfig) -> tuple[list[Financia
             # branch on `tax.equity_delivery`: flipping the config to the business-income reading
             # — the open CA question, item O7 — would have left every after-tax number in every
             # backtest silently on the cheaper capital-gains rates.
-            bucket=model.bucket_for(Segment.EQUITY_DELIVERY, holding_days=t.holding_days),
+            #
+            # It passed the two *dates* rather than a day count from 2026-08-16. `months * 30` was
+            # not only inlined in the wrong place, it was wrong arithmetic wherever it lived: the
+            # statute counts calendar months, and twelve of those are 365 or 366 days depending on
+            # where the leap day falls — never 360.
+            bucket=model.bucket_for(
+                Segment.EQUITY_DELIVERY, entry_ts=t.entry_ts, exit_ts=t.exit_ts
+            ),
             pnl=t.net_pnl,
             exit_ts=t.exit_ts,
         )

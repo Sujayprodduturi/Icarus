@@ -54,10 +54,11 @@ the **new Income-tax Act, 2025**, so section numbers moved (speculative business
 
 from __future__ import annotations
 
+import calendar
 import enum
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
@@ -74,10 +75,28 @@ if TYPE_CHECKING:
 # is 19:00 UTC on 31 Mar — the wrong financial year if you read the UTC date (invariant #22).
 _FY_START_MONTH = 4
 
-# Average days per month, for turning the statutory holding period in months into days. The exact
-# statutory test is calendar-month based; at a 12-month boundary this differs only for trades held
-# within a day or two of the line, and it errs toward STCG (the higher rate) more often than not.
-_DAYS_PER_MONTH = 30
+
+def _ist_date(ts: datetime, *, what: str) -> date:
+    """A tz-aware UTC timestamp as its **IST calendar date** (invariant #22).
+
+    Every tax boundary is an IST-calendar boundary, and UTC is half a day out at the wrong end of
+    it. One function rather than the conversion written at each site, because the two sites are the
+    financial year and the holding period and they must never disagree about what day it was.
+    """
+    if ts.tzinfo is None:
+        raise ValueError(f"{what} must be tz-aware UTC to resolve an IST date (PRD §29.5)")
+    return ts.astimezone(IST).date()
+
+
+def _add_months(day: date, months: int) -> date:
+    """The same day-of-month, ``months`` calendar months later, clamped to a short month.
+
+    31 January plus one month is 28 February (29 in a leap year), which is the ordinary convention
+    and the one that keeps the result inside the month it names.
+    """
+    index = day.month - 1 + months
+    year, month = day.year + index // 12, index % 12 + 1
+    return date(year, month, min(day.day, calendar.monthrange(year, month)[1]))
 
 
 class Bucket(enum.StrEnum):
@@ -304,22 +323,61 @@ class TaxModel:
             return Bucket.CRYPTO_VDA
         return bucket
 
-    def bucket_for(self, segment: Segment, *, holding_days: int) -> Bucket:
+    def bucket_for(self, segment: Segment, *, entry_ts: datetime, exit_ts: datetime) -> Bucket:
         """The bucket a closed equity trade falls into.
 
         Delivery is the only ambiguous case (§6.1): under a business-income classification it is
         non-speculative regardless of holding period; under capital gains the holding period splits
-        STCG from LTCG. ``holding_days`` is keyword-only because it is ignored for every other
-        segment, and a positional caller probably thinks it matters more than it does.
+        STCG from LTCG.
+
+        **The split is in calendar months, and takes the two dates rather than a day count, because
+        a day count cannot express it.** s.2(42A) asks whether the asset was held for more than
+        twelve *months*; twelve months is 365 or 366 days depending on where the leap day falls.
+        This used to approximate a month as 30 days, making the threshold 360, so every delivery
+        trade held 361 to 365 days was mis-bucketed. A fold's test window is about 365 calendar
+        days and the baseline control holds to the end of the fold, so it sits in that band.
+
+        **It was wrong in both directions, which is why no single word describes it.** A *gain* in
+        the band was booked long-term at 12.5% with the ₹1.25L exemption instead of 20% with none —
+        cheaper, flattering. A *loss* in the band was booked as an LTCG loss, and with no
+        inter-bucket set-off (:meth:`_settle_bucket`) an LTCG loss only shelters future gains at
+        12.5% where an STCG loss shelters them at 20%: a ₹100,000 loss followed by a ₹100,000 STCG
+        gain the next year cost ₹20,800 under the old classification and nothing under this one.
+        Which way a given strategy was flattered therefore depends on its win/loss mix inside those
+        five days, and is not knowable without measuring it.
+
+        That two-sidedness is the point. The reason this survived was the comment above the old
+        constant, which asserted the approximation "errs toward STCG (the higher rate) more often
+        than not" — a confident, absolute, untested claim about direction. The first draft of *this*
+        docstring replaced it with "in our favour, always", which is the same mistake with the sign
+        flipped, and a review caught it. **Where a comment claims a bias, the bias needs a test.**
+
+        **The anniversary itself is treated as short-term**, which is one day more conservative
+        than the common reading (holding period counted from the day *after* acquisition would make
+        the anniversary day 366, and therefore long-term). The boundary is genuinely ambiguous by a
+        day; STCG is the higher rate, so that is the direction to be wrong in. Flagged for the CA
+        alongside O7.
         """
+        # Validated before the branches, not inside the one branch that happens to need the dates.
+        # Sitting below them made both guards reachable only under the capital-gains reading — and
+        # TASKS.md O7 describes the business-income flip as "one config word away", so a naive or
+        # transposed pair would have started passing silently the day the CA came back.
+        bought = _ist_date(entry_ts, what="entry_ts")
+        sold = _ist_date(exit_ts, what="exit_ts")
+        if sold < bought:
+            raise ValueError(f"a trade cannot be sold ({sold}) before it was bought ({bought})")
+
         if segment is Segment.EQUITY_INTRADAY:
             return Bucket.EQUITY_SPECULATIVE
         if segment in (Segment.EQUITY_FUTURES, Segment.EQUITY_OPTIONS):
             return Bucket.NONSPECULATIVE
         if self._cfg.equity_delivery == "nonspeculative_business":
             return Bucket.NONSPECULATIVE
-        long_term_after_days = self._cfg.ltcg_holding_months * _DAYS_PER_MONTH
-        return Bucket.LTCG if holding_days > long_term_after_days else Bucket.STCG
+        return (
+            Bucket.LTCG
+            if sold > _add_months(bought, self._cfg.ltcg_holding_months)
+            else Bucket.STCG
+        )
 
 
 def financial_year(ts: datetime) -> int:
@@ -328,9 +386,7 @@ def financial_year(ts: datetime) -> int:
     Resolved on the **IST** calendar date. Reading the UTC date instead misfiles trades near the
     year boundary: 00:30 IST on 1 April is 19:00 UTC on 31 March — the previous financial year.
     """
-    if ts.tzinfo is None:
-        raise ValueError("financial_year() needs a tz-aware timestamp (PRD §29.5)")
-    ist_date = ts.astimezone(IST).date()
+    ist_date = _ist_date(ts, what="financial_year()")
     return ist_date.year if ist_date.month >= _FY_START_MONTH else ist_date.year - 1
 
 
