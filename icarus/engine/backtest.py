@@ -151,14 +151,27 @@ def walk_forward_windows(
 ) -> list[Window]:
     """Anchored walk-forward folds over the panel's development span.
 
-    Stops at ``walk_forward_end``. Reaching past it is not a matter of care in the caller: the
-    lockbox has to be unreachable from the ordinary path, so this function cannot produce a window
-    that touches it.
+    Bounded at **both** ends by ``data_split``. Reaching past ``walk_forward_end`` is not a matter
+    of care in the caller: the lockbox has to be unreachable from the ordinary path, so this
+    function cannot produce a window that touches it.
+
+    ``walk_forward_start`` was honoured from 2026-08-16 (finding F37). It had been validated and
+    then ignored — every window anchored on the panel's own first session — which was invisible
+    only because the two dates currently coincide. Narrowing it to exclude a regime would have left
+    the folds training from 2011 with no error and no log line, and the config reading as though the
+    exclusion had taken effect.
     """
     dates = _dates_of(panel)
-    development = [i for i, day in enumerate(dates) if day <= split.walk_forward_end]
+    development = [
+        i
+        for i, day in enumerate(dates)
+        if split.walk_forward_start <= day <= split.walk_forward_end
+    ]
     if not development:
-        raise DslError("the panel contains no sessions inside the walk-forward span")
+        raise DslError(
+            f"the panel contains no sessions inside the walk-forward span "
+            f"{split.walk_forward_start}..{split.walk_forward_end}"
+        )
 
     purge = longest_lookback(strategy)
     embargo = config.embargo_sessions
@@ -197,14 +210,26 @@ def walk_forward_windows(
 
 
 def lockbox_window(panel: Panel, split: DataSplit) -> Window:
-    """The single final fold. Reachable only through :class:`LockboxGuard`."""
+    """The single final fold. Reachable only through :class:`LockboxGuard`.
+
+    Trains on the **same span** the walk-forward folds do, bounded at both ends. The lower bound
+    was added on 2026-08-16 with the one in :func:`walk_forward_windows`, and missing it here would
+    have been the worse of the two omissions: narrowing ``walk_forward_start`` to exclude a regime
+    would have left the walk-forward honouring it and the final go/no-go fold quietly training on
+    the excluded years. The lockbox is evaluated **once** (invariant #26), so that discrepancy is
+    not something a later run can correct.
+    """
     dates = _dates_of(panel)
     inside = [
         i
         for i, day in enumerate(dates)
         if day >= split.lockbox_start and (split.lockbox_end is None or day <= split.lockbox_end)
     ]
-    before = [i for i, day in enumerate(dates) if day <= split.walk_forward_end]
+    before = [
+        i
+        for i, day in enumerate(dates)
+        if split.walk_forward_start <= day <= split.walk_forward_end
+    ]
     if not inside or not before:
         raise DslError("the panel does not span both the development window and the lockbox")
     return Window(

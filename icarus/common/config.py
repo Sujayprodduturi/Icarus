@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import date
+from itertools import pairwise
 from pathlib import Path
 from typing import Annotated
 
@@ -26,6 +27,39 @@ _PosInt = Annotated[int, Field(gt=0)]
 
 # Hard ceiling from invariant #7 — the leverage cap NEVER loosens with tier.
 CRYPTO_LEVERAGE_ABSOLUTE_CEILING = 2.0
+
+# The loosest settings the kill-switch ladder may take. Config may be **stricter** — a smaller
+# number halts sooner — and never looser. Same shape as the leverage ceiling above and for the same
+# reason: invariant #4 says hard risk limits cannot be overridden by any strategy or by the learning
+# loop, and until 2026-08-16 that was true of strategies and false of a one-line edit to goal.yaml.
+# A review demonstrated it by loading `max_drawdown_killswitch: 1.00` cleanly (finding F36).
+# Values are the ones CLAUDE.md §0 #23 and §4 name, pinned in code so re-dating goal.yaml cannot
+# launder a loosened one.
+_DAILY_LOSS_LIMIT_CEILING = 0.03  # invariant #23 — -3% halts new entries for the day
+_DAILY_DERISK_CEILING = 0.015  # CLAUDE.md §4 — -1.5% halves all sizing
+_MAX_DRAWDOWN_KILLSWITCH_CEILING = 0.10  # invariant #23 — -10%, operator-only restart
+# The first pass bounded three rungs and left the rest of the block open, which is the same hole
+# in a quieter place: each of these also loaded at a value that switched the control off.
+_KELLY_FRACTION_CEILING = 0.5  # CLAUDE.md §4 — "min(1/4-1/2 Kelly, ...)"; 1.0 is full Kelly
+_CANARY_SIZE_FACTOR_CEILING = 0.25  # CLAUDE.md §4 — canary runs at 25%; 1.0 is no canary
+_PER_TRADE_RISK_CEILING = 0.005  # PRD §15 — 0.5% per trade; tiers scale it *down*
+_PORTFOLIO_HEAT_CEILING = 0.02  # PRD §15 — 2% of equity at risk across the whole book
+_STAGNATION_CHECK_CEILING = 50  # invariant #23 — a larger number defers the halt indefinitely
+
+# Statutory rates, as of FY 2026-27 (PRD §7). Config may assume a **harsher** rate than the statute
+# — a stress scenario is allowed to overstate the bill — but never a cheaper one, which would
+# flatter after-tax P&L. `vda_flat_rate` is the sharpest: it exists only to make the
+# reclassification stress bite, and a zero there would make the mandated stress scenario tax-free.
+_STCG_RATE_STATUTORY = 0.20
+_LTCG_RATE_STATUTORY = 0.125
+_VDA_FLAT_RATE_STATUTORY = 0.30
+_CESS_RATE_STATUTORY = 0.04  # health & education cess, fixed by statute
+# The marginal slab is genuinely personal — an operator in a lower bracket may set a smaller one —
+# so this is the lowest *non-zero* slab the regime has rather than the top rate. The old check was
+# only `> 0`, under which 0.0001 loaded and made every business-income strategy effectively
+# tax-free, which is precisely what the VDA floor above exists to stop, aimed at the equity
+# business-income stress the gate requires.
+_LOWEST_SLAB_RATE = 0.05
 
 # Statutory LTCG exemption ceiling, s.112A equivalent (verified 2026-07-30, unchanged by Budget
 # 2026). Config may set LESS (the operator's other holdings may already consume it) but never more.
@@ -96,8 +130,13 @@ def assert_traceable(live: float, history: Sequence[Amendment], name: str) -> No
             f"{name}_amendments is empty — the live {name} must be traceable to a dated decision"
         )
     dates = [entry.set_on for entry in history]
-    if dates != sorted(dates):
-        raise ValueError(f"{name}_amendments must be in chronological order, got {dates}")
+    # Strictly increasing, not merely sorted. Two entries on the same day have no defined order,
+    # so `history[-1]` becomes whichever the operator happened to list last and the same file
+    # validates against two different live values.
+    if any(b <= a for a, b in pairwise(dates)):
+        raise ValueError(
+            f"{name}_amendments must be in strictly increasing date order, got {dates}"
+        )
     if history[-1].value != live:
         raise ValueError(
             f"{name} is {live} but the latest amendment ({history[-1].set_on}) records "
@@ -174,6 +213,28 @@ class Risk(_Strict):
                 f"crypto_max_leverage_seed={self.crypto_max_leverage_seed} exceeds hard cap "
                 f"{self.crypto_max_leverage_hard}x"
             )
+        # Each rung of the ladder has a loosest permissible setting, pinned in code. Without these
+        # the ordering check below was the *only* constraint, and it is satisfied by
+        # `daily_derisk_trigger: 0.99, daily_loss_limit: 1.00` — an ordered ladder with no rungs.
+        for name, ceiling in (
+            ("daily_loss_limit", _DAILY_LOSS_LIMIT_CEILING),
+            ("daily_derisk_trigger", _DAILY_DERISK_CEILING),
+            ("max_drawdown_killswitch", _MAX_DRAWDOWN_KILLSWITCH_CEILING),
+            ("kelly_fraction_cap", _KELLY_FRACTION_CEILING),
+            ("new_strategy_size_factor", _CANARY_SIZE_FACTOR_CEILING),
+            ("per_trade_risk_r", _PER_TRADE_RISK_CEILING),
+            ("max_portfolio_heat", _PORTFOLIO_HEAT_CEILING),
+            ("stagnation_check_after_trades", _STAGNATION_CHECK_CEILING),
+        ):
+            value = getattr(self, name)
+            if value > ceiling:
+                raise ValueError(
+                    f"risk.{name}={value} is looser than the {ceiling} CLAUDE.md §0 fixes for it. "
+                    f"A stricter value (smaller, halting sooner) is allowed; a looser one is a "
+                    f"kill-switch edited into not being one (invariant #4)."
+                )
+            if value <= 0:
+                raise ValueError(f"risk.{name} must be > 0 — zero disables the halt entirely")
         # De-risk trigger must fire before the daily halt (ladder ordering, §14).
         if self.daily_derisk_trigger >= self.daily_loss_limit:
             raise ValueError(
@@ -262,8 +323,30 @@ class Tax(_Strict):
             )
         # A zero slab rate would make every business-income strategy look tax-free. §6 requires a
         # conservative default precisely so the gate is not flattered by an optimistic slab.
-        if self.operator_slab_rate == 0:
-            raise ValueError("tax.operator_slab_rate must be > 0 (§6: never flatter the gate)")
+        if self.operator_slab_rate < _LOWEST_SLAB_RATE:
+            raise ValueError(
+                f"tax.operator_slab_rate={self.operator_slab_rate} is below the lowest non-zero "
+                f"slab ({_LOWEST_SLAB_RATE}). The old check was only '> 0', under which 0.0001 "
+                f"loaded and made every business-income strategy effectively tax-free "
+                f"(§6: never flatter the gate)."
+            )
+        # The same reasoning, applied to the three rates it was never applied to. `vda_flat_rate: 0`
+        # loaded cleanly until 2026-08-16 and made the mandated VDA reclassification stress
+        # tax-free, so a crypto strategy surviving only the optimistic reading would have passed
+        # the very scenario built to catch it (finding F36).
+        for name, statutory in (
+            ("stcg_rate", _STCG_RATE_STATUTORY),
+            ("ltcg_rate", _LTCG_RATE_STATUTORY),
+            ("vda_flat_rate", _VDA_FLAT_RATE_STATUTORY),
+            ("cess_rate", _CESS_RATE_STATUTORY),
+        ):
+            value = getattr(self, name)
+            if value < statutory:
+                raise ValueError(
+                    f"tax.{name}={value} is below the statutory {statutory}. Assuming a harsher "
+                    f"rate is allowed — a stress scenario may overstate the bill — but a cheaper "
+                    f"one understates tax on every trade and flatters the gate (§6)."
+                )
         if self.ltcg_exemption_inr > _LTCG_EXEMPTION_STATUTORY_CEILING_INR:
             raise ValueError(
                 f"tax.ltcg_exemption_inr={self.ltcg_exemption_inr} exceeds the statutory "
@@ -424,7 +507,6 @@ class Overfitting(_Strict):
     haircut_method: str
     gate_on_sharpe_lower_bound: bool
     small_sample_shrinkage: bool
-    lockbox_eval_budget: _PosInt
     lockbox_rotation_days: _PosInt
     benchmark_equity: str
     benchmark_crypto: str
@@ -433,8 +515,12 @@ class Overfitting(_Strict):
 
 
 class TradeQuality(_Strict):
-    min_quality_score: _Fraction
-    rank_select_top_k: _PosInt
+    """Live-trading throttles for the Risk agent (task 2.1). **Nothing reads them yet.**
+
+    ``min_quality_score`` and ``rank_select_top_k`` were removed on 2026-08-16: they described a
+    per-signal quality score that exists nowhere in the codebase and never has (finding F37).
+    """
+
     max_trades_per_day_per_strategy: _PosInt
     min_holding_bars: _PosInt
 
@@ -529,9 +615,21 @@ class StopGate(_Strict):
 
     pre_registered_on: date
     require_sharpe_lower_bound_above: float
+    require_sharpe_lower_bound_above_amendments: tuple[Amendment, ...]
+    """The date above pins *when* the gate was set; this pins *what it has ever been*.
+
+    Until 2026-08-16 the block asserted an immutable ``pre_registered_on`` while every threshold
+    under it stayed freely editable — so ``require_sharpe_lower_bound_above: 0.0 -> -5.0`` loaded
+    cleanly and the file still claimed a 2026-08-01 provenance. That is precisely the "assert a
+    provenance that is false" failure :func:`assert_traceable` was written to prevent, sitting on
+    the gate itself (finding F36). The two thresholds that are judgement rather than statute get
+    the same append-only log as ``objective.min_sharpe``; the rest are bounded or derived.
+    """
+
     sharpe_confidence_level: _Fraction
     net_of_cost_and_tax: bool
     max_pbo: _Fraction
+    max_pbo_amendments: tuple[Amendment, ...]
     trade_count_promote: _PosInt
     trade_count_needs_more_data: _PosInt
     min_oos_calendar_years: _Positive
@@ -557,6 +655,31 @@ class StopGate(_Strict):
                 "stop_gate.net_of_cost_and_tax cannot be false — gross-only metrics are a bug "
                 "(CLAUDE.md §5), not a configuration choice"
             )
+        # A bound **and** a log, not one or the other. The log alone was the first attempt, and it
+        # is weaker here than it is for `objective.min_sharpe`: that number is editable because the
+        # operator asked for it to be (2026-08-02), whereas this block's own header says the gate
+        # is not renegotiated once results are seen — and results have existed since 2026-08-07.
+        # With only a log, `-5.0` still loads for anyone willing to append a signed amendment.
+        # The floor is the weakest defensible gate rather than the current value, so the log still
+        # has room to record a genuine tightening.
+        if self.require_sharpe_lower_bound_above < 0.0:
+            raise ValueError(
+                f"stop_gate.require_sharpe_lower_bound_above={self.require_sharpe_lower_bound_above}"
+                f" is below zero, which admits a strategy whose confidence interval includes losing"
+                f" money. Stricter is allowed; this is not a threshold, it is the absence of one."
+            )
+        if self.max_pbo > 0.50:
+            raise ValueError(
+                f"stop_gate.max_pbo={self.max_pbo} exceeds 0.50. Above a half, the "
+                f"backtest-best strategy is worse than a coin flip out of sample — the boundary is "
+                f"the concept's own, not a tuned number."
+            )
+        assert_traceable(
+            self.require_sharpe_lower_bound_above,
+            self.require_sharpe_lower_bound_above_amendments,
+            "stop_gate.require_sharpe_lower_bound_above",
+        )
+        assert_traceable(self.max_pbo, self.max_pbo_amendments, "stop_gate.max_pbo")
         return self
 
 

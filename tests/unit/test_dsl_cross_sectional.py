@@ -422,8 +422,7 @@ exit:
   - time_stop: {bars: 21}
 sizing:
   risk_r: 0.005
-  weighting: inverse_vol_weight
-  vol_target_pct: 0.15
+  weighting: equal_weight
 """
 
 
@@ -431,8 +430,7 @@ def test_the_cross_sectional_momentum_strategy_parses_and_evaluates() -> None:
     """The acceptance criterion: the shape of strategy 1.4c exists to make sayable."""
     registry = default_registry()
     candidate = parse_strategy(_STRATEGY, registry=registry, max_risk_r=0.01)
-    assert candidate.sizing.weighting == "inverse_vol_weight"
-    assert candidate.sizing.vol_target_pct == pytest.approx(0.15)
+    assert candidate.sizing.weighting == "equal_weight"
     assert {"xs_top_n", "roc", "index_above_ma"} <= candidate.primitives_used()
 
     signal = evaluate_universe(candidate.entry, _panel(), registry)
@@ -441,19 +439,46 @@ def test_the_cross_sectional_momentum_strategy_parses_and_evaluates() -> None:
 
 
 def test_a_strategy_without_a_weighting_scheme_still_parses_unchanged() -> None:
-    """The keys are optional on purpose: every strategy file written before 1.4c must still load,
+    """The key is optional on purpose: every strategy file written before 1.4c must still load,
     which is also why no schema version moved."""
-    older = _STRATEGY.replace("  weighting: inverse_vol_weight\n", "").replace(
-        "  vol_target_pct: 0.15\n", ""
-    )
+    older = _STRATEGY.replace("  weighting: equal_weight\n", "")
     sizing = parse_strategy(older, registry=default_registry(), max_risk_r=0.01).sizing
     assert sizing.weighting == "equal_weight"
     assert sizing.vol_target_pct is None
 
 
+def test_declaring_a_volatility_target_is_refused() -> None:
+    """The partner of the weighting refusal, and it was missed on the first pass.
+
+    ``vol_target_pct`` parsed, was range-checked, and was applied by nothing — so a strategy could
+    declare a 15% volatility target, be backtested with no targeting whatsoever, and appear on the
+    metric sheet as though it had been. 2e's own acceptance criteria said to reject it; only its
+    sibling got done.
+    """
+    with_target = _STRATEGY.replace(
+        "  weighting: equal_weight\n", "  weighting: equal_weight\n  vol_target_pct: 0.15\n"
+    )
+    with pytest.raises(DslError, match="nothing applies it"):
+        parse_strategy(with_target, registry=default_registry(), max_risk_r=0.01)
+
+
 def test_an_unknown_weighting_scheme_is_rejected() -> None:
-    bad = _STRATEGY.replace("inverse_vol_weight", "martingale")
+    bad = _STRATEGY.replace("equal_weight", "martingale")
     with pytest.raises(DslError, match="weighting must be one of"):
+        parse_strategy(bad, registry=default_registry(), max_risk_r=0.01)
+
+
+@pytest.mark.parametrize("scheme", ["inverse_vol_weight", "rank_weight"])
+def test_a_declared_but_unimplemented_weighting_scheme_is_refused(scheme: str) -> None:
+    """In the vocabulary, implemented nowhere — so refused rather than accepted and ignored.
+
+    This file used to assert the opposite. The shared fixture declared ``inverse_vol_weight`` and
+    the acceptance test checked that it *parsed*, which it did — and then the simulator sized every
+    position from ``risk_r`` and its own stop, exactly as it would have for ``equal_weight``. A
+    green test on a strategy whose stated sizing scheme the engine never applied (finding F11).
+    """
+    bad = _STRATEGY.replace("equal_weight", scheme)
+    with pytest.raises(DslError, match="implemented"):
         parse_strategy(bad, registry=default_registry(), max_risk_r=0.01)
 
 

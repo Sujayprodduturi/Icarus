@@ -192,6 +192,164 @@ def test_an_empty_amendment_log_is_rejected(tmp_path: Path, repo_root: Path) -> 
         _load_dict(tmp_path, raw)
 
 
+# --------------------------------------------------------------------------------------
+# A safety limit must not be editable into not being one (task 2e, finding F36).
+#
+# Invariant #4 says hard risk limits cannot be overridden by any strategy or by the learning loop.
+# They could not — and a one-line edit to goal.yaml could. A review demonstrated it by loading six
+# mutated configs cleanly; only the crypto leverage ceiling refused, because it alone had an
+# assert. These tests are that demonstration, kept.
+# --------------------------------------------------------------------------------------
+
+_LOOSENINGS = [
+    # The first pass bounded three rungs of the ladder and stopped. These five were found by
+    # the review of that pass, each loading cleanly at a value that switched the control off.
+    ("risk", "kelly_fraction_cap", 1.00, "full Kelly, against CLAUDE.md 'never exceed half'"),
+    ("risk", "new_strategy_size_factor", 1.00, "the canary period is disabled"),
+    ("risk", "per_trade_risk_r", 0.25, "50x the per-trade risk the PRD sets"),
+    ("risk", "max_portfolio_heat", 1.00, "the whole account may be at risk at once"),
+    ("risk", "stagnation_check_after_trades", 1_000_000, "invariant #23 never fires"),
+    ("tax", "operator_slab_rate", 0.0001, "business income becomes effectively untaxed"),
+    ("tax", "cess_rate", 0.0, "the statutory 4% cess disappears"),
+    ("risk", "max_drawdown_killswitch", 1.00, "disables the -10% operator-only stop"),
+    ("risk", "daily_loss_limit", 1.00, "disables the daily halt"),
+    ("risk", "daily_derisk_trigger", 0.99, "de-risk never fires"),
+    ("tax", "vda_flat_rate", 0.0, "the mandated VDA stress becomes tax-free"),
+    ("tax", "stcg_rate", 0.0, "short-term gains become untaxed"),
+    ("tax", "ltcg_rate", 0.0, "long-term gains become untaxed"),
+    ("stop_gate", "require_sharpe_lower_bound_above", -5.0, "the gate accepts anything"),
+    ("stop_gate", "max_pbo", 1.00, "overfitting is never rejected"),
+]
+
+
+@pytest.mark.parametrize(
+    ("section", "key", "loosened", "effect"), _LOOSENINGS, ids=[k for _, k, _, _ in _LOOSENINGS]
+)
+def test_a_safety_limit_cannot_be_loosened_by_editing_the_file(
+    tmp_path: Path, repo_root: Path, section: str, key: str, loosened: float, effect: str
+) -> None:
+    raw = _valid_raw(repo_root)
+    raw[section][key] = loosened
+    with pytest.raises(ConfigError):
+        _load_dict(tmp_path, raw)
+
+
+@pytest.mark.parametrize(
+    ("section", "key", "stricter"),
+    [
+        ("risk", "max_drawdown_killswitch", 0.05),
+        ("risk", "daily_loss_limit", 0.02),
+        ("tax", "vda_flat_rate", 0.40),
+        ("tax", "stcg_rate", 0.25),
+    ],
+)
+def test_a_stricter_setting_is_still_allowed(
+    tmp_path: Path, repo_root: Path, section: str, key: str, stricter: float
+) -> None:
+    """The bound is one-sided on purpose. Halting sooner, or assuming a harsher tax than the
+    statute, are both things an operator may legitimately want; only loosening is forbidden."""
+    raw = _valid_raw(repo_root)
+    raw[section][key] = stricter
+    assert _load_dict(tmp_path, raw) is not None
+
+
+def test_zero_does_not_count_as_a_strict_kill_switch(tmp_path: Path, repo_root: Path) -> None:
+    """Zero passes an upper bound and means "never halt", which is the loosest setting there is."""
+    raw = _valid_raw(repo_root)
+    raw["risk"]["max_drawdown_killswitch"] = 0.0
+    with pytest.raises(ConfigError, match="must be > 0"):
+        _load_dict(tmp_path, raw)
+
+
+@pytest.mark.parametrize(
+    ("key", "loosened"),
+    [("require_sharpe_lower_bound_above", -5.0), ("max_pbo", 1.0)],
+)
+def test_a_signed_amendment_does_not_buy_a_looser_gate(
+    tmp_path: Path, repo_root: Path, key: str, loosened: float
+) -> None:
+    """The log alone was not enough, which the review of the first pass showed.
+
+    Provenance makes a change *visible*; it does not make it *permitted*. Append a properly signed
+    amendment — dated later, ``results_existed: true``, ``acknowledged_post_hoc: true`` — and the
+    log is perfectly happy, because that is what it is for. The gate's own header says it is not
+    renegotiated once results are seen, and results have existed since 2026-08-07, so these two
+    carry a bound as well: the log records movement *within* what is defensible.
+    """
+    raw = _valid_raw(repo_root)
+    raw["stop_gate"][key] = loosened
+    raw["stop_gate"][f"{key}_amendments"].append(
+        {
+            "value": loosened,
+            "set_on": date(2026, 9, 1),
+            "results_existed": True,
+            "acknowledged_post_hoc": True,
+            "reason": "a signed, dated, entirely honest attempt to lower the bar",
+        }
+    )
+    with pytest.raises(ConfigError):
+        _load_dict(tmp_path, raw)
+
+
+def test_a_signed_amendment_can_still_tighten_the_gate(tmp_path: Path, repo_root: Path) -> None:
+    """The bound is one-sided, so the log keeps its purpose: raising the bar is always allowed."""
+    raw = _valid_raw(repo_root)
+    raw["stop_gate"]["require_sharpe_lower_bound_above"] = 0.5
+    raw["stop_gate"]["require_sharpe_lower_bound_above_amendments"].append(
+        {
+            "value": 0.5,
+            "set_on": date(2026, 9, 1),
+            "results_existed": True,
+            "acknowledged_post_hoc": True,
+            "reason": "tightening after the first metric sheet",
+        }
+    )
+    assert _load_dict(tmp_path, raw) is not None
+
+
+def test_the_gate_thresholds_that_are_judgement_carry_an_amendment_log(repo_root: Path) -> None:
+    """The block asserted an immutable `pre_registered_on` while the numbers under it stayed
+    freely editable — a provenance the file could not actually vouch for. The two judgement
+    thresholds now trace to dated entries; the rest have an external authority and are bounded."""
+    gate = load_goal(repo_root / "goal.yaml").stop_gate
+    assert gate.require_sharpe_lower_bound_above_amendments[-1].value == (
+        gate.require_sharpe_lower_bound_above
+    )
+    assert gate.max_pbo_amendments[-1].value == gate.max_pbo
+    assert not any(a.results_existed for a in gate.max_pbo_amendments), (
+        "the gate was pre-registered before any backtest; an entry claiming otherwise is a story"
+    )
+
+
+# --------------------------------------------------------------------------------------
+# Config that promised something it did not do (task 2e, findings F11/F37)
+# --------------------------------------------------------------------------------------
+
+
+def test_the_quality_score_keys_are_gone(tmp_path: Path, repo_root: Path) -> None:
+    """`min_quality_score` and `rank_select_top_k` named a scorer that has never existed.
+
+    Deleted rather than marked NOT ENFORCED: a marker preserves a promise, and there was no
+    promise — only a name. `extra="forbid"` means reinstating one without its code now fails loudly.
+    """
+    raw = _valid_raw(repo_root)
+    raw["trade_quality"]["min_quality_score"] = 0.6
+    with pytest.raises(ConfigError):
+        _load_dict(tmp_path, raw)
+
+
+def test_there_is_only_one_lockbox_allowance(tmp_path: Path, repo_root: Path) -> None:
+    """`overfitting.lockbox_eval_budget: 50` contradicted `data_split.lockbox_uses_allowed: 1`,
+    which the loader hard-asserts because invariant #26 says the lockbox is consumed exactly once.
+    Neither was wired, so whoever wired one would have picked the plausible-sounding name."""
+    cfg = load_goal(repo_root / "goal.yaml")
+    assert cfg.data_split.lockbox_uses_allowed == 1
+    raw = _valid_raw(repo_root)
+    raw["overfitting"]["lockbox_eval_budget"] = 50
+    with pytest.raises(ConfigError):
+        _load_dict(tmp_path, raw)
+
+
 def test_the_stale_position_threshold_carries_the_same_log(repo_root: Path) -> None:
     """Added 2026-08-14 (task 2c). The first draft of that field simply sat inside the ``backtest``
     block, borrowing the ``registered: 2026-08-05`` date the loader pins — a provenance five
@@ -221,7 +379,18 @@ def test_amendments_must_be_chronological(tmp_path: Path, repo_root: Path) -> No
     raw["objective"]["min_sharpe_amendments"] = list(
         reversed(raw["objective"]["min_sharpe_amendments"])
     )
-    with pytest.raises(ConfigError, match="chronological order"):
+    with pytest.raises(ConfigError, match="strictly increasing date order"):
+        _load_dict(tmp_path, raw)
+
+
+def test_two_amendments_on_the_same_day_are_rejected(tmp_path: Path, repo_root: Path) -> None:
+    """Sorted is not enough: equal dates have no order, so ``history[-1]`` becomes whichever the
+    operator happened to list last, and the same pair validates against two different live values.
+    That is the append-only guarantee quietly failing rather than refusing."""
+    raw = _valid_raw(repo_root)
+    log = raw["objective"]["min_sharpe_amendments"]
+    log[-1]["set_on"] = log[-2]["set_on"]
+    with pytest.raises(ConfigError, match="strictly increasing date order"):
         _load_dict(tmp_path, raw)
 
 

@@ -144,6 +144,52 @@ def test_a_window_that_overlaps_its_own_training_data_cannot_be_constructed() ->
         )
 
 
+def test_the_walk_forward_start_date_is_honoured_and_not_merely_validated() -> None:
+    """It was validated and then ignored: every window anchored on the panel's first session.
+
+    Invisible today only because the configured start and the panel start coincide. Narrowing the
+    span to exclude a regime would have left the folds training from 2011 with no error and no log
+    line, and the config reading as though the exclusion had taken effect (finding F37).
+    """
+    panel = _panel()
+    dates = [d.astype("datetime64[D]").astype(date) for d in panel.ts]
+    later = SPLIT.model_copy(update={"walk_forward_start": date(2015, 1, 1)})
+
+    wide = walk_forward_windows(panel, _strategy(), CONFIG, SPLIT)  # type: ignore[arg-type]
+    narrow = walk_forward_windows(panel, _strategy(), CONFIG, later)  # type: ignore[arg-type]
+
+    assert dates[wide[0].train_start] < date(2015, 1, 1)
+    assert dates[narrow[0].train_start] >= date(2015, 1, 1)
+    assert len(narrow) < len(wide), "excluding four years must cost folds, not be silently ignored"
+
+
+def test_the_lockbox_fold_trains_on_the_same_span_as_the_walk_forward() -> None:
+    """The once-only fold got the lower bound too, and it is the one that could not be undone.
+
+    The first pass fixed :func:`walk_forward_windows` and left this alone, so narrowing the span to
+    exclude a regime would have had the walk-forward honour it while the final go/no-go fold
+    quietly trained on the excluded years. The lockbox is evaluated exactly once (invariant #26),
+    so a later run cannot correct the discrepancy.
+    """
+    panel = _panel()
+    dates = [d.astype("datetime64[D]").astype(date) for d in panel.ts]
+    later = SPLIT.model_copy(update={"walk_forward_start": date(2015, 1, 1)})
+
+    wide = lockbox_window(panel, SPLIT)
+    narrow = lockbox_window(panel, later)
+    assert dates[wide.train_start] < date(2015, 1, 1)
+    assert dates[narrow.train_start] >= date(2015, 1, 1)
+    # ...and it must agree with the walk-forward, which is the whole point of bounding both.
+    folds = walk_forward_windows(panel, _strategy(), CONFIG, later)  # type: ignore[arg-type]
+    assert narrow.train_start == folds[0].train_start
+
+
+def test_a_start_date_past_the_end_of_the_panel_refuses() -> None:
+    beyond = SPLIT.model_copy(update={"walk_forward_start": date(2030, 1, 1)})
+    with pytest.raises(DslError, match="no sessions inside the walk-forward span"):
+        walk_forward_windows(_panel(), _strategy(), CONFIG, beyond)  # type: ignore[arg-type]
+
+
 def test_training_is_anchored_and_expands_rather_than_rolling() -> None:
     """Every fold trains from the same start. A rolling window would drop 2011-2013 as the sample
     advances — the taper tantrum and demonetisation, exactly the regimes a strategy most needs to

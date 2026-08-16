@@ -388,6 +388,52 @@ Also worth recording: my first version of the month-end test asserted that 2024-
 was long-term. It lands on 2025-01-30, a day *short* of the anniversary. The code was right and the
 test was wrong — which is the argument for writing calendar boundaries as dates rather than offsets.
 
+### Config that lies — task 2e, 2026-08-16 (findings F11, F36, F37)
+
+F11 was written as "inert config: decide enforce or delete". The reviews you asked for before the
+task showed it had a **second half nobody had named**, and the second half was the dangerous one.
+
+- **Config that promises enforcement it does not have.** 103 of 194 fields were read by no code.
+  Most are honest Phase-2 declarations; nothing distinguished them from the dead ones. Seven whole
+  sections now carry a dated `NOT ENFORCED` header. Four keys were deleted rather than marked,
+  because a marker preserves a promise and these named things that were never designed:
+  `min_quality_score` / `rank_select_top_k` (a per-signal scorer that has never existed) and
+  `lockbox_eval_budget` (which contradicted the assert enforcing invariant #26 — two knobs for one
+  number, disagreeing, and neither wired). `walk_forward_start` was validated and ignored; it is
+  honoured now.
+
+- **Config that looks enforced and can be edited to nothing.** Six safety values loaded cleanly at
+  settings that switched them off: the −10% drawdown stop at 1.00, the daily halt at 1.00, the VDA
+  stress rate at 0.00, and the gate's own Sharpe bound at −5.0. Invariant #4 says hard limits
+  cannot be overridden by any strategy or the learning loop — true of strategies, false of a typo.
+  Only the crypto leverage ceiling refused, because it alone had an assert. **The pattern already
+  worked once and had simply never been applied to anything else.**
+
+**The general lesson, which is why this is in the file rather than only in the audit:** *"is this
+enforced?"* and *"can this be un-enforced?"* are different questions, and asking only the first one
+leaves a system that passes every test and can be disarmed by one line. Worth asking of anything
+that calls itself a limit.
+
+Two smaller things worth keeping. `sizing.weighting` accepted three schemes and implemented one —
+now the other two are **refused rather than validated and ignored**, because a file saying one thing
+while the engine does another is the `momentum` failure in another costume. And a test in this repo
+had been asserting that an unimplemented scheme *parsed*, which it did, right before the simulator
+ignored it.
+
+**The review of this task found I had done half of almost every item**, and that is the pattern
+worth naming rather than the individual misses. I bounded three rungs of the kill-switch ladder and
+left five more risk values open. I refused `weighting` and left its partner `vol_target_pct`
+accepted-and-ignored — both were named in 2e's own acceptance criteria. I bounded the walk-forward
+window and not the lockbox window, which is the fold evaluated *once*, where a discrepancy cannot
+be corrected by a later run. And I gave the two gate thresholds a provenance log without a bound,
+so −5.0 still loaded behind a properly signed amendment — **provenance makes a change visible; it
+does not make it permitted**, and those are not the same guarantee.
+
+The common thread: I fixed the instance I was looking at rather than the class it belonged to.
+Same shape as task 2c, where the write-off closed the no-bar case and left the unfilled-exit case
+open. **When a fix has a natural partner — a sibling field, a second call site, the other half of a
+pair — the partner is where the next bug is.**
+
 ## 8. Pace and posture
 
 - **Ship fast.** Prefer a working, honest, small thing today over a complete thing next month.

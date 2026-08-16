@@ -273,7 +273,9 @@ def _run_span(
         window,
         signals,
         stops,
-        starting_equity=Decimal(goal.backtest.starting_equity_inr),
+        # `str` first: Decimal(100000.10) is 100000.0999999999985448... and this seeds the
+        # whole money ledger. costmodel and taxmodel both use the same guard.
+        starting_equity=Decimal(str(goal.backtest.starting_equity_inr)),
         ranks=ranks,
     )
     # Drop the warm-up prefix from the equity curve. Its points are real — equity simply sat flat

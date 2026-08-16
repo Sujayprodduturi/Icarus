@@ -599,18 +599,33 @@ class ExitRule(Node):
 # to prove that before sizing anything (invariant #4 — sizing vocabulary may only reduce).
 WEIGHTING_SCHEMES = ("equal_weight", "inverse_vol_weight", "rank_weight")
 
+# ...of which exactly one is implemented. The simulator sizes each position from `risk_r` and its
+# own stop distance, independently of the others, which *is* equal weighting by risk — so a file
+# saying `equal_weight` gets what it asked for. The other two are names with nothing behind them,
+# and 1.7 came and went without building them (finding F11).
+#
+# Accepting a scheme and then not applying it is the `momentum` failure in another costume: the
+# file says one thing, the engine does another, and the result looks like a working strategy. So
+# they are refused at parse time until they exist, rather than validated and ignored (task 2e,
+# 2026-08-16). Deleting them instead would lose the design intent; refusing keeps the vocabulary
+# honest about which half of it is real.
+_IMPLEMENTED_WEIGHTING = frozenset({"equal_weight"})
+
 
 class Sizing(Node):
     """How much to risk, and how to split it across a basket.
 
-    ``weighting`` and ``vol_target_pct`` are **declarations only** in 1.4c: they parse, validate,
-    and are capped here, but nothing consumes them until the backtester builds portfolios (1.7).
-    They are declared now so that a strategy file written today still parses then — and so the
-    "may only reduce" refusal lives beside ``risk_r``, which is the number it constrains, rather
-    than being reinvented in the consumer.
+    ``weighting`` accepts the one scheme that exists. ``vol_target_pct`` accepts nothing at all.
 
-    Both are optional, so a strategy that names only ``risk_r`` is unchanged and no schema version
-    moves. A required key here would have broken every strategy file already written.
+    Both were "declarations only" from 1.4c: parsed, validated, and consumed by nobody, on the
+    reasoning that a file written today should still parse once 1.7 built the consumer. 1.7 came
+    and went and did not build it, and the declarations stayed — so a strategy could state a sizing
+    scheme the engine would never apply and be reported as though it had. That is the shape of
+    finding F1, and of F35, and it is why both are now **refused rather than accepted and ignored**
+    (task 2e, 2026-08-16). ``WEIGHTING_SCHEMES`` keeps the design intent on record; the parser
+    offers only ``_IMPLEMENTED_WEIGHTING``.
+
+    ``risk_r`` remains the only required key, so a strategy naming just that is unchanged.
     """
 
     risk_r: float
@@ -1010,20 +1025,33 @@ def _sizing(node: object, *, max_risk_r: float) -> Sizing:
             f"clamped. Silently shrinking an over-sized request teaches the Inventor that asking "
             f"for too much is free (invariant #4)."
         )
-    weighting = ChoiceParam("weighting", WEIGHTING_SCHEMES, default="equal_weight").validate(
-        node.get("weighting", "equal_weight"), where="sizing"
-    )
-    target = node.get("vol_target_pct")
-    # The upper bound is not cosmetic. Volatility targeting works by scaling exposure up when
-    # realised vol is below target, so an unbounded target is a leverage request wearing a
-    # different word — and it would arrive at the Risk agent as a *multiplier* on risk_r, which
-    # invariant #4 forbids outright.
-    vol_target_pct = (
-        None
-        if target is None
-        else FloatParam("vol_target_pct", 0.01, 1.0).validate(target, where="sizing")
-    )
-    return Sizing(risk_r=risk_r, weighting=weighting, vol_target_pct=vol_target_pct)
+    # Offered against what exists, not against the design record. Advertising three schemes and
+    # refusing two on the next line is its own small lie — and it would matter in Phase 2, where
+    # the Inventor is grammar-constrained: a generator reading the full tuple would emit candidates
+    # that can never parse and spend `learning_budgets.max_candidates_per_day` doing it.
+    asked = node.get("weighting", "equal_weight")
+    if asked in WEIGHTING_SCHEMES and asked not in _IMPLEMENTED_WEIGHTING:
+        # Caught before the choice check purely so the error says *why* a name that appears in the
+        # design record is not offered. "must be one of ['equal_weight']" is honest and unhelpful.
+        raise DslError(
+            f"sizing.weighting={asked!r} is in the vocabulary and implemented nowhere. The "
+            f"simulator sizes each position from risk_r and its own stop, which is equal weighting "
+            f"by risk; {asked!r} would need code that does not exist. Refused rather than "
+            f"accepted-and-ignored, because a strategy whose file says one thing while the engine "
+            f"does another makes pre-registration meaningless (invariant #25)."
+        )
+    weighting = ChoiceParam(
+        "weighting", tuple(sorted(_IMPLEMENTED_WEIGHTING)), default="equal_weight"
+    ).validate(asked, where="sizing")
+    if node.get("vol_target_pct") is not None:
+        raise DslError(
+            "sizing.vol_target_pct parses and nothing applies it. Volatility targeting scales "
+            "exposure by realised vol; no code does that, so a strategy declaring it would be "
+            "backtested with no targeting at all and reported as though it had been. Refused "
+            "until it exists — the same call as the unimplemented weighting schemes, and for the "
+            "same reason (task 2e, finding F11)."
+        )
+    return Sizing(risk_r=risk_r, weighting=weighting, vol_target_pct=None)
 
 
 def assert_partitions_risk(weights: Sequence[float], sizing: Sizing, *, where: str) -> None:

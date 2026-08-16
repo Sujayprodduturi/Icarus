@@ -7,6 +7,12 @@
 #
 # All risk-related logic reads from this file; nothing risk-related is hard-coded (CLAUDE.md §2).
 
+# ⚠️ THRESHOLDS, NOT A GATE. Only `min_sharpe` is read by anything. Sortino, Calmar and
+# profit factor are *computed* by engine/metrics.py and compared against nothing; the rest
+# (min_rr, min_trades_oos, oos_decay_max, cost_stress_multiplier, dsr_confidence,
+# target_return_30d) are neither computed nor compared. The block a reader is most likely to
+# mistake for the live gate is this one — the live gate is `stop_gate:` below, and it currently
+# tests three things. Marked 2026-08-16 (finding F37); wiring them is steps 4c and 1.9.
 objective:
   account_currency: INR
   target_return_30d: 0.05          # success bar (operator-set; aspirational, not a guarantee)
@@ -84,9 +90,36 @@ stop_gate:
   # Sharpe is gated on the LOWER CONFIDENCE BOUND, not the point estimate: from ~100 trades a
   # measured 0.9 might really be anywhere in 0.1-1.7, so gating the point estimate gates luck.
   require_sharpe_lower_bound_above: 0.0
+  # `pre_registered_on` above says WHEN this gate was set; these logs say what each judgement
+  # threshold has ever BEEN. Added 2026-08-16 (finding F36): the date was asserted immutable while
+  # the numbers under it stayed freely editable, so lowering this bound to -5.0 loaded cleanly and
+  # the block still claimed a 2026-08-01 provenance. Same append-only mechanism as
+  # objective.min_sharpe -- the loader asserts the live value equals the newest entry, entries are
+  # chronological, and an amendment made once results exist must set acknowledged_post_hoc: true.
+  # Only the two thresholds that are judgement rather than statute carry a log; the kill-switches
+  # and the tax rates are bounded in code instead, because those have an external authority.
+  require_sharpe_lower_bound_above_amendments:
+    - value: 0.0
+      set_on: 2026-08-01
+      results_existed: false
+      reason: >
+        Pre-registered with the rest of the gate, before any backtest existed. Zero is the
+        weakest defensible bar: the 95% lower bound on the Sharpe must clear zero, i.e. the
+        evidence must rule out "this strategy loses money". Log added 2026-08-16; the value has
+        not moved since it was set.
   sharpe_confidence_level: 0.95
-  net_of_cost_and_tax: true        # gross-only numbers are a bug (CLAUDE.md §5)
+  net_of_cost_and_tax: true        # ⚠️ ASSERTED, NOT ENFORCED — see finding F38. Nothing reads it:
+                                   # the gate checks Sharpe/trades/expectancy off an equity curve
+                                   # that is net of COSTS only. Wiring it is an open decision.
   max_pbo: 0.50                    # above 0.5 the "best" strategy is a coin flip out-of-sample
+  max_pbo_amendments:
+    - value: 0.50
+      set_on: 2026-08-01
+      results_existed: false
+      reason: >
+        Pre-registered with the rest of the gate. Above 0.5 the backtest-best strategy is worse
+        than a coin flip out of sample, which is the definition PBO exists to express, so the
+        threshold is the concept's own boundary rather than a tuned number. Log added 2026-08-16.
   # Trade-count tiers. NEEDS_MORE_DATA is a real verdict, not a soft failure — it must never
   # silently become PROMOTED.
   trade_count_promote: 100
@@ -159,6 +192,11 @@ backtest:
         ordinary trading halt is carried through rather than closed at a price nobody could have
         got, while a delisting does not hold one of four slots for the rest of the fold.
 
+# ⚠️ NOT ENFORCED — every key in this block is declared and read by no code as of 2026-08-16.
+# The Inventor and the reflection loop are Phase 2 (TASKS.md 2.5-2.7).
+# Kept rather than deleted: the decision is real and losing it would cost more than
+# the noise. Marked because a reader cannot otherwise tell a promise from a fact
+# (finding F37).
 learning:
   reflection_every_trades: 15      # seed: per-strategy (5 was statistical noise; BUILD_MAP M3)
   one_change_per_cycle: true
@@ -259,6 +297,11 @@ tax:
 # --------------------------------------------------------------------------------------
 # v2 additions (PRD §39.3) — these WIN on conflict with the blocks above.
 # --------------------------------------------------------------------------------------
+# ⚠️ NOT ENFORCED — every key in this block is declared and read by no code as of 2026-08-16.
+# Read by the data agents' own constants today, not from here; reconciling the two is task 2e's leftover.
+# Kept rather than deleted: the decision is real and losing it would cost more than
+# the noise. Marked because a reader cannot otherwise tell a promise from a fact
+# (finding F37).
 data:
   timezone_storage: UTC
   equity_session: NSE
@@ -407,36 +450,68 @@ execution_realism:
   slippage_bps: 5.0
   tick_size_inr: 0.05                      # NSE equity tick; a fill price off-tick is not a price
 
+# ⚠️ NOT ENFORCED — the overfitting guards are task 1.9 and none of this is read yet. The two
+# exceptions are `benchmark_equity`, which the Panel uses, and `lockbox_rotation_days`, marked
+# inline below. Marked 2026-08-16 (finding F37).
 overfitting:
   lifetime_trial_ledger: true
   cumulative_effective_n: true
   haircut_method: BHY                      # Harvey-Liu multiple-testing
   gate_on_sharpe_lower_bound: true
   small_sample_shrinkage: true
-  lockbox_eval_budget: 50
-  lockbox_rotation_days: 90
+  # DELETED 2026-08-16 (finding F37): `lockbox_eval_budget: 50`. It contradicted
+  # data_split.lockbox_uses_allowed, which the loader hard-asserts to 1 because invariant #26
+  # says the lockbox is consumed exactly once. Neither was wired to anything, and LockboxGuard
+  # takes its allowance as an argument -- so whoever wired it would have reached for the more
+  # plausible-sounding name, got 50, and the once-only guarantee would have gone while the
+  # loader went on cheerfully asserting it. Two knobs for one number, disagreeing, is worse
+  # than either. `lockbox_uses_allowed` is the survivor: it is the one with the assert.
+  lockbox_rotation_days: 90        # ⚠️ NOT ENFORCED — read by no code (F37); Phase 2.
   benchmark_equity: NIFTY50
   benchmark_crypto: BTCINR
   min_alpha_after_cost_tax: 0.0
   max_benchmark_r2: 0.8
 
 trade_quality:
-  min_quality_score: 0.6                   # tune on evidence
-  rank_select_top_k: 1
+  # ⚠️ NOT ENFORCED — declared 2026-07-30, still read by no code as of 2026-08-16 (finding F37).
+  # Both remaining keys are real controls the PRD wants; they are kept because deleting them would
+  # lose the decision, and marked because a reader cannot otherwise tell a promise from a fact.
+  # They belong to the live Risk agent (task 2.1), not to the backtester.
+  #
+  # DELETED 2026-08-16: `min_quality_score: 0.6` and `rank_select_top_k: 1`. Those named a
+  # per-signal "quality score" that has never existed anywhere in the codebase — not unimplemented,
+  # unconceived. A NOT-ENFORCED marker would have preserved a promise nobody ever made; the honest
+  # record of a thing we never built is its absence. Reinstate them with the scorer, if it is ever
+  # designed.
   max_trades_per_day_per_strategy: 3
   min_holding_bars: 3
 
+# ⚠️ NOT ENFORCED — every key in this block is declared and read by no code as of 2026-08-16.
+# Crypto is deferred entirely — no adapter is wired and invariant #20 bars options until the DSL models Greeks.
+# Kept rather than deleted: the decision is real and losing it would cost more than
+# the noise. Marked because a reader cannot otherwise tell a promise from a fact
+# (finding F37).
 crypto:
   accrue_funding: true
   futures_roll_days_before_expiry: 2
   expiry_buffer_hours: 12
   options_enabled: false                   # no crypto options until DSL supports Greeks (invariant #20)
 
+# ⚠️ NOT ENFORCED — every key in this block is declared and read by no code as of 2026-08-16.
+# Multi-strategy allocation begins when there is more than one promoted strategy (Phase 2).
+# Kept rather than deleted: the decision is real and losing it would cost more than
+# the noise. Marked because a reader cannot otherwise tell a promise from a fact
+# (finding F37).
 allocation:
   max_concurrent_strategies: 4
   allocation_method: risk_parity_capped
   correlated_strategies_share_slot: true
 
+# ⚠️ NOT ENFORCED — every key in this block is declared and read by no code as of 2026-08-16.
+# The RECOVERY state machine is invariant #16 and Phase 2; nothing starts up against a broker yet.
+# Kept rather than deleted: the decision is real and losing it would cost more than
+# the noise. Marked because a reader cannot otherwise tell a promise from a fact
+# (finding F37).
 recovery:
   startup_state: RECOVERY
   three_way_reconcile: true
@@ -459,10 +534,20 @@ observability:
   data_staleness_equity_s: 10
   data_staleness_crypto_s: 30
 
+# ⚠️ NOT ENFORCED — every key in this block is declared and read by no code as of 2026-08-16.
+# Daily auth is operator item O5, undecided.
+# Kept rather than deleted: the decision is real and losing it would cost more than
+# the noise. Marked because a reader cannot otherwise tell a promise from a fact
+# (finding F37).
 auth:
   daily_auth_mode: one_tap                 # one_tap | totp_auto (totp = operator-owned risk)
   equity_auth_failure_isolates_plane: true
 
+# ⚠️ NOT ENFORCED — every key in this block is declared and read by no code as of 2026-08-16.
+# LLM spend caps apply to the Inventor, which does not exist yet.
+# Kept rather than deleted: the decision is real and losing it would cost more than
+# the noise. Marked because a reader cannot otherwise tell a promise from a fact
+# (finding F37).
 learning_budgets:
   max_candidates_per_day: 12
   max_llm_spend_per_day_inr: 200
