@@ -25,10 +25,13 @@ replaced the warm-up prefix), and the stop gate is stricter (it reads after-tax 
 an after-tax P&L check). Nothing measured before 2026-08-16 is comparable with anything measured
 after it — which is why 2f came before Step 3 and not after.
 
-**One engine finding stays open by decision: F40** — with the strategy now evaluated over the
-whole span, the purge no longer prevents what it was introduced to prevent, and with an anchored
-window every later fold still trains on every earlier test period. What the gap should be is an
-operator decision, recorded rather than settled.
+**F40 was decided on 2026-08-17: the per-strategy purge is gone.** The train/test gap is now one
+constant, `backtest.seam_sessions`, the same for every strategy. Purging exists to stop a *fitted*
+model learning from labels that overlap the test set; nothing here is fitted per fold, and each
+span is simulated from a fresh book, so no state crosses train→test at all. **The value did not
+change** — only the structure. This also closes **F16** and **F31**: every strategy now produces
+identical folds, so the benchmark is measured over the same window as the strategy it controls
+for, and Step 3c's common-window comparison is the default rather than a later correction.
 
 **🔴 THE ENGINE HAS NOW RUN END-TO-END ON REAL DATA (2026-08-07).** 2,962 sessions × 693 point-in-time symbols, 2011-01-03 → 2022-12-30, lockbox untouched. Three pre-registered strategies, **all three FAIL** the pre-registered stop gate:
 

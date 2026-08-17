@@ -734,7 +734,15 @@ class Backtest(_Strict):
     min_train_years: _Positive
     test_window_years: _Positive
     step_years: _Positive
-    embargo_sessions: _PosInt
+    seam_sessions: _PosInt
+    """Sessions left empty between the end of training and the start of each test window.
+
+    Renamed from ``embargo_sessions`` on 2026-08-17 (finding F40) because neither that name nor the
+    per-strategy ``purge`` it was added to described what the code does. The textbook embargo sits
+    *after* a test window and keeps it out of later folds' training; this gap sits *before* one.
+    Calling it a seam says what it is. **The value did not change** — the number here is the one
+    that was set before any result existed. See :func:`icarus.engine.backtest.walk_forward_windows`
+    for why a fitting-free walk-forward needs no purge at all."""
     starting_equity_inr: _Positive
     stale_position_sessions: _PosInt
     """Sessions a held symbol may print no bar before the position is written off (finding F4).

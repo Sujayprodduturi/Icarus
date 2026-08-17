@@ -171,20 +171,28 @@ def _print_sheet(results: list[BacktestResult], goal: object) -> None:
         )
         print(f"{r.strategy:<26} {cells}")
 
-    # The purge is derived per strategy, so a wider lookback costs folds and moves the start date.
-    # Two strategies on this sheet can therefore be measured over different periods, and the table
-    # above puts their numbers side by side as though they were not. Printing the spans is the
-    # stop-gap until step 3c makes the comparison a common-window one (finding F31).
+    # The seam became one strategy-independent constant on 2026-08-17 (finding F40), so every
+    # strategy should now be measured over exactly the same window and the control is finally a
+    # control. That is a claim, so it is checked here and printed either way rather than assumed:
+    # it used to be false — `baseline_buy_and_hold` ran 7 folds from ~2015 against
+    # `xs_momentum_20`'s 8 from ~2014 — and the sheet compared them anyway (findings F16, F31).
+    spans = {(r.folds[0].test_from, r.folds[-1].test_to, len(r.folds)) for r in results if r.folds}
+    header = (
+        "ALL STRATEGIES MEASURED OVER THE SAME WINDOW"
+        if len(spans) <= 1
+        else "⚠ THE SPANS DIFFER — the numbers above are NOT like-for-like"
+    )
     print("\n" + "-" * 100)
-    print("THE SPANS ARE NOT THE SAME — compare the numbers above with that in mind")
+    print(header)
     print("-" * 100)
     for r in results:
         if not r.folds:
+            print(f"{r.strategy:<26} no folds")
             continue
-        purge = r.folds[0].window.purge_sessions
         print(
             f"{r.strategy:<26} {len(r.folds)} folds  "
-            f"{r.folds[0].test_from}..{r.folds[-1].test_to}   purge {purge} sessions"
+            f"{r.folds[0].test_from}..{r.folds[-1].test_to}   "
+            f"seam {r.folds[0].window.seam_sessions} sessions"
         )
 
     # Every position must end as a trade, but not every ending is a sale. A symbol that stops

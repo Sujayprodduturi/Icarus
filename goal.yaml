@@ -157,18 +157,35 @@ backtest:
   min_train_years: 3.0             # first test window opens 2014; ~9 out-of-sample years follow
   test_window_years: 1.0
   step_years: 1.0
-  # Embargo: extra sessions added to the gap between the end of training and the start of the
-  # test window. Purge is NOT here -- it is derived from the strategy's own longest lookback,
-  # because a 252-day word spans 252 days across the seam and a 20-day word spans 20. One constant
-  # would be too small for one strategy and wasteful for another, and the too-small case fails
-  # silently.
+  # Sessions left empty between the end of training and the start of each test window. ONE
+  # constant, the same for every strategy.
   #
-  # Reworded 2026-08-16. This used to read "sessions dropped after each test window before training
-  # resumes", which is the standard anchored-window embargo and is NOT what the code does -- the
-  # code widens the gap *before* the test window. The wording now matches the behaviour. Whether
-  # the documented scheme is the one we want (it would exclude every earlier test window from every
-  # later fold's training) is finding F40, open for decision.
-  embargo_sessions: 5
+  # Renamed from `embargo_sessions` and made the whole gap on 2026-08-17 (finding F40, operator
+  # decision). It used to be added to a per-strategy purge of `longest_lookback(strategy)`. Two
+  # things were wrong with that:
+  #
+  #   1. Purging exists to stop a FITTED model learning from observations whose labels overlap the
+  #      test set. Nothing here is fitted per fold -- strategies are pre-registered with fixed
+  #      parameters, the in-sample record is measured rather than optimised against, and each span
+  #      is simulated from a fresh book. No state crosses from train to test, so there is nothing
+  #      for a purge to cut. The purge's own stated reason ("a 252-day average on the first test
+  #      day is built from training bars") was made void by whole-span evaluation in task 2f -- and
+  #      was never a leak anyway, because reading history you would genuinely have had is what a
+  #      live system does every morning.
+  #   2. Sizing it per strategy made the folds differ per strategy: baseline_buy_and_hold ran 7
+  #      folds from ~2015 while xs_momentum_20 ran 8 from ~2014, and the sheet compared them
+  #      directly. A control measured over a different period from the strategy it controls for
+  #      cannot establish alpha, which invariant #21 gates on (findings F16, F31).
+  #
+  # THE VALUE IS UNCHANGED. 5 was set before any backtest result existed and is not being retuned
+  # now that results exist (invariant #25). What changed is the structure, not the number.
+  #
+  # NOT ENFORCED, and deliberately: the textbook embargo -- excluding each earlier test window
+  # (plus a tail) from every later fold's training, which an anchored window otherwise swallows
+  # whole -- is not implemented. It buys nothing while nothing is fitted. It becomes REQUIRED the
+  # day the Strategy-Inventor starts fitting parameters per fold in Phase 2, together with a real
+  # purge. Do not enable per-fold fitting without building both.
+  seam_sessions: 5
   starting_equity_inr: 100000      # the sim's book size; NOT the live seed tier (that is Phase 2)
   # Added 2026-08-14 (task 2c, finding F4). Before this, a position whose symbol stopped printing
   # bars was carried forever: never closed, never counted, its capital neither lost nor gained,

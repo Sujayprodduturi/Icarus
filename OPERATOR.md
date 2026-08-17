@@ -171,6 +171,12 @@ Dated decisions that are not code and not in `goal.yaml`, so they have nowhere e
 | D8 | **Two capital rows on every portfolio test.** *Edge run* at **₹10,00,000** (rounding and flat fees negligible → you see the strategy) and *seed run* at **₹1,00,000** (what is actually tradable on day one). The gap between them *is* the measurement of BUILD_MAP's C1 seed-tier affordability problem, which has never been measured because it was baked into one blended number. Does not apply to the signal test, which has no book. | operator |
 | D9 | **The stop gate reads the seed run.** A strategy passing the edge run and failing only the seed run is recorded **`NEEDS_MORE_CAPITAL`** — a third non-promoting verdict, structurally identical to the existing `NEEDS_MORE_DATA` tier. **No threshold moves and no money is released**; a `NEEDS_MORE_CAPITAL` strategy is treated exactly like `REJECTED` except that we revisit it at a larger tier. Flagged as gate-shaped and decided explicitly *after* results existed, per invariant #25. | operator, 2026-08-10 |
 
+### 2026-08-17 — F40, before Step 3
+
+| # | decision | who |
+|---|---|---|
+| D10 | **Drop the per-strategy purge; one fixed `seam_sessions` for every strategy** (finding F40). Purging protects a *fitted* model from label overlap; nothing here is fitted per fold and no state crosses train→test, so it protected nothing — while its per-strategy width made the control and the strategy run over different periods, which invariant #21 cannot tolerate. **Value unchanged at 5**; structure only. The textbook embargo stays unbuilt, and `goal.yaml` marks it mandatory before any per-fold fitting in Phase 2. Full reasoning in §7c. | operator, on the agent's researched recommendation |
+
 ## 7c. Deferred by decision — not forgotten
 
 Things consciously postponed. **Each names the condition that reopens it.** A deferral without a
@@ -514,6 +520,55 @@ described an embargo that runs *after* each test window while the code widens th
 the wording now matches the code. The real question — with an anchored window every later fold
 trains on every earlier test period, and no gap before the test window changes that — is **yours
 to decide**, not mine to settle quietly. Cost of the change as it stands is 5 sessions.
+
+### F40 — the purge that protected nothing, decided 2026-08-17 (D10)
+
+You asked me to be sure before recommending. Here is what "sure" rested on, so you can check it.
+
+**The question.** The gap between the end of training and the start of each test window was
+`longest_lookback(strategy) + embargo_sessions` — sized per strategy, up to a full year wide. Was
+it doing anything?
+
+**Three checks, all pointing the same way.**
+
+1. **What purging is for.** In the literature it removes training observations whose *labels* are
+   formed over a period the test set also covers, so a **fitted model** cannot learn what it will
+   be scored on. The embargo does the same for the period just after a test fold. Both assume
+   something is being fitted.
+2. **Nothing here is fitted per fold.** Strategies are pre-registered with fixed parameters, and
+   the in-sample record is *measured*, never optimised against.
+3. **No state crosses train→test, checked in code.** `_run_span` builds a fresh simulator with
+   fresh equity for each span. Training and test are two independent simulations. There is no Kelly
+   or other fitted sizing anywhere in the engine. **There is no channel for a leak to travel** —
+   so there is nothing for a gap to cut.
+
+**And the per-strategy sizing was doing real harm.** `longest_lookback` deliberately reads `exit`,
+so `time_stop(bars: N)` — a *holding period* — was inflating a backward guard. The result:
+`baseline_buy_and_hold` ran 7 folds from ~2015 while `xs_momentum_20` ran 8 from ~2014, and the
+sheet printed their Sharpe side by side. **A control measured over a different period from the
+strategy it controls for cannot establish alpha**, which is exactly what invariant #21 gates on.
+
+**The decision: one fixed `seam_sessions`, the same for every strategy.** This closes F16 and F31
+as well, and makes Step 3c's common-window comparison the default rather than a correction applied
+afterwards.
+
+**Two things I deliberately did not do**, because both would have been the wrong kind of freedom:
+
+- **I did not change the number.** 5 was set before any backtest result existed. Changing the
+  *structure* is justified by a mechanism; changing the *value* now that three strategies have
+  failed would be retuning against results, which invariant #25 exists to stop.
+- **I did not build the textbook embargo.** Under an anchored window every later fold trains on
+  every earlier test window wholesale, and no gap placed *before* the test window touches that.
+  It buys nothing while nothing is fitted. `goal.yaml` carries a `NOT ENFORCED` note saying it
+  becomes **mandatory** the day the Inventor starts fitting per fold in Phase 2, together with a
+  real purge. That is a trap laid for a future version of me.
+
+**What it costs you.** Every strategy now starts its first fold earlier and gets more
+out-of-sample data. That is worth being suspicious of, so state it plainly: **more out-of-sample
+data is not a lowered bar.** The gate thresholds are untouched, and a wider sample narrows the
+Sharpe confidence interval — which helps a real edge and does nothing for a spurious one. If a
+strategy that failed before now passes *only* because of this, that is a finding, not a result,
+and I will say so.
 
 ## 8. Pace and posture
 

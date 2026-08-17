@@ -13,19 +13,36 @@ sliding a fixed-length window forward. A rolling window would drop 2011-2013 as 
 advances, and those years carry the taper tantrum and demonetisation: exactly the conditions a
 strategy most needs to have survived, and exactly the ones a fixed window quietly forgets.
 
-**2. Purge and embargo, because the seam bleeds.** Even with clean windows the boundary leaks in
-both directions. A 200-day average on the first day of the test period is made almost entirely of
-training-period bars. A trade opened in December closes in February and straddles the line.
+**2. One fixed seam between training and test — and it is smaller than it looks like it should be.**
+``seam_sessions`` leaves a gap between ``train_end`` and ``test_start``. It is a single constant,
+the same for every strategy.
 
-*Purge* is the gap cut before the test window, and it is **derived from the strategy, not
-configured** — its width is that strategy's own longest lookback. A word with a 252-day window
-leaks 252 days across the seam; a 20-day word leaks 20. One constant would be too small for the
-first and wasteful for the second, and the too-small case leaks silently, which is the worst
-property a guard can have. It is computed conservatively: the largest integer parameter anywhere
-in the strategy tree, so a lookback cannot be missed by failing to recognise its parameter name.
+That is a deliberate correction, made 2026-08-17 (finding F40), and the reasoning matters because
+the obvious intuition points the other way. The gap used to be ``longest_lookback(strategy)`` — a
+per-strategy purge, on the argument that a 252-day word leaks 252 days across the seam and a 20-day
+word leaks 20. **Both halves of that were wrong.**
 
-*Embargo* is the gap cut after the test window before training resumes, so the next training
-window does not begin inside bars whose own indicator history overlaps the period just tested.
+*Purging protects a fitted model from label overlap* (López de Prado, *AFML* ch. 7): it removes
+training observations whose labels are formed over a period the test set also covers, so the model
+cannot learn what it will be scored on. **This engine fits nothing per fold.** Strategies are
+pre-registered with fixed parameters; the in-sample record is measured, never optimised against;
+and :func:`~icarus.engine.runner._run_span` builds a fresh simulator with fresh equity per span, so
+no state at all crosses from train to test. There is no channel through which training data can
+reach an out-of-sample number, and therefore nothing for a purge to cut.
+
+*Sizing it per strategy was worse than useless.* ``longest_lookback`` is deliberately
+over-inclusive and reads ``exit``, so ``time_stop(bars: N)`` — a holding period — inflated a
+backward guard. The result was that ``baseline_buy_and_hold`` ran 7 folds from ~2015 while
+``xs_momentum_20`` ran 8 from ~2014, and the metric sheet printed their Sharpe side by side.
+**A control measured over a different period from the strategy it controls for cannot establish
+alpha**, and invariant #21 gates on exactly that (findings F16, F31).
+
+What the seam still buys, honestly: the in-sample and out-of-sample *trading* periods stay
+separated, so ``sharpe_decay`` compares distinct stretches; and the harness already has a seam on
+the day the Inventor starts fitting per fold in Phase 2. **On that day purging becomes real, and
+the textbook embargo has to be built as well** — under an anchored window every later fold trains
+on every earlier test window wholesale, which no gap placed *before* the test window addresses.
+That is not implemented, and ``goal.yaml`` says so rather than implying otherwise.
 
 **3. The lockbox is consumed exactly once (invariant #26).** Everything from
 ``data_split.lockbox_start`` is held back for one final go/no-go. The moment it is evaluated a
@@ -73,17 +90,21 @@ DEFAULT_LOCKBOX_LOG = Path("var/lockbox_uses.json")
 class Window:
     """One walk-forward fold, as bar **indices** into the panel's date axis.
 
-    Indices rather than dates because purge and embargo are counted in *sessions*, and a calendar
-    gap of five days is three sessions over a weekend and five over a quiet stretch. Counting
-    sessions keeps the guard the same size wherever it lands.
+    Indices rather than dates because the seam is counted in *sessions*, and a calendar gap of five
+    days is three sessions over a weekend and five over a quiet stretch. Counting sessions keeps
+    the gap the same size wherever it lands.
     """
 
     train_start: int
-    train_end: int  # exclusive, already purged
+    train_end: int  # exclusive; the seam sits between here and test_start
     test_start: int
     test_end: int  # exclusive
-    purge_sessions: int
-    embargo_sessions: int
+    seam_sessions: int
+    """Sessions left empty between the end of training and the start of the test window.
+
+    **One number, strategy-independent, from 2026-08-17 (finding F40).** This was two fields —
+    ``purge_sessions``, sized per strategy from ``longest_lookback``, and ``embargo_sessions`` — and
+    neither name described what the code did. See :func:`walk_forward_windows`."""
 
     def __post_init__(self) -> None:
         if self.train_end <= self.train_start:
@@ -93,7 +114,7 @@ class Window:
         if self.train_end > self.test_start:
             raise ValueError(
                 f"train window ends at {self.train_end} but test starts at {self.test_start} — "
-                f"they overlap, which is the leak purge exists to prevent"
+                f"they overlap, so the in-sample and out-of-sample records share sessions"
             )
 
 
@@ -173,34 +194,43 @@ def walk_forward_windows(
             f"{split.walk_forward_start}..{split.walk_forward_end}"
         )
 
-    purge = longest_lookback(strategy)
-    embargo = config.embargo_sessions
+    seam = config.seam_sessions
     train_min = int(config.min_train_years * _SESSIONS_PER_YEAR)
     test_len = int(config.test_window_years * _SESSIONS_PER_YEAR)
     step = int(config.step_years * _SESSIONS_PER_YEAR)
     last = development[-1] + 1
 
     windows: list[Window] = []
-    # `purge + embargo`, not `purge`. The embargo was read from config, stamped on every window and
-    # printed in the fold record, and never once entered the arithmetic — setting it to 100 gave
-    # byte-identical windows while the log line said 100 (finding F30).
+    # **One fixed seam, not a per-strategy purge (finding F40, decided 2026-08-17).**
     #
-    # **What this gap actually buys, stated honestly (finding F40).** The purge's original
-    # justification was that "a 200-session average on the first test day is built from training
-    # days". That is now true of *every* test day by construction, because `evaluate_once`
-    # deliberately evaluates the strategy over the whole span — and it is not a leak, it is what a
-    # live system does on any given morning. So the gap is not preventing the thing it was
-    # introduced to prevent. Two real things remain:
-    #   1. It keeps the in-sample and out-of-sample *trading* periods separated by a gap, so
-    #      `sharpe_decay` compares genuinely distinct stretches rather than adjacent ones.
-    #   2. It is the harness being correct in advance of Phase 2. Nothing here fits parameters per
-    #      fold today — strategies are pre-registered and the in-sample record is measured, not
-    #      optimised against — so no choice made in training can leak. The moment the Inventor
-    #      starts fitting per fold, it can, and the gap has to already be there.
-    # The deeper question the gap does *not* answer — with an anchored window, every later fold
-    # trains on every earlier test period, and no gap before the test window changes that — is
-    # recorded as F40 for an operator decision rather than settled quietly here.
-    seam = purge + embargo
+    # This was `longest_lookback(strategy) + embargo_sessions`. Both halves were wrong.
+    #
+    # *The purge protected nothing.* Purging exists to stop a **fitted model** from training on
+    # observations whose labels overlap the test set (López de Prado, AFML ch. 7). This engine fits
+    # nothing per fold — strategies are pre-registered with fixed parameters, the in-sample record
+    # is measured rather than optimised against, and `_run_span` builds a fresh simulator with
+    # fresh equity for each span, so no state whatsoever crosses from train to test. There is no
+    # channel for training data to reach an out-of-sample number. The purge's own stated
+    # justification — "a 200-session average on the first test day is built from training days" —
+    # was made void by `evaluate_once`, which makes that true of *every* test day deliberately,
+    # and it was never a leak in any case: reading history you would genuinely have had is what a
+    # live system does every morning.
+    #
+    # *Sizing it per strategy was actively harmful.* `longest_lookback` reads `exit`, so a
+    # `time_stop(bars: N)` — a holding period — inflated a backward guard. `baseline_buy_and_hold`
+    # ran 7 folds from ~2015 while `xs_momentum_20` ran 8 from ~2014, and the sheet printed their
+    # Sharpe side by side. **A control measured over a different period from the strategy it
+    # controls for cannot establish alpha**, which invariant #21 gates on (findings F16, F31).
+    #
+    # What survives is one fixed gap, kept for two honest reasons: it keeps the in-sample and
+    # out-of-sample *trading* periods separated so `sharpe_decay` compares distinct stretches, and
+    # it means the harness already has a seam on the day the Inventor starts fitting per fold in
+    # Phase 2 — at which point purging becomes real and the *textbook* embargo (excluding each
+    # earlier test window from later folds' training, which an anchored window otherwise includes
+    # wholesale) has to be implemented too. It is not implemented now, and the config says so.
+    #
+    # The value is the one that was already there before any of this was measured. Nothing about
+    # this change picks a new number after seeing results (invariant #25).
     test_start = development[0] + train_min + seam
     while test_start + test_len <= last:
         windows.append(
@@ -209,23 +239,20 @@ def walk_forward_windows(
                 train_end=test_start - seam,
                 test_start=test_start,
                 test_end=test_start + test_len,
-                purge_sessions=purge,
-                embargo_sessions=embargo,
+                seam_sessions=seam,
             )
         )
         test_start += step
     if not windows:
         raise DslError(
             f"no walk-forward window fits: {len(development)} sessions available, but one fold "
-            f"needs {train_min} training + {purge} purged + {embargo} embargoed + {test_len} "
-            f"test sessions. Either the panel is too short or the strategy's longest lookback "
-            f"({purge}) is too wide for it."
+            f"needs {train_min} training + {seam} seam + {test_len} test sessions. The panel is "
+            f"too short for this walk-forward configuration."
         )
     log.info(
         "walk-forward windows built",
         folds=len(windows),
-        purge_sessions=purge,
-        embargo_sessions=embargo,
+        seam_sessions=seam,
     )
     return windows
 
@@ -258,8 +285,7 @@ def lockbox_window(panel: Panel, split: DataSplit) -> Window:
         train_end=before[-1] + 1,
         test_start=inside[0],
         test_end=inside[-1] + 1,
-        purge_sessions=0,
-        embargo_sessions=0,
+        seam_sessions=0,
     )
 
 
