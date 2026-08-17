@@ -94,6 +94,15 @@ class Skipped(enum.StrEnum):
     signal that decision D9 exists to read: a strategy that works and is simply too big for the
     money is ``NEEDS_MORE_CAPITAL``, not a worse strategy. A skip counter says that out loud."""
 
+    CONCENTRATION_CAP = "concentration_cap"
+    """One share already costs more than ``max_position_pct_of_equity`` of the book (F34, D11).
+
+    Distinct from ``rounds_to_zero``, which is risk sizing asking for less than a whole share, and
+    from ``insufficient_cash``, which is the account being unable to pay at all. This one says the
+    name is too *expensive relative to the book* to hold within the concentration limit — a
+    ₹30,000 share against a ₹1,00,000 account cannot be a quarter of it. More capital fixes it;
+    a bigger appetite does not."""
+
     ROUNDS_TO_ZERO = "rounds_to_zero"
     NO_STOP_DISTANCE = "no_stop_distance"
     ENTRY_NOT_FILLED = "entry_not_filled"
@@ -203,6 +212,15 @@ class RunResult:
     Reported beside the count because the count alone cannot say whether this mattered: two stale
     exits out of four hundred trades is noise, and two that between them carried a fifth of the
     book is the result."""
+
+    concentration_capped: int = 0
+    """Entries taken **smaller** than risk sizing asked for, because of the position cap (F34).
+
+    A count rather than a skip, because these trades happened. It is reported for the same reason
+    the skip counters are: the cap silently changes what the strategy did, and a strategy whose
+    every entry is resized is not the strategy that was written — it is a concentrated one wearing
+    a limit. If this number approaches the trade count, the honest reading is that the edge lives
+    in position sizes the book will not allow."""
 
     def record_skip(self, reason: Skipped) -> None:
         self.skipped[reason] = self.skipped.get(reason, 0) + 1
@@ -549,6 +567,7 @@ class PortfolioSimulator:
         heat_used = sum((p.open_risk for p in book.values()), Decimal(0))
         heat_cap = _dec(self._risk.max_portfolio_heat) * equity
         risk_budget = _dec(strategy.sizing.risk_r) * equity
+        position_cap = _dec(self._risk.max_position_pct_of_equity) * equity
         committed = _committed_cash(book)
         if committed > equity:
             # Cannot happen by construction — cash falls only by an outlay this method has already
@@ -583,6 +602,25 @@ class PortfolioSimulator:
                 # not happen rather than a fractional one that did (task 2.1b).
                 result.record_skip(Skipped.ROUNDS_TO_ZERO)
                 continue
+
+            # **The concentration cap (finding F34, decision D11).** The fourth term in the
+            # `min(...)` CLAUDE.md §4 defines sizing to be, so it *reduces* the position rather
+            # than refusing it — unlike the cash gate below, which skips. The two differ because
+            # cash is scale-dependent (more money fixes it, which is the signal D9 reads) and
+            # concentration is not: a strategy wanting 40% of the book wants 40% at any account
+            # size, so shrinking is the answer and a skip counter would say nothing.
+            #
+            # Priced with `marketable_price`, not `bar.open`, so the cap holds on what is actually
+            # paid. Sizing off the open leaves the filled value a few basis points over — a limit
+            # that nearly holds, which is the whole family of bug this file keeps finding.
+            price = self._fills.marketable_price(bar.open, side=OrderSide.BUY)
+            affordable = int((position_cap / price).to_integral_value(rounding=ROUND_DOWN))
+            if affordable <= 0:
+                result.record_skip(Skipped.CONCENTRATION_CAP)
+                continue
+            if affordable < quantity:
+                quantity = affordable
+                result.concentration_capped += 1
             if heat_used + stop_distance * quantity > heat_cap:
                 # Four trades each inside the per-trade cap can still breach the book-level one,
                 # which is why this is re-checked here and not only at parse time (invariant #4).
@@ -596,6 +634,15 @@ class PortfolioSimulator:
                 result.record_skip(Skipped.ENTRY_NOT_FILLED)
                 continue
             filled = fill.filled_quantity
+            if fill.price * filled > position_cap:
+                # Cannot happen: `affordable` was derived from this exact price and a partial fill
+                # only reduces the count. Asserted anyway, because the alternative to an assert
+                # here is a concentration limit that is breached silently and shows up only as a
+                # drawdown nobody can explain (invariant #4, invariant #10).
+                raise ValueError(
+                    f"{symbol} filled {filled} at {fill.price} = {fill.price * filled}, over the "
+                    f"{position_cap} concentration cap — sizing and fill priced differently"
+                )
             entry_charges = self._costs.charges(
                 self._segment, OrderSide.BUY, fill.price, Decimal(filled)
             )

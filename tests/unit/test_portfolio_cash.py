@@ -65,9 +65,20 @@ def goal(repo_root: Path) -> GoalConfig:
     return load_goal(repo_root / "goal.yaml")
 
 
-def _sim(goal: GoalConfig, *, slots: int = 4) -> PortfolioSimulator:
+def _sim(goal: GoalConfig, *, slots: int = 4, position_pct: float = 1.0) -> PortfolioSimulator:
+    """**The concentration cap is off by default here, deliberately (finding F34).**
+
+    It ships at 0.25, which bounds every position to a quarter of the book — so with it on, no
+    single position can exhaust the account and most of the cases below become unreachable. That
+    does not make the cash gate redundant: it is the guard that has to hold whatever the
+    concentration cap is set to, and a unit test of one guard should not depend on another being
+    configured a particular way. The cap has its own module, and the interaction between the two
+    is asserted once at the end of this one, at the shipped value.
+    """
     return PortfolioSimulator(
-        risk=goal.risk.model_copy(update={"max_open_positions": slots}),
+        risk=goal.risk.model_copy(
+            update={"max_open_positions": slots, "max_position_pct_of_equity": position_pct}
+        ),
         costs=CostModel(goal.costs),
         fills=FillModel(
             ExecutionRealism(
@@ -130,6 +141,7 @@ def _run(
     equity: Decimal = _EQUITY,
     panel: Panel | None = None,
     fire: dict[str, int] | None = None,
+    position_pct: float = 1.0,
 ) -> RunResult:
     panel = panel or _flat_panel(symbols)
     size = len(panel)
@@ -140,7 +152,7 @@ def _run(
         column[at[symbol]] = 1.0
         signals[symbol] = column
         stops[symbol] = np.full(size, stop_distance)
-    return _sim(goal, slots=slots).run(
+    return _sim(goal, slots=slots, position_pct=position_pct).run(
         _strategy(),  # type: ignore[arg-type]
         panel,
         signals=signals,
@@ -441,3 +453,49 @@ def test_the_book_never_holds_more_than_it_paid_for(goal: GoalConfig, stop_dista
         assert outstanding <= _EQUITY, (
             f"the book held {outstanding} of stock against a {_EQUITY} account"
         )
+
+
+# --------------------------------------------------------------------------------------
+# How this guard sits beside the concentration cap (finding F34)
+# --------------------------------------------------------------------------------------
+
+
+def test_at_the_shipped_settings_the_concentration_cap_reaches_the_cash_gate_first(
+    goal: GoalConfig,
+) -> None:
+    """Both guards are live, and it is worth being explicit about which one bites.
+
+    ``max_position_pct_of_equity`` is 0.25 and ``max_open_positions`` is 4, so a full book is at
+    most 100% of the account and a *single* position can never exhaust it. The cash gate therefore
+    stops being the thing that catches an oversized position — the concentration cap resizes it
+    long before. That is not the cash gate becoming redundant: it is the outer of two nested
+    limits, and it still binds once charges are counted on a full book.
+
+    Asserted rather than assumed, because "the guard that used to fire never fires now" is exactly
+    the change that goes unnoticed until someone loosens the other one.
+    """
+    shipped = _run(goal, stop_distance=0.01, position_pct=goal.risk.max_position_pct_of_equity)
+    assert Skipped.INSUFFICIENT_CASH not in shipped.skipped, "the cap should catch it first"
+    assert shipped.concentration_capped == 1
+    assert len(shipped.trades) == 1
+    held = shipped.trades[0].entry_price * shipped.trades[0].quantity
+    assert held <= _EQUITY * Decimal(str(goal.risk.max_position_pct_of_equity))
+
+
+def test_the_cash_gate_still_binds_when_a_full_book_cannot_be_paid_for(goal: GoalConfig) -> None:
+    """The concentration cap does not make the cash gate unreachable, only rarer.
+
+    Five slots at a quarter of the book each is 125% of the account, so the cap alone permits a
+    book the money cannot buy. Something still has to say no, and that is this guard.
+    """
+    symbols = ("AAA", "BBB", "CCC", "DDD", "EEE")
+    result = _run(
+        goal,
+        stop_distance=0.01,
+        symbols=symbols,
+        slots=5,
+        position_pct=goal.risk.max_position_pct_of_equity,
+    )
+    assert result.skipped.get(Skipped.INSUFFICIENT_CASH) == 1
+    assert len(result.trades) == 4
+    assert _committed(result) <= _EQUITY

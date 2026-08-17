@@ -246,6 +246,30 @@ risk:                              # DECIDED VALUES (see PRD §14 for rationale)
                                    # exactly 2%). The heat cap is the real control; deriving the
                                    # count from it is a later refactor (BUILD_MAP M6).
   max_portfolio_heat: 0.02
+  # Most of the account one symbol may hold, BY VALUE. Operator decision D11, 2026-08-17
+  # (finding F34). Not a duplicate of max_portfolio_heat: heat bounds the loss if the stop HOLDS,
+  # and stop distance cancels out of it, so every position is exactly risk_r of the book however
+  # large it is. This bounds what is exposed when the stop does NOT hold -- and on NSE cash equity
+  # a large share of the move happens between sessions, where a stop fills at the open, not at the
+  # trigger. The sim already models that (fills.py fills a stop at the worse of the two).
+  #
+  # Why 0.25 and not the 0.50 first proposed. With C of the account in one name and an overnight
+  # gap of g, the account loses C x g:
+  #     C=0.50, g=0.20 (lower circuit) -> -10% -> max_drawdown_killswitch, operator-only restart.
+  #     C=0.25, g=0.20                 -> -5%  -> past the daily halt, but the system survives.
+  # One name gapping to the circuit should not be able to stop the whole system in a morning.
+  # 0.25 is also DERIVED, not picked: max_open_positions is 4, so it is exactly one name's equal
+  # share of a fully deployed book -- "no name may exceed its equal share".
+  #
+  # It BINDS in practice rather than decorating: position value / equity = risk_r x (price / stop
+  # per share), so a typical 2x-ATR stop at ~4% of price gives ~12.5%, and 0.25 is reached when the
+  # stop is <= 2% of price -- low-volatility names, which is exactly what a low-vol factor buys.
+  # 0.50 would need a stop under 1% of price, which is rare enough to be near-decorative.
+  #
+  # The code refuses anything above 0.50 (_MAX_POSITION_PCT_CEILING), the same belt-and-braces
+  # shape as the crypto leverage ceiling: config carries the chosen value, code carries the limit
+  # that cannot be edited away (invariant #4).
+  max_position_pct_of_equity: 0.25
   max_pairwise_correlation: 0.7
   consecutive_loss_pause: 3        # consecutive losses on a strategy -> pause + revalidate
   canary_min_trades: 10

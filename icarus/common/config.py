@@ -45,6 +45,14 @@ _CANARY_SIZE_FACTOR_CEILING = 0.25  # CLAUDE.md §4 — canary runs at 25%; 1.0 
 _PER_TRADE_RISK_CEILING = 0.005  # PRD §15 — 0.5% per trade; tiers scale it *down*
 _PORTFOLIO_HEAT_CEILING = 0.02  # PRD §15 — 2% of equity at risk across the whole book
 _STAGNATION_CHECK_CEILING = 50  # invariant #23 — a larger number defers the halt indefinitely
+# Operator decision D11, 2026-08-17 (finding F34). Risk-based sizing bounds the *loss if the stop
+# holds*; it says nothing about position **value**, because stop distance cancels out of it. A
+# tight stop therefore buys an arbitrarily large position at the same nominal risk — and a stop is
+# not a guarantee overnight, where a large share of the NSE move happens. The account-level
+# arithmetic is what fixes the ceiling: at 50% of the book in one name, a 20% lower circuit is a
+# 10% account loss, which is the `max_drawdown_killswitch` — one name, one morning, operator-only
+# restart. So 0.50 is the loosest setting the code will accept, and `goal.yaml` runs at 0.25.
+_MAX_POSITION_PCT_CEILING = 0.50
 
 # Statutory rates, as of FY 2026-27 (PRD §7). Config may assume a **harsher** rate than the statute
 # — a stress scenario is allowed to overstate the bill — but never a cheaper one, which would
@@ -189,6 +197,14 @@ class Risk(_Strict):
     max_drawdown_killswitch: _Fraction
     max_open_positions: _PosInt
     max_portfolio_heat: _Fraction
+    max_position_pct_of_equity: _Fraction
+    """Most of the account one symbol may hold, by **value** (finding F34, decision D11).
+
+    Not a duplicate of the heat cap. Heat bounds the loss *if the stop holds*, and stop distance
+    cancels out of it — every position is exactly ``risk_r`` of the book however large it is. This
+    bounds what is exposed when the stop does **not** hold, which overnight it frequently does not.
+    It is the fourth term in the ``min(...)`` CLAUDE.md §4 defines sizing to be, so it reduces a
+    position rather than refusing it."""
     max_pairwise_correlation: _Fraction
     consecutive_loss_pause: _PosInt
     canary_min_trades: _PosInt
@@ -224,6 +240,7 @@ class Risk(_Strict):
             ("new_strategy_size_factor", _CANARY_SIZE_FACTOR_CEILING),
             ("per_trade_risk_r", _PER_TRADE_RISK_CEILING),
             ("max_portfolio_heat", _PORTFOLIO_HEAT_CEILING),
+            ("max_position_pct_of_equity", _MAX_POSITION_PCT_CEILING),
             ("stagnation_check_after_trades", _STAGNATION_CHECK_CEILING),
         ):
             value = getattr(self, name)

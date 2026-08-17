@@ -177,6 +177,12 @@ Dated decisions that are not code and not in `goal.yaml`, so they have nowhere e
 |---|---|---|
 | D10 | **Drop the per-strategy purge; one fixed `seam_sessions` for every strategy** (finding F40). Purging protects a *fitted* model from label overlap; nothing here is fitted per fold and no state crosses train→test, so it protected nothing — while its per-strategy width made the control and the strategy run over different periods, which invariant #21 cannot tolerate. **Value unchanged at 5**; structure only. The textbook embargo stays unbuilt, and `goal.yaml` marks it mandatory before any per-fold fitting in Phase 2. Full reasoning in §7c. | operator, on the agent's researched recommendation |
 
+### 2026-08-17 — F34, before 3b
+
+| # | decision | who |
+|---|---|---|
+| D11 | **`max_position_pct_of_equity: 0.25`** — no single name may exceed a quarter of the account by value (finding F34). Risk sizing bounds the loss *if the stop holds*; this bounds what is exposed when it does not, which overnight it often does not. Operator proposed 0.50; the gap arithmetic argued it down — at 0.50 a 20% lower circuit is a 10% account loss, which is `max_drawdown_killswitch` itself. It **reduces** the position rather than refusing it, unlike the cash gate. Code refuses any value above 0.50 whatever the config says. | operator, on the agent's recommendation after the arithmetic |
+
 ## 7c. Deferred by decision — not forgotten
 
 Things consciously postponed. **Each names the condition that reopens it.** A deferral without a

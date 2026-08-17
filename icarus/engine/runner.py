@@ -103,6 +103,13 @@ class FoldResult:
     operator has to take on trust: nothing traded at that price, it was carried from the last bar
     the symbol printed (finding F4)."""
 
+    concentration_capped: int
+    """Entries taken smaller than risk sizing asked for, because of the position cap (F34, D11).
+
+    On the sheet because the cap silently changes what the strategy did. A strategy whose every
+    entry is resized is not the strategy that was written — it is a concentrated one wearing a
+    limit, and its results belong to the capped version."""
+
     unfilled_exits: int
     """Exits the fill model refused or capped mid-run, leaving the position open and still exposed.
 
@@ -125,6 +132,7 @@ class FoldResult:
             "skipped": self.skipped,
             "stale_marks": self.stale_marks,
             "stale_mark_value": str(self.stale_mark_value),
+            "concentration_capped": self.concentration_capped,
             "unfilled_exits": self.unfilled_exits,
         }
 
@@ -224,6 +232,7 @@ def run_walk_forward(
                 skipped={k.value: v for k, v in test.skipped.items()},
                 stale_marks=test.stale_marks,
                 stale_mark_value=test.stale_mark_value,
+                concentration_capped=test.concentration_capped,
                 unfilled_exits=test.unfilled_exits,
                 equity_curve=tuple(test.equity),
             )

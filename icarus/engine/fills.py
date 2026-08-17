@@ -183,11 +183,21 @@ class FillModel:
 
     # -- the three kinds -------------------------------------------------------------------
 
+    def marketable_price(self, reference: Decimal, *, side: OrderSide) -> Decimal:
+        """What a marketable limit would actually pay against ``reference``, slippage and tick in.
+
+        Public because a caller that has to **size** a position needs the price before it can send
+        the order, and any second guess at it is a different number. The concentration cap
+        (finding F34) sizes against this: guessing with ``bar.open`` would leave the filled value a
+        few basis points over the cap, which is a limit that does not quite hold — and a limit that
+        does not quite hold is the failure mode this repo keeps finding.
+        """
+        signed = self._slippage if side is OrderSide.BUY else -self._slippage
+        return self._to_tick(reference * (Decimal(1) + signed), side=side)
+
     def _marketable(self, intent: Intent, bar: SimBar, *, reference: Decimal) -> FillResult:
         """Cross the spread at ``reference``, paying slippage in the direction that hurts."""
-        signed = self._slippage if intent.side is OrderSide.BUY else -self._slippage
-        price = self._to_tick(reference * (Decimal(1) + signed), side=intent.side)
-        return self._sized(intent, bar, price)
+        return self._sized(intent, bar, self.marketable_price(reference, side=intent.side))
 
     def _resting(self, intent: Intent, bar: SimBar) -> FillResult:
         """Fill only on a strict trade-through, with a pessimistic queue position.

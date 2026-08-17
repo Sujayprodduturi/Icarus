@@ -205,10 +205,12 @@ def _print_sheet(results: list[BacktestResult], goal: object) -> None:
         marks = sum(f.stale_marks for f in r.folds)
         value = sum((f.stale_mark_value for f in r.folds), Decimal(0))
         unfilled = sum(f.unfilled_exits for f in r.folds)
+        capped = sum(f.concentration_capped for f in r.folds)
         marked = "no marked exits" if not marks else f"{marks} marked"
         print(
             f"{r.strategy:<26} {marked:<18} gross {float(value):>13,.0f}   "
-            f"{unfilled} exits refused or capped mid-run"
+            f"{unfilled} exits refused or capped mid-run   "
+            f"{capped} entries resized by the position cap"
         )
     # Both numbers or neither. The first version of this section said "none — every exit met a real
     # bar" whenever the mark count was zero, which was a claim it had not checked: an exit the fill

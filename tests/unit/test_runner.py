@@ -225,6 +225,7 @@ def _fold(index: int, values: list[float], day0: int) -> FoldResult:
         skipped={},
         stale_marks=0,
         stale_mark_value=Decimal(0),
+        concentration_capped=0,
         unfilled_exits=0,
         equity_curve=curve,
     )

@@ -58,9 +58,15 @@ def goal(repo_root: Path) -> GoalConfig:
 def _sim(
     goal: GoalConfig, *, stale_after: int = 20, slots: int | None = None
 ) -> PortfolioSimulator:
-    risk = (
-        goal.risk if slots is None else goal.risk.model_copy(update={"max_open_positions": slots})
-    )
+    # The concentration cap is off here on purpose (finding F34). These tests are about what
+    # happens to a position whose symbol goes dark, and they need a large one to make the
+    # write-off arithmetic legible; at the shipped 0.25 the cap would resize every fixture and
+    # every hand-computed rupee figure below would be measuring the cap instead of the write-off.
+    # The cap has its own module.
+    update: dict[str, object] = {"max_position_pct_of_equity": 1.0}
+    if slots is not None:
+        update["max_open_positions"] = slots
+    risk = goal.risk.model_copy(update=update)
     return PortfolioSimulator(
         risk=risk,
         costs=CostModel(goal.costs),
