@@ -466,3 +466,187 @@ def test_every_shipped_strategy_parses_and_ranks_on_a_comparable_quantity(path: 
     rank_by = candidate.rank_by  # type: ignore[attr-defined]
     if rank_by is not None:
         assert default_registry().get(rank_by.primitive).scale_free, path.name
+
+
+# --------------------------------------------------------------------------------------
+# The panel half of the sweep — the 12 words the single-symbol split cannot reach (F27)
+# --------------------------------------------------------------------------------------
+#
+# The sweep above evaluates one symbol's `Bars`, so it skips every word that needs a whole
+# universe. That left **17 of the 93 declared flags carrying no verification at all** — the same
+# shape as the finding this file exists for, one level up: a property declared, relied on by the
+# parser, and never checked. Twelve of them are testable here. The other five (`delivery_pct`,
+# `delivery_qty`, `in_fno_ban`, `fii_net_index_fut`, `client_net_index_fut`) are `requires_feed`
+# stubs that raise when evaluated, so there is nothing to split; they are pinned at the bottom
+# instead, and will start failing the moment somebody implements them.
+#
+# **A split is one company re-denominated, not the market.** Splitting a single symbol is what
+# makes this a test of comparability: if a word's answer for that symbol moves when only its
+# quotation changed, the word is measuring rupees.
+
+_PANEL_SYMBOLS = tuple(f"S{i:02d}" for i in range(25))
+_PANEL_BARS = 260
+
+# **The cheapest symbol, deliberately.** The universe is priced 150 to 630, and a 7:1
+# re-denomination has to move the split symbol as far as possible *through and beyond* that range
+# for the test to have teeth. A mid-priced pick hides a whole class of bug: a word comparing
+# ``close`` against some absolute level rather than against the symbol's own history gives the same
+# answer for a stock at 290 and the same stock at 2,030 — both are above almost any threshold — and
+# the split slides past without a murmur. From the cheapest name the re-denomination crosses the
+# entire universe, so a word that confuses "this symbol's level" with "a level" has to move.
+_SPLIT_SYMBOL = _PANEL_SYMBOLS[0]
+
+# Words that declare a `scale_free` flag the parser already trusts and whose compute function
+# **raises**, so no test can confirm the flag. Two different reasons, both deliberate: the five
+# feed words are waiting for finding F7 to thread feed values into `Bars`, and `xs_sector_neutral`
+# refuses because a sector map has to be dated to each bar — today's classification applied to
+# 2013 would reintroduce the survivorship bias the panel exists to prevent.
+_UNIMPLEMENTED = frozenset(
+    {
+        "delivery_pct",
+        "delivery_qty",
+        "in_fno_ban",
+        "fii_net_index_fut",
+        "client_net_index_fut",
+        "xs_sector_neutral",
+    }
+)
+
+
+def _panel_series(seed: int, level: float) -> Bars:
+    rng = np.random.default_rng(seed)
+    closes = np.cumsum(rng.normal(0.0, 1.5, _PANEL_BARS)) + level
+    return _series(closes, np.abs(rng.normal(5.0e5, 1.0e5, _PANEL_BARS)))
+
+
+def _split_panel(*, split: bool) -> Panel:
+    """The same universe twice, with exactly one symbol re-denominated in the second."""
+    bars = {
+        symbol: _panel_series(100 + i, 150.0 + 20.0 * i) for i, symbol in enumerate(_PANEL_SYMBOLS)
+    }
+    if split:
+        bars[_SPLIT_SYMBOL] = _split(bars[_SPLIT_SYMBOL])
+    membership = {s: np.ones(_PANEL_BARS, dtype=np.bool_) for s in _PANEL_SYMBOLS}
+    return Panel.build(bars, membership, benchmark=_panel_series(999, 5000.0))
+
+
+def _panel_both(name: str, inner: str | None) -> tuple[npt.NDArray[np.float64], ...]:
+    """The split symbol's own column, before and after the re-denomination."""
+    registry = default_registry()
+    primitive = registry.get(name)
+    literals: dict[str, int | float | str] = {}
+    nested: dict[str, Call] = {}
+    for spec in primitive.params:
+        default = getattr(spec, "default", None)
+        if isinstance(spec, IntParam) or default is not None:
+            literals[spec.name] = default if default is not None else 20
+        else:
+            assert inner is not None, f"{name} needs a nested series and none was given"
+            nested[spec.name] = Call(
+                primitive=inner,
+                kind=Kind.SERIES,
+                literals={"n": 20} if inner != "close" else {},
+                nested={},
+            )
+    call = Call(primitive=name, kind=primitive.kind, literals=literals, nested=nested)
+    return tuple(
+        evaluate_universe(call, _split_panel(split=s), registry)[_SPLIT_SYMBOL]
+        for s in (False, True)
+    )
+
+
+def _panel_words(registry: Registry) -> list[Primitive]:
+    """Panel words the split test can reach — the rest are pinned in `_UNIMPLEMENTED`."""
+    return [
+        p
+        for p in registry
+        if p.needs_panel and p.kind in _DECLARED_KINDS and p.name not in _UNIMPLEMENTED
+    ]
+
+
+def test_the_panel_sweep_covers_every_word_the_single_symbol_sweep_skips() -> None:
+    """The two sweeps must partition the declared vocabulary, minus the unimplemented stubs.
+
+    Without this, adding a `needs_panel` word silently lands it in neither sweep — which is
+    precisely how the seventeen came to be unverified.
+    """
+    registry = default_registry()
+    declared = {p.name for p in registry if p.kind in _DECLARED_KINDS}
+    covered = {p.name for p in _sweepable(registry)} | {p.name for p in _panel_words(registry)}
+    assert declared - covered == _UNIMPLEMENTED
+
+
+def test_the_panel_split_test_can_tell_the_two_classes_apart() -> None:
+    """Guards the guard, exactly as the single-symbol sweep does for itself.
+
+    Every one of the twelve panel words is declared *comparable*, so the sweep below only ever
+    asserts "nothing moved" — and "nothing moved" is also what a broken split, a broken panel
+    builder or a word that ignores its input would produce. There is no declared-not-comparable
+    panel word to use as the control, so one is built here: a primitive that returns the raw close
+    for every symbol. If the machinery cannot see *that* move, it cannot see anything.
+    """
+    registry = default_registry()
+    raw = Primitive(
+        "_raw_close_panel",
+        Kind.SERIES,
+        "Test-only: the price itself, over the whole universe.",
+        lambda panel, **_: np.vstack([b.close for b in panel.bars]),
+        (),
+        needs_panel=True,
+        scale_free=False,
+    )
+    call = Call(primitive=raw.name, kind=raw.kind, literals={}, nested={})
+    before, after = (
+        evaluate_universe(call, _split_panel(split=s), Registry([*registry, raw]))[_SPLIT_SYMBOL]
+        for s in (False, True)
+    )
+    assert not np.allclose(before, after, equal_nan=True)
+
+
+@pytest.mark.parametrize("name", sorted(p.name for p in _panel_words(default_registry())))
+def test_a_panel_word_is_unmoved_when_one_symbol_is_re_denominated(name: str) -> None:
+    """Every one of these is declared comparable, and a scale-free input must stay scale-free.
+
+    ``roc`` is the inner for the cross-sectional wrappers because it is itself comparable: a 7:1
+    consolidation does not change a percentage return, so nothing downstream of it may move
+    either. A wrapper that reached past its argument to the raw price would show up here.
+    """
+    before, after = _panel_both(name, inner="roc")
+    assert default_registry().get(name).scale_free, f"{name} is declared not comparable"
+    np.testing.assert_allclose(before, after, rtol=1e-9, atol=1e-9, equal_nan=True)
+
+
+@pytest.mark.parametrize("name", ["xs_percentile", "xs_rank", "xs_zscore", "xs_demean"])
+def test_a_cross_sectional_wrapper_does_not_launder_a_rupee_quantity(name: str) -> None:
+    """The other half of the claim, and the one that matters for finding F1.
+
+    Fed a **rupee** input, the answer for the re-denominated symbol *must* move. These wrappers
+    produce a dimensionless output whatever they are given, so it would be easy to read them as
+    making any input comparable — and a strategy ranking on ``xs_percentile(close)`` would then be
+    ranking by share price with a percentile drawn over the top of it. That is F1 exactly, one
+    layer up. The parser refuses this construction; this proves there is something to refuse.
+    """
+    before, after = _panel_both(name, inner="close")
+    assert not np.allclose(before, after, rtol=1e-9, atol=1e-9, equal_nan=True), (
+        f"{name} gave the same answer for a symbol quoted {_SPLIT} times higher — it is not "
+        f"reading its argument's units at all"
+    )
+
+
+@pytest.mark.parametrize("name", sorted(_UNIMPLEMENTED))
+def test_an_unimplemented_words_flag_is_pinned_rather_than_quietly_skipped(name: str) -> None:
+    """Named rather than quietly skipped, and pinned so implementing one forces a decision.
+
+    These carry a `scale_free` declaration the parser already trusts, and no test can confirm it
+    while the compute function raises. When finding F7 threads the feeds into `Bars`, this test
+    fails — which is the point: the flag has to be verified in the same change that makes it
+    verifiable, not left as the one unchecked corner of a guard that exists because an unchecked
+    corner cost fifteen simulated years.
+    """
+    registry = default_registry()
+    primitive = registry.get(name)
+    with pytest.raises(DslError, match="cannot be computed"):
+        if primitive.needs_panel:
+            _panel_both(name, inner="roc")
+        else:
+            _invoke(primitive, _series(np.full(30, 100.0), np.full(30, 1000.0)), registry)
