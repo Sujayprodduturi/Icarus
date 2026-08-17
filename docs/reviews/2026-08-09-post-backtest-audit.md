@@ -451,6 +451,12 @@ benchmark-relative metrics sit *ahead* of the sweep rather than behind it.
 **Every finding in §6 is accounted for below** — as a task, or as an explicit deferral with a
 reason. Nothing is left merely unmentioned.
 
+*That claim was false between 2026-08-12 and 2026-08-17.* Five findings raised after the plan was
+written — F23, F24, F25, F27 and F34 — were never added to any step, so a sentence promising
+completeness was doing the opposite: it invited the reader to stop checking. Step 2g now holds four
+of them, and F34 is named there as an operator decision. **A plan that asserts its own completeness
+has to be re-checked every time a finding is added, or the assertion is worse than none.**
+
 ### Step 1 — Make the panel itself trustworthy *(new; promoted to first)*
 
 The panel is the input to everything else. Fixing arithmetic on top of bad numbers is wasted work.
@@ -544,6 +550,24 @@ acquired (see §4 option (c), TickData).
 `roc_skip` rather than a general `lag`: making every SERIES word composable over an arbitrary input
 series — instead of implicitly over `close` — is an architectural change, not a Step-2 change. F22
 stays open for the general case.
+
+### Step 2g — Is the engine measuring what we think it is? *(added 2026-08-17)*
+
+**These five findings were not in this plan at all**, though §6c's preamble claims every finding is
+accounted for. Four of them would force a re-run if they surfaced after Step 7, which is exactly
+the thing the governing constraint above exists to prevent, so they belong here.
+
+| task | finding | what | why before the run |
+|---|---|---|---|
+| **2g-1** | F24 | **71 of the 182 swept words never actually get tested for look-ahead.** `test_no_primitive_sees_the_future` runs on a 120-bar series whose wick is a *fixed* `±0.5`, so consecutive highs tie, no swing is ever strictly confirmed, and the SMC structure/zone words return all-`nan` — and `nan == nan` passes. Measured 2026-08-17: 71 vacuous on the current fixture, **2 on a 600-bar series with a randomised intrabar range**. So the words are fine; the fixture is not | **Task 2f raised the stakes on this and nobody re-ranked it.** While each fold was sliced, the future was physically *absent* from the array the DSL saw. `evaluate_once` evaluates over the whole span, so **causality is now the only thing** between a peeking word and every number the engine produces. A 39% hole in the guarantee that change relies on. Cheap: it is a fixture change |
+| **2g-2** | F27 | 17 of the 93 declared `scale_free` flags carry no verification — the split sweep excludes `needs_panel`, `requires_feed` and `intraday_only` words | F1 in another costume. A wrongly-declared `scale_free` means `rank_by` silently ranks by share price, which is a wrong result that looks like a real one |
+| **2g-3** | F25 | `rank_by` and the `xs_` words accept a market-wide value — `benchmark_return`, `advance_decline_ratio` and the breadth words are identical for every symbol | Ranking a universe by a number that is the same for every symbol is a no-op that reports as a ranking. Affects 3b and 3c directly |
+| **2g-4** | F23 | Annulled trades are in the panel: 32 symbols carry 20%-circuit prints from the Emkay flash crash | Bad prices produce bad fills, bad stops and bad P&L. This is a Step-1 item that Step 1 missed |
+| **—** | F26 | `xs_rank` unreachable in `rank_by` | **Accepted, not scheduled.** `xs_percentile` does the job correctly and a word that reliably picks the losers is worse than one nobody can reach |
+
+**F34 is an operator decision, not a task.** Nothing caps how much of the account a single name may
+take; the 2d cash constraint stops the book overspending but not over-concentrating. It has to be
+settled **before 3b**, because the two capital rows are exactly where concentration bites.
 
 ### Step 3 — The engine answers the right question
 
