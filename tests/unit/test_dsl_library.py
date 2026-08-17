@@ -309,7 +309,11 @@ def test_no_primitive_sees_the_future() -> None:
         if primitive.needs_panel:
             continue
         whole = evaluate(_call(primitive.name), full, registry)
-        if not (~np.isnan(whole)).any():
+        # Measured over the region the comparison actually reaches, not the whole column. `cuts`
+        # stops at 592, so a word whose only values landed in the last eight bars would clear the
+        # blank check while every comparison below stayed `nan == nan` — the vacuous pass this
+        # check exists to stop, hiding in the eight bars the check itself never looked at.
+        if not np.isfinite(whole[: max(cuts)]).any():
             blank.append(primitive.name)
         for cut in cuts:
             prefix = evaluate(_call(primitive.name), _bodied_bars(closes[:cut]), registry)

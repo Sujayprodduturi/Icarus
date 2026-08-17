@@ -34,11 +34,11 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import pytest
+from tests.unit.simharness import simulator
 
-from icarus.common.config import ExecutionRealism, load_goal
+from icarus.common.config import load_goal
 from icarus.common.types import OrderSide
 from icarus.engine.costmodel import CostModel, Segment
-from icarus.engine.fills import FillModel
 from icarus.engine.portfolio import (
     ExitPlan,
     OpenPosition,
@@ -75,25 +75,7 @@ def _sim(goal: GoalConfig, *, slots: int = 4, position_pct: float = 1.0) -> Port
     configured a particular way. The cap has its own module, and the interaction between the two
     is asserted once at the end of this one, at the shipped value.
     """
-    return PortfolioSimulator(
-        risk=goal.risk.model_copy(
-            update={"max_open_positions": slots, "max_position_pct_of_equity": position_pct}
-        ),
-        costs=CostModel(goal.costs),
-        fills=FillModel(
-            ExecutionRealism(
-                fill_requires_trade_through=True,
-                queue_volume_multiple_k=2.0,
-                next_bar_execution=True,
-                latency_ms=750,
-                model_partial_fills=True,
-                max_participation_of_depth=0.05,
-                slippage_bps=5.0,
-                tick_size_inr=0.05,
-            )
-        ),
-        stale_after_sessions=20,
-    )
+    return simulator(goal, slots=slots, position_pct=position_pct)
 
 
 def _strategy() -> object:

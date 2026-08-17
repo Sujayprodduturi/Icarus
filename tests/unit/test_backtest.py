@@ -179,12 +179,23 @@ def test_dropping_the_purge_recovers_out_of_sample_data() -> None:
     more out-of-sample sessions. **More out-of-sample data is not a lowered bar** — the gate
     thresholds are untouched, and a wider sample narrows the Sharpe confidence interval, which
     helps a real edge and does nothing for a spurious one.
+
+    Pinned against the panel rather than against the other strategy. The first version asserted
+    only that the wide and narrow strategies agreed with each other, which the test above already
+    proves — so it recorded a consequence it could not have detected the loss of.
     """
     panel = _panel()
+    train_min = int(CONFIG.min_train_years * 252)
     wide = walk_forward_windows(panel, _strategy(252), CONFIG, SPLIT)
-    narrow = walk_forward_windows(panel, _strategy(20), CONFIG, SPLIT)
-    assert len(wide) == len(narrow)
-    assert wide[0].test_start == narrow[0].test_start
+
+    # The old arithmetic was `train_min + longest_lookback + embargo`; it is now `train_min + seam`.
+    assert wide[0].test_start == train_min + CONFIG.seam_sessions
+    assert wide[0].test_start < train_min + 252, "a 252-session word is still buying a year's delay"
+
+    # ...and the recovered year is out-of-sample data, not merely an earlier index.
+    old_first_test = train_min + 252 + CONFIG.seam_sessions
+    recovered = [w for w in wide if w.test_start < old_first_test]
+    assert recovered, "no fold was recovered, so the change bought nothing"
 
 
 # --------------------------------------------------------------------------------------

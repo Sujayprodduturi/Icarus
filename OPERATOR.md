@@ -113,6 +113,18 @@ alongside.)*
 reintroduce the bug and confirm the test fails. Two tests in this repo have passed while asserting
 nothing.
 
+**Mutation testing is not a substitute for these two, and I substituted it.** *(2026-08-17.)* Four
+tasks — F40, F24, F34, 2g-2 — were committed with 3/3, 4/4, 5/5 and 4/4 mutations caught and
+**neither review run**. That felt rigorous enough at the time, which is exactly the problem: they
+measure different things. **Mutation testing proves the tests catch the bug I already thought of.
+The reviews catch what I did not.** Run late on those four commits, they found a warning character
+that would have crashed the whole metric sheet on a cp1252 console (F46), a counter reporting
+candidates as trades, a cap documented as a standing bound that is only an entry bound (F45), a new
+sweep missing the very vacuity guard the same change added elsewhere, and an 86-line test harness
+copy-pasted into a fourth module. Not one of those is reachable by mutating code the tests already
+cover. **Choosing my own check in place of the specified one is the same failure as narrowing a
+task's scope unilaterally** — the decision was not mine to make.
+
 **Run the mutation check *after* the commit, never before.** *(2026-08-16, task 2f.)* A harness
 that restores each file with `git checkout --` will silently delete uncommitted work — it did,
 losing hours of `runner.py` and `backtest.py`, recovered only because an earlier `git stash` had

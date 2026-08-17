@@ -198,13 +198,22 @@ class Risk(_Strict):
     max_open_positions: _PosInt
     max_portfolio_heat: _Fraction
     max_position_pct_of_equity: _Fraction
-    """Most of the account one symbol may hold, by **value** (finding F34, decision D11).
+    """Most of the account one symbol may take **at entry**, by value (finding F34, decision D11).
 
     Not a duplicate of the heat cap. Heat bounds the loss *if the stop holds*, and stop distance
     cancels out of it — every position is exactly ``risk_r`` of the book however large it is. This
     bounds what is exposed when the stop does **not** hold, which overnight it frequently does not.
     It is the fourth term in the ``min(...)`` CLAUDE.md §4 defines sizing to be, so it reduces a
-    position rather than refusing it."""
+    position rather than refusing it.
+
+    **"At entry" is load-bearing and was corrected on 2026-08-17 after a code review.** This first
+    read "most of the account one symbol may hold", which is a claim about *state* that the code
+    does not make: nothing re-checks or trims a position afterwards, so a winner that runs is free
+    to drift past the cap. Measured on a name compounding 5x, a position entered at 25% reaches
+    **61% of a mark-to-market book by bar 58** — where a 20% lower circuit is a 12% account hit,
+    past the `max_drawdown_killswitch` that the 0.25 was chosen to stay inside. Whether a standing
+    cap should trim winners is a real trading decision with cost and tax consequences, so it is
+    **finding F45**, open, and not settled here. What this field promises is the entry bound."""
     max_pairwise_correlation: _Fraction
     consecutive_loss_pause: _PosInt
     canary_min_trades: _PosInt

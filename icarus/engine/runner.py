@@ -48,7 +48,6 @@ from icarus.common.logging import get_logger
 from icarus.engine.backtest import (
     assert_no_lockbox_overlap,
     assert_panel_stops_before_lockbox,
-    longest_lookback,
     slice_panel,
     walk_forward_windows,
 )
@@ -202,12 +201,10 @@ def run_walk_forward(
     assert_panel_stops_before_lockbox(panel, goal.data_split)
     windows = walk_forward_windows(panel, strategy, goal.backtest, goal.data_split)
     assert_no_lockbox_overlap(windows, panel, goal.data_split)
-    if not windows:
-        raise DslError(
-            f"no walk-forward folds fit {strategy.name} on this panel: "
-            f"{len(panel)} sessions against a {goal.backtest.min_train_years}-year minimum train "
-            f"plus a {longest_lookback(strategy)}-session purge"
-        )
+    # No `if not windows` guard here: `walk_forward_windows` raises rather than returning an empty
+    # list, so the branch was unreachable — and its message described the seam as "a N-session
+    # purge" sized from `longest_lookback`, the model finding F40 removed. Dead code that also
+    # taught the old vocabulary to whoever hit it (CLAUDE.md §2).
 
     result = BacktestResult(strategy=strategy.name)
     # Once, over the whole span, rather than per fold over a slice with a lead-in in front of it.

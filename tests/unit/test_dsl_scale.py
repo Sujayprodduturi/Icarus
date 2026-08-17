@@ -475,10 +475,10 @@ def test_every_shipped_strategy_parses_and_ranks_on_a_comparable_quantity(path: 
 # The sweep above evaluates one symbol's `Bars`, so it skips every word that needs a whole
 # universe. That left **17 of the 93 declared flags carrying no verification at all** — the same
 # shape as the finding this file exists for, one level up: a property declared, relied on by the
-# parser, and never checked. Twelve of them are testable here. The other five (`delivery_pct`,
-# `delivery_qty`, `in_fno_ban`, `fii_net_index_fut`, `client_net_index_fut`) are `requires_feed`
-# stubs that raise when evaluated, so there is nothing to split; they are pinned at the bottom
-# instead, and will start failing the moment somebody implements them.
+# parser, and never checked. **Eleven** of them are testable here. The other **six** are pinned in
+# `_UNIMPLEMENTED` instead and will start failing the moment somebody implements them: five
+# `requires_feed` stubs that raise when evaluated, plus `xs_sector_neutral`, which refuses for a
+# different reason. 11 + 6 = 17.
 #
 # **A split is one company re-denominated, not the market.** Splitting a single symbol is what
 # makes this a test of comparability: if a word's answer for that symbol moves when only its
@@ -613,6 +613,14 @@ def test_a_panel_word_is_unmoved_when_one_symbol_is_re_denominated(name: str) ->
     """
     before, after = _panel_both(name, inner="roc")
     assert default_registry().get(name).scale_free, f"{name} is declared not comparable"
+    # An all-nan column makes `assert_allclose(..., equal_nan=True)` pass having compared nothing —
+    # which is finding F24 exactly, and this half of the same change is where it would land next.
+    # The single-symbol sweeps above carry the identical guard; this one was written without it.
+    # `new_highs_minus_new_lows` yields only 9 values on this fixture, so the margin is thin.
+    assert np.isfinite(before).any(), (
+        f"{name} produced no value on the panel fixture, so the split comparison was nan == nan "
+        f"and proved nothing about its scale_free declaration"
+    )
     np.testing.assert_allclose(before, after, rtol=1e-9, atol=1e-9, equal_nan=True)
 
 

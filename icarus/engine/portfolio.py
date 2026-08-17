@@ -618,9 +618,13 @@ class PortfolioSimulator:
             if affordable <= 0:
                 result.record_skip(Skipped.CONCENTRATION_CAP)
                 continue
-            if affordable < quantity:
-                quantity = affordable
-                result.concentration_capped += 1
+            # Noted here, counted only if this candidate becomes a position. Incrementing on the
+            # spot counted resized *candidates*, and the heat check, the fill and the cash gate
+            # below can each still refuse one — so a single candidate could be reported as both a
+            # resized entry and an `insufficient_cash` skip, and the counter could exceed the trade
+            # count. That defeats the reading its own docstring prescribes.
+            was_capped = affordable < quantity
+            quantity = min(quantity, affordable)
             if heat_used + stop_distance * quantity > heat_cap:
                 # Four trades each inside the per-trade cap can still breach the book-level one,
                 # which is why this is re-checked here and not only at parse time (invariant #4).
@@ -661,6 +665,7 @@ class PortfolioSimulator:
                 continue
             committed += outlay
             taken += 1
+            result.concentration_capped += int(was_capped)
             book[symbol] = OpenPosition(
                 symbol=symbol,
                 quantity=filled,

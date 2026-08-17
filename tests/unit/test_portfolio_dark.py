@@ -30,11 +30,11 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import pytest
+from tests.unit.simharness import simulator
 
-from icarus.common.config import ExecutionRealism, load_goal
+from icarus.common.config import load_goal
 from icarus.common.types import OrderSide
 from icarus.engine.costmodel import CostModel, Segment
-from icarus.engine.fills import FillModel
 from icarus.engine.portfolio import ExitReason, PortfolioSimulator, RunResult
 from icarus.strategy.dsl import Bars, Panel, parse_strategy
 from icarus.strategy.library import default_registry
@@ -63,27 +63,7 @@ def _sim(
     # write-off arithmetic legible; at the shipped 0.25 the cap would resize every fixture and
     # every hand-computed rupee figure below would be measuring the cap instead of the write-off.
     # The cap has its own module.
-    update: dict[str, object] = {"max_position_pct_of_equity": 1.0}
-    if slots is not None:
-        update["max_open_positions"] = slots
-    risk = goal.risk.model_copy(update=update)
-    return PortfolioSimulator(
-        risk=risk,
-        costs=CostModel(goal.costs),
-        fills=FillModel(
-            ExecutionRealism(
-                fill_requires_trade_through=True,
-                queue_volume_multiple_k=2.0,
-                next_bar_execution=True,
-                latency_ms=750,
-                model_partial_fills=True,
-                max_participation_of_depth=0.05,
-                slippage_bps=5.0,
-                tick_size_inr=0.05,
-            )
-        ),
-        stale_after_sessions=stale_after,
-    )
+    return simulator(goal, slots=slots, position_pct=1.0, stale_after=stale_after)
 
 
 def _bars(closes: npt.NDArray[np.float64]) -> Bars:

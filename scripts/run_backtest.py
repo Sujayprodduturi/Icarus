@@ -177,10 +177,14 @@ def _print_sheet(results: list[BacktestResult], goal: object) -> None:
     # it used to be false — `baseline_buy_and_hold` ran 7 folds from ~2015 against
     # `xs_momentum_20`'s 8 from ~2014 — and the sheet compared them anyway (findings F16, F31).
     spans = {(r.folds[0].test_from, r.folds[-1].test_to, len(r.folds)) for r in results if r.folds}
+    # ASCII, deliberately. The operator's console is cp1252, where `U+26A0 WARNING SIGN` raises
+    # `UnicodeEncodeError` — and this branch only ever runs when something is wrong, so the
+    # decoration would have crashed the sheet precisely when it had something to say, taking every
+    # section below it with it. `test_the_metric_sheet_prints_on_the_operators_console` pins it.
     header = (
         "ALL STRATEGIES MEASURED OVER THE SAME WINDOW"
         if len(spans) <= 1
-        else "⚠ THE SPANS DIFFER — the numbers above are NOT like-for-like"
+        else "!! THE SPANS DIFFER — the numbers above are NOT like-for-like"
     )
     print("\n" + "-" * 100)
     print(header)

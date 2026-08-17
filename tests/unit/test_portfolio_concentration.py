@@ -28,6 +28,12 @@ sizing to be. That differs from the cash gate, which skips, and the difference i
 cash is scale-dependent, so a skip is the signal decision D9 reads as ``NEEDS_MORE_CAPITAL``;
 concentration is scale-invariant, so a strategy wanting 40% of the book wants 40% at any account
 size and there is nothing for more money to fix.
+
+**It is an entry bound, not a standing one — finding F45, open.** Nothing re-checks a position
+after it opens, so a winner is free to drift past the cap; measured, a name compounding 5x reaches
+past 60% of the book. That breaks the gap arithmetic above while every entry-time assertion here
+still passes, which is why it gets a test of its own rather than a footnote. Enforcing a standing
+cap means trimming winners, which has costs and tax and is a trading decision, not a bug fix.
 """
 
 from __future__ import annotations
@@ -37,10 +43,9 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import pytest
+from tests.unit.simharness import simulator
 
-from icarus.common.config import ExecutionRealism, load_goal
-from icarus.engine.costmodel import CostModel
-from icarus.engine.fills import FillModel
+from icarus.common.config import load_goal
 from icarus.engine.portfolio import PortfolioSimulator, RunResult, Skipped
 from icarus.strategy.dsl import Bars, Panel, parse_strategy
 from icarus.strategy.library import default_registry
@@ -61,25 +66,7 @@ def goal(repo_root: Path) -> GoalConfig:
 
 
 def _sim(goal: GoalConfig, *, position_pct: float, slots: int = 4) -> PortfolioSimulator:
-    return PortfolioSimulator(
-        risk=goal.risk.model_copy(
-            update={"max_open_positions": slots, "max_position_pct_of_equity": position_pct}
-        ),
-        costs=CostModel(goal.costs),
-        fills=FillModel(
-            ExecutionRealism(
-                fill_requires_trade_through=True,
-                queue_volume_multiple_k=2.0,
-                next_bar_execution=True,
-                latency_ms=750,
-                model_partial_fills=True,
-                max_participation_of_depth=0.05,
-                slippage_bps=5.0,
-                tick_size_inr=0.05,
-            )
-        ),
-        stale_after_sessions=20,
-    )
+    return simulator(goal, slots=slots, position_pct=position_pct)
 
 
 def _strategy() -> object:
@@ -124,7 +111,6 @@ def _run(
     symbols: tuple[str, ...] = ("AAA",),
     slots: int = 4,
     price: float = _PRICE,
-    equity: Decimal = _EQUITY,
 ) -> RunResult:
     panel = _panel(symbols, price=price)
     size = len(panel)
@@ -139,7 +125,7 @@ def _run(
         panel,
         signals=signals,
         stops=stops,
-        starting_equity=equity,
+        starting_equity=_EQUITY,
     )
 
 
@@ -191,8 +177,15 @@ def test_the_cap_is_measured_on_the_filled_price_not_the_bar_open(goal: GoalConf
 
 
 @pytest.mark.parametrize("pct", [0.05, 0.10, 0.25, 0.50])
-def test_no_position_ever_exceeds_the_configured_cap(goal: GoalConfig, pct: float) -> None:
-    """Swept, because a cap that holds at one setting and not another is not a cap."""
+def test_no_position_is_opened_above_the_configured_cap(goal: GoalConfig, pct: float) -> None:
+    """Swept, because a cap that holds at one setting and not another is not a cap.
+
+    **Named "opened", not "exceeds", after a code review pointed out the difference.** This asserts
+    on ``entry_price x quantity`` over a constant-price fixture, so it can only see the bound at
+    entry — it cannot distinguish an entry-time cap from a standing one, and the earlier name
+    implied the stronger claim. The engine only makes the weaker one; see
+    :func:`test_the_cap_is_an_entry_bound_and_a_winner_may_drift_past_it`.
+    """
     for stop in (0.01, 0.05, 0.2, 1.0, 5.0):
         result = _run(goal, stop_distance=stop, position_pct=pct)
         for trade in result.trades:
@@ -251,3 +244,80 @@ def test_zero_is_refused_too(goal: GoalConfig) -> None:
         goal.risk.__class__.model_validate(
             {**goal.risk.model_dump(), "max_position_pct_of_equity": 0.0}
         )
+
+
+def test_the_counter_counts_positions_taken_not_candidates_considered(goal: GoalConfig) -> None:
+    """Found by the code review of F34. The counter incremented where the resize happened.
+
+    Three gates still stand between a resized candidate and a position — the heat cap, the fill,
+    and the cash gate — so counting at the resize counted candidates. Five names at a quarter of
+    the book each is 125% of the account, so the fifth is refused for cash after being resized:
+    it appeared as both a resized entry *and* an `insufficient_cash` skip, and the total could
+    exceed the trade count. That is exactly the reading the field's own docstring prescribes
+    against ("if this number approaches the trade count..."), so an inflated counter argues for
+    abandoning a strategy whose entries were mostly fine.
+    """
+    result = _run(
+        goal,
+        stop_distance=0.01,
+        position_pct=0.25,
+        symbols=("AAA", "BBB", "CCC", "DDD", "EEE"),
+        slots=5,
+    )
+    assert result.skipped.get(Skipped.INSUFFICIENT_CASH) == 1
+    assert len(result.trades) == 4
+    assert result.concentration_capped == 4, "the refused candidate was counted as a resized entry"
+    assert result.concentration_capped <= len(result.trades)
+
+
+def test_the_cap_is_an_entry_bound_and_a_winner_may_drift_past_it(goal: GoalConfig) -> None:
+    """What the cap does **not** promise, asserted so nobody has to rediscover it.
+
+    Nothing re-checks or trims a position after it is opened, so a name that runs is free to grow
+    past the limit as a share of the book. That is a defensible trading choice — trimming winners
+    is rebalancing, with costs and tax, not a risk guard — but it is *not* what "no name may exceed
+    a quarter of the account" sounds like, and the field docstring said the stronger thing until a
+    review caught it.
+
+    It matters because the 0.25 was justified by gap arithmetic: 25% x a 20% lower circuit is a 5%
+    account hit, inside `max_drawdown_killswitch`. A position that has drifted to 60% breaks that
+    arithmetic while every entry-time assertion in this file still passes. Whether to enforce a
+    standing cap is **finding F45**, open.
+    """
+    size = 120
+    rising = np.linspace(_PRICE, _PRICE * 5.0, size)
+    bars = Bars(
+        ts=np.arange(START, START + size).astype("datetime64[ns]"),
+        open=rising.copy(),
+        high=rising + 0.1,
+        low=rising - 0.1,
+        close=rising,
+        volume=np.full(size, 50_000_000.0),
+    )
+    panel = Panel.build({"AAA": bars}, {"AAA": np.ones(size, dtype=np.bool_)})
+    signals = {"AAA": np.zeros(size)}
+    signals["AAA"][0] = 1.0
+    result = _sim(goal, position_pct=0.25).run(
+        _strategy(),  # type: ignore[arg-type]
+        panel,
+        signals=signals,
+        stops={"AAA": np.full(size, 0.01)},
+        starting_equity=_EQUITY,
+    )
+    assert result.concentration_capped == 1, "the entry itself was capped"
+
+    # The position was a quarter of the book on the day it opened...
+    held = next(iter(result.trades), None)
+    opened = result.equity[1][1]
+    shares = Decimal(held.quantity) if held else Decimal(0)
+    entry_value = (held.entry_price * shares) if held else Decimal(0)
+    assert entry_value / opened <= Decimal("0.26")
+
+    # ...and by the end it is far more than that, with nothing in the engine objecting.
+    final_ts, final_equity = result.equity[-1]
+    final_value = shares * Decimal(str(float(bars.close[-1])))
+    share_of_book = final_value / final_equity
+    assert share_of_book > Decimal("0.5"), (
+        f"expected the winner to drift well past the cap; it reached {share_of_book:.1%} "
+        f"of a {final_equity:.0f} book by {final_ts:%Y-%m-%d}"
+    )
