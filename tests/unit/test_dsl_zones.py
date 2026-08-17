@@ -441,3 +441,67 @@ def test_the_trend_template_holds_on_a_clean_uptrend_and_not_on_a_downtrend() ->
     falling = rising[::-1].copy()
     down = _bars(list(falling + 1.0), list(falling - 1.0), list(falling))
     assert _compute("trend_template", down, **params)[-1] == pytest.approx(0.0)
+
+
+# --------------------------------------------------------------------------------------
+# Balanced price range — the two words the look-ahead sweep cannot reach (finding F24)
+# --------------------------------------------------------------------------------------
+
+# A BPR needs a bullish and a bearish fair-value gap *live at the same time and overlapping*. A
+# random-walk series essentially never produces one, so `bpr_top` and `bpr_bottom` came out all-nan
+# on the sweep in test_dsl_library.py, where the look-ahead comparison was `nan == nan` and proved
+# nothing about them. They are the only two words left in that position, which is why they are
+# named in that test's allow-list — and this is what covers them instead.
+#
+# The fixture is fiddly on purpose, because the two constraints pull against each other: a bearish
+# gap means price fell, and the bullish gap sits below waiting to be filled by exactly that fall.
+# The bar that opens the bearish gap therefore has to land *inside* the bullish band — low above
+# its floor so the bullish gap survives, high below its ceiling so the two overlap.
+#
+# bar:      0     1     2     3     4     5     6
+# high:     10    12    14    13   12.5  11.5   9.8
+# low:       9    11    13    12   11.5    11     9
+#
+#   bar 2: high[0]=10 < low[2]=13   -> bullish gap [10, 13], born bar 2.
+#          It is never re-born (high[1]=12 is not < low[3]=12) and never filled while low > 10.
+#   bar 4: low[2]=13 > high[4]=12.5 -> bearish gap [12.5, 13].
+#          Overlap: top = min(13, 13) = 13, bottom = max(10, 12.5) = 12.5.
+#   bar 5: low[3]=12 > high[5]=11.5 -> bearish gap re-born, now [11.5, 12].
+#          Overlap: top = min(13, 12) = 12, bottom = max(10, 11.5) = 11.5.
+#   bar 6: low 9 <= 10 -> the bullish gap finally fills and the balanced range ends, even though
+#          the bearish gap is still live. One imbalance is not a balanced range.
+_BPR: _Ohlc = {
+    "high": [10.0, 12.0, 14.0, 13.0, 12.5, 11.5, 9.8],
+    "low": [9.0, 11.0, 13.0, 12.0, 11.5, 11.0, 9.0],
+    "close": [9.5, 11.5, 13.5, 12.5, 12.0, 11.2, 9.5],
+}
+
+
+def test_a_balanced_price_range_is_the_overlap_of_two_opposing_live_gaps() -> None:
+    bars = _bars(**_BPR)
+    top, bottom = _compute("bpr_top", bars), _compute("bpr_bottom", bars)
+    assert (top[4], bottom[4]) == (pytest.approx(13.0), pytest.approx(12.5))
+    assert (top[5], bottom[5]) == (pytest.approx(12.0), pytest.approx(11.5))
+
+
+def test_no_balanced_range_is_reported_before_both_gaps_exist() -> None:
+    """The bullish gap is live from bar 2, but one imbalance is not a balanced range.
+
+    Reporting it from bar 2 would be the confirmation-lag bug this module exists to catch: a level
+    handed to the strategy two bars before the market could have known it.
+    """
+    bars = _bars(**_BPR)
+    assert np.isnan(_compute("bpr_top", bars)[:4]).all()
+    assert np.isnan(_compute("bpr_bottom", bars)[:4]).all()
+
+
+def test_the_balanced_range_dies_when_either_gap_does() -> None:
+    """Bar 6 fills the bullish gap while the bearish one is still live and re-borns on that bar.
+
+    An implementation that reported the last *known* overlap, or that kept a dead leg alive, would
+    still print a level here — and the grammar has no ``not`` operator, so a strategy could never
+    say "the balanced range that is still open".
+    """
+    bars = _bars(**_BPR)
+    assert np.isnan(_compute("bpr_top", bars)[6])
+    assert np.isnan(_compute("bpr_bottom", bars)[6])

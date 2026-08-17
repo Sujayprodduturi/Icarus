@@ -54,24 +54,49 @@ def _bars(closes: list[float] | None = None) -> Bars:
     )
 
 
+_POOL = 4096
+"""Size of the deterministic wick pool. Any sweep series must be shorter than this."""
+
+
 def _bodied_bars(closes: list[float]) -> Bars:
-    """Like :func:`_bars` but with a real candle body — ``open`` is the previous close.
+    """Like :func:`_bars` but with a real candle body **and a wick that is never the same twice**.
 
     The hand-worked fixtures above deliberately set ``open == close``, which is fine for an average
     or an oscillator but leaves every *body*-dependent word (order blocks, mitigation blocks,
     imbalance ratio) computing on zero-height candles and returning all-``nan``. An all-``nan``
     column passes the look-ahead sweep trivially, so those words would have been listed as covered
     while never actually being exercised. This builder is what the sweep runs on.
+
+    **The wick was ``+0.5`` on every bar until 2026-08-17, and that was the same bug one level up
+    (finding F24).** A constant wick makes two bars with equal bodies produce *exactly equal*
+    highs, and every structure word in the SMC vocabulary needs a **strictly** higher high to
+    confirm a swing. Ties are not strictly higher, so no swing ever confirmed, so ``swing_high``
+    and everything built on it — order blocks, fair-value gaps, breaks of structure, liquidity
+    sweeps — returned ``nan`` for the entire series. The sweep then compared ``nan`` against
+    ``nan``, found them equal, and reported the word as checked.
+
+    Measured on the day it was fixed: **71 of 182 swept words produced no value at all** on the old
+    fixture, against **2** here. And the sweep was not merely under-covering — it was blind. With
+    the confirmation lag deliberately removed from ``_confirmed``, so that every swing is reported
+    ``k`` bars before the market could know it, the old fixture detected the bug on **0** words and
+    this one detects it on **37**.
     """
     close = np.array(closes, dtype=np.float64)
     open_ = np.concatenate([close[:1], close[:-1]])
+    # **Bar `i` must get the same wick whatever the series length.** The sweep truncates `closes`
+    # and re-derives the bars, then demands the overlap match exactly — so a wick that depends on
+    # `close.size` would make the prefix differ from the full run on *noise*, and the one test that
+    # must never cry wolf would fail for the wrong reason. A fixed-size pool sliced to length gives
+    # every bar a stable draw: `pool[k][i]` does not move when the series gets shorter.
+    assert close.size <= _POOL, f"{close.size} bars exceeds the deterministic wick pool ({_POOL})"
+    pool = np.abs(np.random.default_rng(20260817).normal(0.0, 0.7, (3, _POOL)))
     return Bars(
         ts=np.arange(close.size).astype("datetime64[D]").astype("datetime64[ns]"),
         open=open_,
-        high=np.maximum(open_, close) + 0.5,
-        low=np.minimum(open_, close) - 0.5,
+        high=np.maximum(open_, close) + pool[0, : close.size] + 0.05,
+        low=np.minimum(open_, close) - pool[1, : close.size] - 0.05,
         close=close,
-        volume=np.full(close.size, 1000.0),
+        volume=pool[2, : close.size] * 400.0 + 800.0,
     )
 
 
@@ -264,12 +289,17 @@ def test_no_primitive_sees_the_future() -> None:
     substitute for checking them.
     """
     rng = np.random.default_rng(20260802)
-    closes = list(np.cumsum(rng.normal(0.0, 1.0, 120)) + 100.0)
+    # 600 bars, not 120 (finding F24). A 20-bar word with a confirmation lag needs room to fire
+    # several times before the first cut, and the structure words need enough swings to build a
+    # market structure at all. At 120 bars most of them had produced nothing by the time the sweep
+    # started comparing, which is how 71 of 182 words came to be "checked" without being computed.
+    closes = list(np.cumsum(rng.normal(0.0, 1.0, 600)) + 100.0)
     full = _bodied_bars(closes)
     registry = default_registry()
-    cuts = range(40, len(closes), 4)
+    cuts = range(200, len(closes), 8)
 
     checked = 0
+    blank: list[str] = []
     for primitive in registry:
         if primitive.name in _NEEDS_ARGUMENTS or primitive.intraday_only or primitive.requires_feed:
             continue
@@ -279,6 +309,8 @@ def test_no_primitive_sees_the_future() -> None:
         if primitive.needs_panel:
             continue
         whole = evaluate(_call(primitive.name), full, registry)
+        if not (~np.isnan(whole)).any():
+            blank.append(primitive.name)
         for cut in cuts:
             prefix = evaluate(_call(primitive.name), _bodied_bars(closes[:cut]), registry)
             seen = whole[:cut]
@@ -297,6 +329,19 @@ def test_no_primitive_sees_the_future() -> None:
             )
         checked += 1
     assert checked > 90, f"only {checked} primitives were swept — the guard has gone slack"
+    # **A word that produced no value was not tested, whatever the pass count says (finding F24).**
+    # The comparison above is `nan` against `nan` for a blank column, which holds trivially, so
+    # counting it as swept is the guard reporting coverage it does not have — the same defect class
+    # as the guard itself protects against.
+    #
+    # The two exceptions are named individually, not tolerated as a count, so a third cannot join
+    # them quietly. A balanced price range needs a bullish and a bearish gap live *and overlapping*
+    # at once, which a random walk essentially never produces; both words are covered by hand-built
+    # fixtures in `test_dsl_zones.py` that pin the exact bars and edges instead.
+    assert set(blank) <= {"bpr_top", "bpr_bottom"}, (
+        f"{len(blank)} words produced no value on the sweep series, so the look-ahead comparison "
+        f"was `nan == nan` and proved nothing about them: {sorted(blank)}"
+    )
 
 
 # --------------------------------------------------------------------------------------

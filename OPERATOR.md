@@ -570,6 +570,53 @@ Sharpe confidence interval — which helps a real edge and does nothing for a sp
 strategy that failed before now passes *only* because of this, that is a finding, not a result,
 and I will say so.
 
+### The look-ahead guard that was not guarding — task 2g-1, 2026-08-17 (finding F24)
+
+**What look-ahead is.** A formula that accidentally uses tomorrow's price to decide today's trade.
+It is the most dangerous class of backtest bug because it does not crash or look odd — it produces
+a *beautiful* result made of trades nobody could have taken.
+
+**How we test for it.** Compute every word in the vocabulary over the full price history. Then chop
+the history short and compute it again. The part they overlap must be identical. A word that peeks
+at tomorrow gives a different answer for today once tomorrow is removed — so the two runs disagree,
+and the disagreement names the culprit. It runs over the whole vocabulary, which is the only way to
+catch a peek in a word nobody thought to check by hand.
+
+**Why it was not working.** The test ran on a made-up 120-bar price series where every candle's
+high was exactly the body top **plus a fixed 0.5**. So two bars with the same body had *exactly the
+same high*. Every structure word in the SMC vocabulary needs a **strictly** higher high to confirm
+a swing — a tie is not strictly higher — so no swing ever confirmed. `swing_high` returned "no
+value" for the entire series, and so did everything built on it: order blocks, breaks of structure,
+liquidity sweeps. The test then compared *no value* against *no value*, found them equal, and
+recorded the word as checked. **71 of the 182 words were in that state.**
+
+**Why it mattered now rather than in August.** Until task 2f, each fold was handed a *sliced* panel
+— the future was physically absent from the array the vocabulary ever saw, so a peeking word had
+nothing to peek at. 2f replaced that with whole-span evaluation, which made **causality the only
+thing** standing between a peeking word and every number the engine produces. I leaned on that
+guarantee in 2f's own documentation while 39% of it was untested. **The finding did not change; the
+stakes did, and nobody re-ranked it — including me.**
+
+**The fix, and the proof it was needed.** The wick is now drawn from a seeded pool (stable per bar
+when the series is truncated, so a prefix cannot differ on noise and cry wolf) and the series runs
+600 bars instead of 120. Blank words: **71 → 2**. Then the real test — I removed the confirmation
+lag from `_confirmed`, so every swing is reported `k` bars before the market could know it, which
+is a genuine look-ahead bug in the foundation every structure word stands on:
+
+| | words detecting the planted bug |
+|---|---|
+| old fixture | **0** |
+| new fixture | **37** |
+
+**The guard was not thin, it was blind.** Worth stating plainly: **no real look-ahead bug was found
+in the 71.** They all pass genuinely now. The vocabulary was fine; the test was not — which is the
+better of the two outcomes, and not the one I would have bet on.
+
+The two that stay blank are `bpr_top` and `bpr_bottom`. A balanced price range needs a bullish and
+a bearish gap live *and overlapping* at once, which a random walk essentially never produces. They
+now have hand-built fixtures pinning the exact bars and edges, and the sweep names them
+individually rather than allowing a count — so a third cannot join them quietly.
+
 ## 8. Pace and posture
 
 - **Ship fast.** Prefer a working, honest, small thing today over a complete thing next month.
