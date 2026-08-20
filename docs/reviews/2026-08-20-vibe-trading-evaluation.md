@@ -172,7 +172,8 @@ ours to build regardless, exactly as `TASKS.md` already schedules.
 | Factor library | 462 formulaic alphas | 224 DSL words | different things (see §3) |
 | Strategy specification | arbitrary Python | constrained typed DSL | **Icarus** |
 | Pre-registered, non-negotiable gate | no equivalent | yes, date-pinned | **Icarus** |
-| Append-only tamper-evident audit log | **hash-chained, fsynced** | append-only, simpler | **Vibe-Trading** |
+| Audit log — tamper **prevention** | file-based; nothing blocks a rewrite | **DB trigger blocks UPDATE/DELETE** | **Icarus** |
+| Audit log — tamper **detection** | **hash-chained, fsynced, verifiable** | none | **Vibe-Trading** |
 | Live order path (India) | none | none yet, by design (Phase 2) | tie |
 | Agent/LLM research layer | large (swarms, skills, MCP) | planned, not built | Vibe-Trading |
 
@@ -253,10 +254,27 @@ breaks every hash after it. It fsyncs the file *and* the parent directory on cre
 cross-platform file lock across the read-tail-and-append critical section, and **refuses to extend
 an already-broken chain** rather than building a valid-looking suffix on corrupted history.
 
-Our audit log (`CLAUDE.md` §7: append-only, every decision/order/fill/veto/halt, retained ≥5 years,
-doubles as the tax ledger) is currently the simpler thing their own docstring describes as the
-weakness they fixed: a bare append with no fsync and no chaining. This is worth a look when we
-harden the audit log. It is not urgent and it is not Phase 1.
+**Corrected 2026-08-20, same day, before any of this was built.** The paragraph here originally
+said our audit log "is currently the simpler thing their own docstring describes as the weakness
+they fixed: a bare append with no fsync and no chaining." **That was wrong, and it was wrong
+because I read their docstring and assumed it described us without checking ours.**
+
+What we actually have (`icarus/state/audit.py`, migration `d8847faf5e20`) is a Postgres table with
+a **database-level trigger that blocks UPDATE and DELETE outright**, written inside the caller's
+transaction so the audit record commits atomically with the state it describes, with secrets
+scrubbed on the way in. Durability is Postgres's problem and it is solved. On *prevention* we are
+ahead of them, not behind.
+
+The real gap is narrower and different: **we have tamper-prevention and no tamper-detection.** Our
+own downgrade migration contains `DROP TRIGGER IF EXISTS audit_log_append_only` — one statement,
+after which rows are editable and nothing in our system would ever know. Their hash chain does not
+prevent that either; it makes it *detectable*. The two properties are complementary and a log that
+has both is stronger than a log with either.
+
+So the borrow is smaller and sharper than first described: two columns (`prev_record_hash`,
+`record_hash`) and a `verify_chain` routine, on top of a trigger we already have. Approved by the
+operator on 2026-08-20 and scheduled **after** the next backtest — no orders exist in Phase 1, so
+it changes no number on the metric sheet and does not belong on the critical path.
 
 **`agent/src/live/`** — a mandate/enforcement gate with hard caps (max order notional, max total
 exposure, max leverage, max trades per day), a consent token, and a read/write classification of
@@ -418,6 +436,72 @@ strategy decision — and that is worth more than the code itself.
 - How well Yahoo's Indian corporate-action handling actually performs (see Blocker 3).
 - Monte-Carlo backtesting and portfolio optimisation quality beyond reading `validation.py` and
   the five optimiser modules. I did not run them.
+
+---
+
+## 9. Watch list — what would change this verdict
+
+*Added 2026-08-20 on operator instruction: "we need to keep a track of this repo and the
+enhancements in it that can add value to us."* A monthly scheduled check runs against this list.
+
+**Pinned at evaluation time:** `HKUDS/Vibe-Trading` @ `7329cb0`, release 0.1.14, 2026-08-20.
+Everything below is a delta against that commit.
+
+### The three that would force a re-evaluation
+
+Any one of these appearing means the "keep building Icarus" verdict has to be re-argued, because
+each removes one of the four blockers in §1:
+
+1. **A real limit-order fill model** in `agent/backtest/engines/` — anything introducing queue
+   position, a trade-through test, or no-fill as an outcome. Watch for the vocabulary that is
+   currently absent repo-wide: `queue`, `unfilled` (in an engine, not `factor_costs.py`),
+   `trade_through`, `no_fill`.
+2. **A capital-gains tax layer** — any appearance of `STCG`, `LTCG`, `capital_gain`, or a holding-
+   period-dependent tax. Today: zero hits repo-wide.
+3. **A Zerodha or Upstox connector** in `agent/src/trading/connectors/`, or either Indian connector
+   gaining a live (non-paper) order path.
+
+### The paths worth diffing each month
+
+| path | why we care |
+|---|---|
+| `agent/src/quantlib/multipletesting.py` | our DSR/PBO oracle — a fix there is a fix we should mirror |
+| `agent/src/quantlib/crossvalidation.py` | same, for purge/embargo and boundary leakage |
+| `agent/src/governance/ledger.py` | the hash-chain design we are adopting |
+| `agent/backtest/engines/india_equity.py` | India cost stack; SEBI tariffs change |
+| `agent/backtest/engines/base.py` | where a real fill model would land |
+| `agent/backtest/loaders/india_broker_loader.py`, `yahoo_loader.py`, `yfinance_loader.py` | India data path; adjustment handling |
+| `agent/src/trading/connectors/dhan/`, `shoonya/` | Indian broker surface |
+| `agent/src/factors/base.py` | operator semantics — where their tie/rank conventions live |
+
+### The routine that runs this
+
+**Scheduled cloud agent `trig_01ESBxmpeokKZo2Gjki1Wmxn`**, monthly on the 1st at 03:30 UTC
+(09:00 IST). First run 2026-09-01. Manage at
+`https://claude.ai/code/routines/trig_01ESBxmpeokKZo2Gjki1Wmxn`. It reports "nothing changed" and
+stops when that is the answer — a quiet month is meant to produce no output at all.
+
+⚠️ **It runs in a degraded mode, and here is the fix.** The routine cannot check out this repo:
+Icarus is private and the cloud environment is not authorised for it (`create` returned HTTP 403,
+"You don't have access to a repository this routine uses"). So it is checked out in the *public*
+HKUDS repo instead, carries a **snapshot** of this watch list in its prompt, and reports into its
+run session rather than opening a pull request here.
+
+Two consequences worth knowing:
+
+1. **The snapshot can drift from this section.** If you change the watch list above, update the
+   routine's prompt too, or it will keep checking the old list.
+2. **The pin is updated by hand.** The routine reports the new HEAD; someone edits it in here.
+
+To remove both: authorise the Claude Code GitHub app for `Sujayprodduturi/Icarus`, then update the
+routine's `sources` to this repo and restore the "write a delta doc and open a PR against `dev`"
+instruction. After that the watch list has one home and the routine reads it directly.
+
+### The standing question to ask each time
+
+Not "what changed" but **"did they solve something we have ignored?"** That is the lesson this
+evaluation was commissioned to produce, and a diff that only lists files answers the wrong
+question.
 
 ---
 

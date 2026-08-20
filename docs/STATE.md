@@ -166,11 +166,18 @@ in it could clear our gate. But `multipletesting.py` and `crossvalidation.py` ar
 **test oracle** when F12 is scheduled (`CLAUDE.md` §5 requires our own in-house implementation, so
 they are a cross-check, not a dependency).
 
-**One new gap that evaluation surfaced, not yet numbered:** our audit log is a plain append with no
-fsync and no hash chaining, so a retrospective edit to it would be undetectable. `CLAUDE.md` §7
-requires it append-only and retained ≥5 years, and it doubles as the tax ledger. Their
-`governance/ledger.py` shows the shape of the fix. Operator decision needed on whether this becomes
-a numbered finding; it is not Phase-1 blocking.
+**One new gap that evaluation surfaced — and a correction to how it was first written down.** The
+first version of this note claimed our audit log was "a plain append with no fsync and no hash
+chaining". **That was wrong.** `icarus/state/audit.py` writes to a Postgres table with a
+**DB-level trigger blocking UPDATE and DELETE**, inside the caller's transaction, secrets scrubbed
+(migration `d8847faf5e20`). On tamper-*prevention* we are ahead of them.
+
+The real gap is **tamper-detection**: our own downgrade migration drops that trigger in one
+statement, after which rows are editable and nothing would ever know. The fix is a hash chain
+(`prev_record_hash`, `record_hash`) plus a `verify_chain` routine, keeping the trigger — prevention
+and detection are different properties and a log with both is stronger than either. **Approved
+2026-08-20, scheduled after the next backtest**: no orders exist in Phase 1, so it moves no number
+on the metric sheet and is not critical path.
 
 ---
 
