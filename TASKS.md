@@ -6,7 +6,11 @@ Phase-by-phase tasks for Claude Code. **Build in order.** Each task lists accept
 
 Legend: `[ ]` todo · `[x]` done (AC demonstrated, tests green) · `MUST`/`SHOULD` per PRD · **V:** = how to verify.
 
-**Progress:** Phase 0 ✅ complete (17/17 incl. v2 hardening) · Phase 1 in progress — data layer (1.1, 1.1b, 1.1c, 1.1d) + CostModel (1.5) + TaxModel (1.6) + the pre-registered stop gate (1.0g) + **the whole Strategy DSL (1.4a, 1.4b, 1.4c)** + the backtester and fill model (1.7, 1.7b) + the panel builder and runner (1.7c, 1.7d) + the core metric battery (1.8, partial) done. **224 primitives** (3 refused at parse time since 2b — see finding F28), 896 unit tests, ruff + mypy clean.
+**Progress:** Phase 0 ✅ complete (17/17 incl. v2 hardening) · Phase 1 in progress — data layer (1.1, 1.1b, 1.1c, 1.1d) + CostModel (1.5) + TaxModel (1.6) + the pre-registered stop gate (1.0g) + **the whole Strategy DSL (1.4a, 1.4b, 1.4c)** + the backtester and fill model (1.7, 1.7b) + the panel builder and runner (1.7c, 1.7d) + the core metric battery (1.8, partial) done. **224 primitives** (3 refused at parse time since 2b — see finding F28), **981 unit tests passing (4 skipped), ruff + mypy clean** — verified 2026-08-20 at `414fa0d`.
+
+> **👉 New session? Read `docs/STATE.md` first.** It is the one-page orientation: what is true
+> today, what happens next, what is blocked on the operator, and which numbers may not be quoted.
+> This file is the phase checklist; `STATE.md` is the position on it.
 
 **Current work is the post-backtest repair plan**, not the numbered list below. The ranked findings
 and the ordered step list live in `docs/reviews/2026-08-09-post-backtest-audit.md` §6 and §6c;
@@ -16,8 +20,16 @@ F3 and F28) is ✅ done 2026-08-13, and **2c** (positions in symbols that stop t
 2026-08-14, and **2d** (the book could spend money it does not have — F6) is ✅ done
 2026-08-15, and **2e** (config that lies, in both directions — F11, F36, F37) is ✅ done
 2026-08-16, and **2f** (the guards that don't guard — F29, F30, F38–F44) is ✅ done
-2026-08-16. **Step 2 is complete.** Next is Step 3 — the signal test (3a), two capital rows
-(3b) and the common-window comparison (3c).
+2026-08-16.
+
+**Step 2 was declared complete on 2026-08-16, and that was wrong** — §6c's preamble claimed every
+finding was accounted for while five were in no step at all. **Step 2g** was added on 2026-08-17 to
+hold them. Of its four tasks: **2g-1** (the look-ahead sweep was blind, not thin — finding F24) is
+✅ done 2026-08-17, and **2g-2** (unverified `scale_free` flags — F27, plus the concentration cap
+F34 / decision D11) is ✅ done 2026-08-17. **Remaining: 2g-3** (`rank_by` and the `xs_` words accept
+a market-wide value that is identical for every symbol — F25) and **2g-4** (annulled flash-crash
+prints are still in the panel — F23). Then Step 3 — the signal test (3a), two capital rows (3b) and
+the common-window comparison (3c).
 
 **Every number produced before 2f is superseded.** Fold boundaries moved (the embargo now enters
 the seam arithmetic), indicator values at the start of every span changed (`evaluate_once`
@@ -32,6 +44,14 @@ span is simulated from a fresh book, so no state crosses train→test at all. **
 change** — only the structure. This also closes **F16** and **F31**: every strategy now produces
 identical folds, so the benchmark is measured over the same window as the strategy it controls
 for, and Step 3c's common-window comparison is the default rather than a later correction.
+
+**F34 was decided on 2026-08-17 (D11): `max_position_pct_of_equity: 0.25`.** No single name may
+exceed a quarter of the account by value. Risk sizing bounds the loss *if the stop holds*; this
+bounds what is exposed when it does not, which overnight it often does not. It **reduces** the
+position rather than refusing it — the fourth term in `CLAUDE.md` §4's `min(...)` — unlike the cash
+gate, which skips. **It is an *entry* bound: a winner drifts past it** (measured: 25% → 61% of the
+book by bar 58 on a 5× move). Whether to trim winners back is **finding F45, open, and an operator
+decision** because trimming has cost and tax consequences.
 
 **🔴 THE ENGINE HAS NOW RUN END-TO-END ON REAL DATA (2026-08-07).** 2,962 sessions × 693 point-in-time symbols, 2011-01-03 → 2022-12-30, lockbox untouched. Three pre-registered strategies, **all three FAIL** the pre-registered stop gate:
 

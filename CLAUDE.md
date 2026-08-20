@@ -1,6 +1,6 @@
 # CLAUDE.md — Project Icarus engineering conventions & safety invariants
 
-This file is the standing context for the coding agent building Icarus. Read it at the start of every session. The full requirements are in `PRD.md`; the build sequence is in `TASKS.md`; **how the operator wants to work is in `OPERATOR.md` — read that too, every session.** **This file is the short list of rules you must never break.**
+This file is the standing context for the coding agent building Icarus. Read it at the start of every session. The full requirements are in `PRD.md`; the build sequence is in `TASKS.md`; **how the operator wants to work is in `OPERATOR.md` — read that too, every session**; and **`docs/STATE.md` says where the build actually is today — read that third.** **This file is the short list of rules you must never break.**
 
 Icarus is a **fully-autonomous, self-learning trading system that places real-money orders on Indian markets** under SEBI rules. Bugs here lose money or break the law. Code defensively, fail safe, and when unsure, **halt rather than trade**.
 
@@ -47,6 +47,7 @@ If a requested change would violate any of these, **stop and flag it** rather th
 
 ## 1. How to work in this repo
 
+- **Start at `docs/STATE.md`.** One page: what is true today, what the next task is, what is blocked on the operator, and which numbers may not be quoted. **Update it before the session ends** — if it still describes the session's starting state, the session left the repo worse than it found it.
 - **Explain in plain English → get approval → build → summarise what was actually done.** In that order, every time. See `OPERATOR.md` §1; it is the operator's standing requirement, not a courtesy.
 - **Known-but-unfixed problems live in the newest `docs/reviews/*-audit.md` ranked fix list, and decisions live in `OPERATOR.md` §7b/§7c.** Read both before starting Phase-1 work. A finding that is not yet in `TASKS.md` is not thereby closed — those two places are the only durable record between "found" and "scheduled".
 - **Follow `TASKS.md` in order.** Do not skip ahead to a later phase. Each task has acceptance criteria; a task is done only when they pass.

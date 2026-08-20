@@ -129,9 +129,18 @@ task's scope unilaterally** — the decision was not mine to make.
 that restores each file with `git checkout --` will silently delete uncommitted work — it did,
 losing hours of `runner.py` and `backtest.py`, recovered only because an earlier `git stash` had
 left a dangling commit. Snapshot file contents in memory and write them back; commit first so a
-mistake costs nothing. And normalise line endings: **every file here is CRLF**, so a multi-line
-anchor written with `\n` matches nothing, and a harness that treats "anchor not found" as anything
+mistake costs nothing. And check line endings **per file, every time**: a multi-line anchor written
+with `\n` matches nothing in a CRLF file, and a harness that treats "anchor not found" as anything
 other than a failure will report a mutation as caught when it was never applied.
+
+*(Corrected 2026-08-20: this used to say "every file here is CRLF", and that is wrong — which made
+it worse than saying nothing, because it invites exactly the assumption that fails silently. There
+is no `.gitattributes` and `core.autocrlf` is `false`, so whatever a file was created with is what
+it keeps. Today: `TASKS.md`, `README.md` and most of `icarus/` are CRLF; `OPERATOR.md`, `CLAUDE.md`,
+`BUILD_MAP.md`, `docs/STATE.md` and the test modules `test_dsl_scale.py` / `test_dsl_library.py`
+are LF; the audit file is **mixed**, line by line. The only reliable check is to make the edit and
+then run* `diff <(git diff --numstat) <(git diff --ignore-cr-at-eol --numstat)` *— if a file appears
+in that output, the edit changed line endings and the diff will be noise.)*
 
 ## 6. Strategy direction
 
@@ -635,6 +644,74 @@ a bearish gap live *and overlapping* at once, which a random walk essentially ne
 now have hand-built fixtures pinning the exact bars and edges, and the sweep names them
 individually rather than allowing a count — so a third cannot join them quietly.
 
+### The flags nobody checked, and a cap on one name — task 2g-2, 2026-08-17 (findings F27 and F34)
+
+**Part one: the `scale_free` flags with no verification (F27).**
+
+Recap of why the flag exists. Task 2a found that `momentum` returned a change in **rupees**, so
+ranking candidates by it ranked them by *share price* — a ₹2,000 stock moving 1% beats a ₹200 stock
+moving 5%. The fix was to label every word in the vocabulary with whether its output is
+**scale-free** (a percentage, a ratio, a z-score — comparable across symbols) or
+**price-denominated** (rupees — not comparable), and to make `rank_by` refuse a rupee input at
+parse time. A **guard test** then proves each label honest: take one symbol, re-denominate it
+(multiply price by 7, divide volume by 7 — the same company, quoted differently), and check that
+the scale-free words give the *same* answer while the rupee words move.
+
+**What was wrong.** That sweep runs on a single symbol in isolation. Any word needing the whole
+market (`needs_panel`), an external feed (`requires_feed`), or intraday bars (`intraday_only`) is
+simply skipped — so **17 of the 93 declared flags were never checked at all.** The guard against
+"a label that lies" had a hole exactly where the label is hardest to eyeball.
+
+**The fix.** A **panel half** of the sweep: re-denominate one symbol inside a 25-name universe and
+demand that symbol's own column be unchanged. That covers the 11 reachable panel words. A coverage
+test then asserts the two sweeps **partition** the declared vocabulary — a new panel word cannot
+land in neither. The remaining 6 have compute functions that currently *raise* (five wait on
+finding F7 to thread the India feeds into `Bars`; one refuses until the sector map is dated per
+bar), so they are pinned as unverifiable-by-construction and **will fail the moment somebody
+implements them** — forcing the flag to be checked in the same change rather than years later.
+
+**What mutation testing taught here, and it was not what I expected.** The *fixture* was the weak
+part, not the assertion. With a mid-priced symbol as the one being split, a planted bug that
+compared `close` to an absolute threshold **survived** — a stock at 290 and the same stock at 2,030
+are both above almost any threshold you pick, so the bug's output did not change. Splitting the
+**cheapest** name in the universe moves it across the whole price range, and the same bug died.
+2 of 4 caught → 4 of 4.
+
+**Part two: the concentration cap (F34, decision D11).**
+
+**What was missing.** Task 2d stopped the book spending money it did not have. Nothing stopped it
+putting *all* of that money into one name. Risk sizing bounds the loss **if the stop holds** — and
+overnight, a stop does not hold: the market reopens wherever it reopens, and `fills.py` already
+models this by filling a stop at the worse of trigger and open.
+
+**Why 0.25 and not the 0.50 you proposed.** With a fraction C of the book in one name and an
+overnight gap g, the account loses C×g. At C=0.50, a 20% lower circuit — one bad morning, one
+name — is a **10% account loss, which is exactly `max_drawdown_killswitch`**: operator-only
+restart, from a position nominally "risking 0.5%". At 0.25 the same gap costs 5%. 0.25 is also
+**derived rather than picked**: `max_open_positions` is 4, so it is one name's equal share of a
+full book, and a test pins the two together so they cannot drift apart silently.
+
+**It shrinks, it does not refuse.** This matters and is easy to get backwards. The cap is the
+fourth term in `CLAUDE.md` §4's `min(...)` — it makes the position smaller. The **cash gate**, by
+contrast, *skips* the trade. The difference is whether more money would fix it: cash is
+scale-dependent, so a skip is real information and feeds the D9 `NEEDS_MORE_CAPITAL` verdict;
+concentration is scale-invariant, so there is nothing a bigger account would fix and refusing would
+just throw away a tradable signal. It is sized against the **filled** price, not `bar.open`, so
+slippage cannot leave it a few basis points over. Code refuses any config value above 0.50 whatever
+`goal.yaml` says — the same belt-and-braces shape as the crypto leverage ceiling.
+
+**What it does not do, which the docstrings originally claimed it did.** The cap is checked **at
+entry and never again.** A winner drifts straight past it: measured on a name compounding 5× from a
+₹1,00,000 book, a position entered at 25% is **61% of the mark-to-market account by bar 58** —
+where a 20% circuit is a 12% hit, past the very killswitch the 0.25 was chosen to stay inside. A
+second, quieter version of the same gap: the `equity` the cap measures against is the **realised**
+book (`starting_equity + realised P&L`), so unrealised losses do not shrink it — with ₹75,000 of
+cost basis now worth ₹30,000, a fresh entry may take 45% of what the account is really worth.
+
+Both halves are **finding F45, open, and yours to decide**, because trimming a winner realises
+gains, pays brokerage and triggers tax — that is a policy choice, not a bug fix. The docstrings now
+say "at entry", and a test pins the drift so it cannot be rediscovered as a surprise.
+
 ## 8. Pace and posture
 
 - **Ship fast.** Prefer a working, honest, small thing today over a complete thing next month.
@@ -664,5 +741,11 @@ Tracked in full at the top of `TASKS.md`. Currently blocking:
   IP impossible on that line at any price (invariant #6 requires orders to originate from a
   registered static IP). Also needed: CPU arch, Ubuntu version, RAM/disk, always-on with suspend
   disabled, shared or dedicated, UPS, remote access preference, timezone, disk encryption.
+- **F45 — should the concentration cap trim winners?** Blocks nothing today, but has to be settled
+  **before 3b**, which is where concentration bites. The cap (D11, 0.25) is checked **at entry
+  only**: a name compounding 5× reaches **61% of the book by bar 58**, past the drawdown killswitch
+  the 0.25 was chosen to stay inside. Trimming realises gains, pays brokerage and triggers tax, so
+  it is a policy choice, not a bug fix. Second half of the same question: the cap is measured
+  against **realised** equity, so unrealised losses do not shrink it. Full write-up in §7c.
 - **O5 — daily auth**: operator one-tap vs TOTP automation.
 - **O7 — CA confirmation** on equity-delivery classification.

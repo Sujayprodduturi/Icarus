@@ -559,17 +559,29 @@ stays open for the general case.
 accounted for. Four of them would force a re-run if they surfaced after Step 7, which is exactly
 the thing the governing constraint above exists to prevent, so they belong here.
 
-| task | finding | what | why before the run |
-|---|---|---|---|
-| **2g-1** | F24 | **71 of the 182 swept words never actually get tested for look-ahead.** `test_no_primitive_sees_the_future` runs on a 120-bar series whose wick is a *fixed* `±0.5`, so consecutive highs tie, no swing is ever strictly confirmed, and the SMC structure/zone words return all-`nan` — and `nan == nan` passes. Measured 2026-08-17: 71 vacuous on the current fixture, **2 on a 600-bar series with a randomised intrabar range**. So the words are fine; the fixture is not | **Task 2f raised the stakes on this and nobody re-ranked it.** While each fold was sliced, the future was physically *absent* from the array the DSL saw. `evaluate_once` evaluates over the whole span, so **causality is now the only thing** between a peeking word and every number the engine produces. A 39% hole in the guarantee that change relies on. Cheap: it is a fixture change |
-| **2g-2** | F27 | 17 of the 93 declared `scale_free` flags carry no verification — the split sweep excludes `needs_panel`, `requires_feed` and `intraday_only` words | F1 in another costume. A wrongly-declared `scale_free` means `rank_by` silently ranks by share price, which is a wrong result that looks like a real one |
-| **2g-3** | F25 | `rank_by` and the `xs_` words accept a market-wide value — `benchmark_return`, `advance_decline_ratio` and the breadth words are identical for every symbol | Ranking a universe by a number that is the same for every symbol is a no-op that reports as a ranking. Affects 3b and 3c directly |
-| **2g-4** | F23 | Annulled trades are in the panel: 32 symbols carry 20%-circuit prints from the Emkay flash crash | Bad prices produce bad fills, bad stops and bad P&L. This is a Step-1 item that Step 1 missed |
-| **—** | F26 | `xs_rank` unreachable in `rank_by` | **Accepted, not scheduled.** `xs_percentile` does the job correctly and a word that reliably picks the losers is worse than one nobody can reach |
+**Status 2026-08-20: 2g-1 ✅ and 2g-2 ✅ are done; 2g-3 and 2g-4 remain.** The `what` column below
+is preserved as written on 2026-08-17 — it describes the finding, not the fix. The fixes and what
+they cost are in the §6 rows for F24, F27 and F34.
+
+| task | finding | status | what | why before the run |
+|---|---|---|---|---|
+| **2g-1** | F24 | ✅ **DONE 2026-08-17** | **71 of the 182 swept words never actually get tested for look-ahead.** `test_no_primitive_sees_the_future` runs on a 120-bar series whose wick is a *fixed* `±0.5`, so consecutive highs tie, no swing is ever strictly confirmed, and the SMC structure/zone words return all-`nan` — and `nan == nan` passes. Measured 2026-08-17: 71 vacuous on the current fixture, **2 on a 600-bar series with a randomised intrabar range**. So the words are fine; the fixture is not | **Task 2f raised the stakes on this and nobody re-ranked it.** While each fold was sliced, the future was physically *absent* from the array the DSL saw. `evaluate_once` evaluates over the whole span, so **causality is now the only thing** between a peeking word and every number the engine produces. A 39% hole in the guarantee that change relies on. Cheap: it is a fixture change |
+| **2g-2** | F27 | ✅ **DONE 2026-08-17** | 17 of the 93 declared `scale_free` flags carry no verification — the split sweep excludes `needs_panel`, `requires_feed` and `intraday_only` words | F1 in another costume. A wrongly-declared `scale_free` means `rank_by` silently ranks by share price, which is a wrong result that looks like a real one |
+| **2g-3** | F25 | ⬅️ **NEXT** | `rank_by` and the `xs_` words accept a market-wide value — `benchmark_return`, `advance_decline_ratio` and the breadth words are identical for every symbol | Ranking a universe by a number that is the same for every symbol is a no-op that reports as a ranking. Affects 3b and 3c directly |
+| **2g-4** | F23 | todo | Annulled trades are in the panel: 32 symbols carry 20%-circuit prints from the Emkay flash crash | Bad prices produce bad fills, bad stops and bad P&L. This is a Step-1 item that Step 1 missed |
+| **—** | F26 | won't fix | `xs_rank` unreachable in `rank_by` | **Accepted, not scheduled.** `xs_percentile` does the job correctly and a word that reliably picks the losers is worse than one nobody can reach |
 
 **F34 is an operator decision, not a task.** Nothing caps how much of the account a single name may
 take; the 2d cash constraint stops the book overspending but not over-concentrating. It has to be
 settled **before 3b**, because the two capital rows are exactly where concentration bites.
+
+> ✅ **Settled 2026-08-17 — decision D11, `max_position_pct_of_equity: 0.25`**, built alongside
+> 2g-2. The operator proposed 0.50 and the gap arithmetic argued it down: at 0.50 a 20% lower
+> circuit is a 10% account loss, which *is* `max_drawdown_killswitch`. It **reduces** the position
+> rather than refusing it, and code refuses any config value above 0.50 whatever the file says.
+> **What it does not do is trim a winner** — the cap is checked at entry only, so a position
+> entered at 25% reaches 61% of the book on a 5× move. That is **finding F45, still open**, and
+> also an operator decision because trimming costs money and tax.
 
 ### Step 3 — The engine answers the right question
 

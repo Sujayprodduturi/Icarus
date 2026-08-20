@@ -7,6 +7,12 @@
 
 **Build state (30 Jul 2026):** Phase 0 ✅ complete. Phase 1 in progress — data layer (1.1, 1.1b, 1.1c), CostModel (1.5) and TaxModel (1.6) done. 291 unit tests, ruff + mypy clean. **C1 is now measured, not argued** — see §6.1.
 
+> ⚠️ **This file is a snapshot from 30 Jul 2026 and is no longer maintained as a status document.**
+> It is kept for its architecture map, cost model and the reasoning behind decisions made up to that
+> date. **For where the build actually is, read `docs/STATE.md`**; for decisions made since, read
+> `OPERATOR.md` §7b (append-only decision log) and §7c (deferrals, each with its reopening trigger).
+> Where this file and those disagree, those win.
+
 ---
 
 ## 1. Architecture — two planes, one bridge

@@ -4,7 +4,7 @@
 
 > **This is not financial advice.** Even a well-built version of this is more likely to slowly lose money than to compound. Treat the seed capital as tuition. See `PRD.md` and `CLAUDE.md` §0.
 
-> **For any agent or person reading this repo:** this README is the living front door — it explains *what Icarus is* and *what's built so far*, in plain English. The deep specs are `PRD.md` (the full requirements), `TASKS.md` (the phase-by-phase checklist), `CLAUDE.md` (the 22 safety invariants — never violated), and `BUILD_MAP.md` (decisions). This file is kept up to date as the build progresses.
+> **For any agent or person reading this repo:** this README is the living front door — it explains *what Icarus is* and *what's built so far*, in plain English. The deep specs are `PRD.md` (the full requirements), `TASKS.md` (the phase-by-phase checklist), `CLAUDE.md` (the 26 safety invariants — never violated), `OPERATOR.md` (how the operator works, and the dated decision log), and `BUILD_MAP.md` (older decisions). **If you only read one thing before starting work, read `docs/STATE.md`** — it is the one-page statement of where the build actually is today.
 
 ---
 
@@ -31,9 +31,19 @@ Right now the system can log in and read market data, but it **cannot place a si
 
 ## Current build status
 
-**565 automated tests; formatter + type-checker clean.** Phase 0 ✅ complete · Phase 1 🔨 in progress.
+**981 automated tests passing (4 skipped); formatter + type-checker clean.** Phase 0 ✅ complete · Phase 1 🔨 in progress. *(Verified 2026-08-20.)*
 
 **🗓️ Target: code-complete 30 Sep 2026 · live-mode sim Oct 2026 · first real trade Nov 2026.**
+
+> ### 🔴 Where the build actually is (2026-08-20)
+>
+> **The engine has run end-to-end on real data once, on 7 Aug 2026** — 2,962 trading days across 693 point-in-time symbols, 2011–2022, with the final holdout slice untouched. **All three strategies failed the pass mark.** The verdict was not "we overfitted"; it was **"there is no edge here"** — they lost money even on the data they could have been tuned to.
+>
+> **Then we audited the engine that produced those numbers, and every one of them is void.** The audit found the engine had been measuring something other than the strategies that were written down: the ranking word returned rupees instead of percent, so it sorted by share price; the book could spend money it did not have; a position in a delisted name was never closed; and several guards that were supposed to catch exactly this class of bug were passing without testing anything.
+>
+> **We are part-way through the repair plan** that has to finish before the next run is worth doing. Detail: `docs/reviews/2026-08-09-post-backtest-audit.md`. Position: `docs/STATE.md`.
+>
+> **This section of the README is narrative and lags the repair work by design.** For anything you intend to act on, `docs/STATE.md` and the audit's ranked list are authoritative and this file is not.
 
 ### Phase 1 — Data + backtesting + an honest metric sheet (current)
 
@@ -48,10 +58,12 @@ The goal of this phase is to be able to test a strategy on history and get a num
 | **Tax model (1.6)** | What's actually left after tax — and it depends on *how* you traded, not just how much you made | ✅ |
 | **The pass mark (1.0g)** | The numbers a strategy must hit to be allowed real money — written down *before* we ran anything. See below | ✅ |
 | India-only data (1.1d) | Three free feeds that exist nowhere else in the world — see below | ✅ |
-| Strategy language (1.4a-c) | A restricted vocabulary strategies must be written in — 223 words, see below | ✅ |
+| Strategy language (1.4a-c) | A restricted vocabulary strategies must be written in — 224 words, see below | ✅ |
 | SMC + cross-sectional words (1.4b/c) | Market structure, liquidity sweeps, and ranking across the whole universe | ✅ |
 | Backtester + fill model (1.7, 1.7b) | Replays history honestly: a limit order only fills if the price actually traded *through* it, and today's signal can only trade tomorrow | ✅ |
-| Metrics + overfitting guards (1.8, 1.9) | ⏳ **next.** Scores a strategy, and works out how likely the score is luck | ⏳ |
+| Universe builder + walk-forward runner (1.7c, 1.7d) | Assembles the tradable universe as it existed on each historical day, then walks the strategy forward through history in slices | ✅ |
+| Metrics (1.8) | Scores a strategy. Core battery done; regime breakdown and cost-stress not yet run | 🔨 |
+| Overfitting guards (1.9) | Works out how likely a good score is luck, correcting for how many things we tried | ⏳ |
 | Practice runs (1.10) | Two modes: replay old data through the live machinery to catch cheating, then run on real live data to prove the plumbing works | ⏳ |
 | Validation gate (1.11) | Runs a strategy through all the checks and issues a verdict with evidence | ⏳ |
 
@@ -63,7 +75,7 @@ Why it matters is human, not technical. Imagine the result comes back mediocre. 
 
 The operator also asked that the number stay changeable in future, and that's a fair ask — a threshold you can never revisit is its own kind of trap. The resolution: it's changeable, but **never quietly**. Every change is a dated, reasoned entry in an append-only log, the code refuses to start if the live number doesn't match the newest entry, and any change made *after* results exist must explicitly tick a box saying so. That doesn't block you from lowering the bar after a disappointing result — it's your call — it just makes it impossible to do so unnoticed. Which is the part that actually protects us: a threshold must never be able to pretend it was always there.
 
-**A restricted language for writing strategies (1.4a).** A strategy could just be Python code — but then three things become impossible: you couldn't read it at a glance, the compliance checks couldn't verify it's explainable, and the strategy-inventing agent we build later could write *anything*, including something that quietly ignores a risk limit. So strategies are written in a fixed vocabulary of **allowed words** — like a form with dropdowns instead of a blank page. If a word isn't in the list, it cannot be said. It started at 97 words and is now **223**.
+**A restricted language for writing strategies (1.4a).** A strategy could just be Python code — but then three things become impossible: you couldn't read it at a glance, the compliance checks couldn't verify it's explainable, and the strategy-inventing agent we build later could write *anything*, including something that quietly ignores a risk limit. So strategies are written in a fixed vocabulary of **allowed words** — like a form with dropdowns instead of a blank page. If a word isn't in the list, it cannot be said. It started at 97 words and is now **224**.
 
 The interesting part isn't what the language accepts, it's what it **refuses**:
 
@@ -243,6 +255,8 @@ Full list in `CLAUDE.md` §0. The load-bearing ones:
 8. **No live order path before Phase 2**, and a human reviews the Phase-1 evidence first.
 9. **Halt on going nowhere, not just on losing.** Every other stop-loss reacts to a *fast* loss. After 50 live trades, if we're not actually up after costs and tax, the system stops and says so — because the likeliest way to fail here isn't a crash, it's bleeding away slowly while every safety check passes.
 10. **The pass mark doesn't move after we see the score.** It was written down first, and the code refuses to start if the date on it is edited.
+11. **The final holdout slice of history is spent exactly once.** Everything before 1 Jan 2023 is fair game for development; the moment we look at what comes after it a second time, it is training data and any number from it means nothing. The code refuses a test window that reaches into it.
+12. **Every evaluation counts as an attempt** — including hand-written ones and re-runs, not just machine-generated candidates. The statistics that correct for "we tried a lot of things" are only honest if the count is honest.
 
 ---
 
