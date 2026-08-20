@@ -124,6 +124,13 @@ symbol is not a ranking: the sort falls through to whatever the tiebreak is, whi
 name. **A degenerate alphabetical ranking that reports as a working one.** It has to be refused at
 parse time, the same way F1's rupee-denominated inputs are. Affects 3b and 3c directly.
 
+Located precisely on 2026-08-20: these words are registered in
+`icarus/strategy/library/cross_sectional.py` as `Kind.SERIES` with `scale_free=True` and no
+`unrankable_reason`, so they pass all three checks `_rank_by` already performs. The fix is a
+**declared property on the primitive**, not a list maintained in the parser. Second, smaller point
+from the same day's reading: even once market-wide words are refused, a tie should *produce* a tie
+rather than falling through to alphabetical order.
+
 ---
 
 ## 6. Open — waiting on the operator
@@ -149,6 +156,21 @@ closed.**
 CAGR line · `F14` universe is ~98 names not 600–900 (not a defect; the scope was chosen on a wrong
 number) · `F17` regime breakdown + cost stress · `F20` two-source cross-check never applied to the
 panel · `F22` no lag operator or series arithmetic in the DSL (partly done) · `F45` above.
+
+**F12 now has a reference implementation available.** The 2026-08-20 evaluation of the open-source
+`HKUDS/Vibe-Trading` platform (`docs/reviews/2026-08-20-vibe-trading-evaluation.md`) found a
+correct, MIT-licensed, self-contained DSR/PBO module whose 75 tests I ran and passed. The verdict
+on the platform as a whole was **keep building Icarus** — its backtester always fills at the bar
+open, models no capital-gains tax, and has no point-in-time universe for India, so nothing measured
+in it could clear our gate. But `multipletesting.py` and `crossvalidation.py` are worth using as a
+**test oracle** when F12 is scheduled (`CLAUDE.md` §5 requires our own in-house implementation, so
+they are a cross-check, not a dependency).
+
+**One new gap that evaluation surfaced, not yet numbered:** our audit log is a plain append with no
+fsync and no hash chaining, so a retrospective edit to it would be undetectable. `CLAUDE.md` §7
+requires it append-only and retained ≥5 years, and it doubles as the tax ledger. Their
+`governance/ledger.py` shows the shape of the fix. Operator decision needed on whether this becomes
+a numbered finding; it is not Phase-1 blocking.
 
 ---
 
