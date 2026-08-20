@@ -1,4 +1,4 @@
-"""Can this number be compared between two symbols? — task 2a, findings F1 and F22.
+"""Can this number be compared between two symbols? — tasks 2a and 2g-3, findings F1, F22 and F25.
 
 **The bug this file exists to make unrepeatable.** The vocabulary had a word called ``momentum``
 that returned the change in *rupees*. Three strategies ranked their universe with it. On a panel
@@ -37,6 +37,7 @@ from icarus.strategy.dsl import (
     Panel,
     Primitive,
     Registry,
+    SeriesParam,
     evaluate,
     evaluate_universe,
     parse_strategy,
@@ -594,6 +595,7 @@ def test_the_panel_split_test_can_tell_the_two_classes_apart() -> None:
         (),
         needs_panel=True,
         scale_free=False,
+        market_wide=False,
     )
     call = Call(primitive=raw.name, kind=raw.kind, literals={}, nested={})
     before, after = (
@@ -658,3 +660,232 @@ def test_an_unimplemented_words_flag_is_pinned_rather_than_quietly_skipped(name:
             _panel_both(name, inner="roc")
         else:
             _invoke(primitive, _series(np.full(30, 100.0), np.full(30, 1000.0)), registry)
+
+
+# --------------------------------------------------------------------------------------
+# ...and is there one value per symbol at all? — finding F25
+# --------------------------------------------------------------------------------------
+#
+# The sibling of everything above. `scale_free` asks whether two symbols' values are *comparable*;
+# this asks whether there are two values. A handful of words answer one question for the whole
+# market — breadth, the advance/decline ratio, the benchmark's own return, the index-futures
+# positions — and hand the same number to every symbol. Ranking by one of those is not a ranking:
+# every candidate ties, the sort falls through to the symbol name, and the book fills
+# alphabetically while the metric sheet reports a working ranker. Same failure shape as F1, same
+# fix: refuse it where the words are read.
+
+#: Feeds the participant words need. Supplied so the two CONTEXT words below are refused for being
+#: market-wide and **not** for a missing feed — a test that passes for the wrong reason is not a
+#: test, which is why `index_above_ma` is absent from the `rank_by` cases too (it is an EVENT, and
+#: `rank_by` rejects a yes/no one step earlier).
+_FEEDS = frozenset({"nse-participants", "nse-fno-ban", "nse-delivery"})
+
+_MARKET_WIDE_RANKERS = [
+    "breadth_pct_above_ma: {}",
+    "advance_decline_ratio: {}",
+    "new_highs_minus_new_lows: {}",
+    "benchmark_return: {}",
+    "fii_net_index_fut: {}",
+    "client_net_index_fut: {}",
+]
+
+
+def _parse_with_feeds(text: str) -> object:
+    return parse_strategy(
+        text, registry=default_registry(), max_risk_r=0.01, available_feeds=_FEEDS
+    )
+
+
+@pytest.mark.parametrize("word", _MARKET_WIDE_RANKERS)
+def test_rank_by_refuses_a_number_that_is_the_same_for_every_symbol(word: str) -> None:
+    with pytest.raises(DslError, match="one number for the whole market"):
+        _parse_with_feeds(_strategy(rank_by=word))
+
+
+@pytest.mark.parametrize("word", _MARKET_WIDE_RANKERS)
+def test_the_cross_sectional_wrappers_refuse_it_too(word: str) -> None:
+    """`rank_by` is not the only place symbols are ordered against each other.
+
+    `xs_top_n(breadth_pct_above_ma(), 10)` asks which ten of today's universe have the highest
+    market breadth. Every one of them has exactly the same market breadth.
+    """
+    entry = f"  xs_top_n:\n    expr: {{{word}}}\n    n: 10"
+    with pytest.raises(DslError, match="one number for the whole market"):
+        _parse_with_feeds(_strategy(entry=entry))
+
+
+def test_the_refusal_says_where_the_word_does_belong() -> None:
+    """These words are not bad, they are in the wrong slot. An error that only says "no" hides that.
+
+    The regime reading they carry is genuinely useful — it is the *entry condition* that wants one
+    value for everyone, and the test below proves that path still works.
+    """
+    with pytest.raises(DslError) as caught:
+        _parse_with_feeds(_strategy(rank_by="benchmark_return: {}"))
+    message = str(caught.value)
+    assert "regime condition" in message
+    assert "relative_strength" in message
+
+
+def test_a_market_wide_word_is_still_free_to_be_a_regime_condition() -> None:
+    """The half that must keep working, or the fix has cost more than the bug.
+
+    `above(breadth_pct_above_ma(), 0.5)` — "trade only when more than half the market is above its
+    own average" — is exactly what a market-wide number is for.
+    """
+    entry = "  above:\n    a: {breadth_pct_above_ma: {}}\n    b: {constant: {value: 0.5}}"
+    assert _parse_with_feeds(_strategy(entry=entry)) is not None
+
+
+def test_relative_strength_is_the_per_symbol_form_and_still_ranks() -> None:
+    """The replacement the refusal names has to actually be accepted, or the advice is empty."""
+    assert _parse(_strategy(rank_by="relative_strength: {n: 126}")) is not None
+
+
+# ---- the classification is complete, and cannot be forgotten -------------------------
+
+
+def test_every_word_that_can_see_the_market_has_answered_the_question() -> None:
+    """Nothing is left undeclared, and the resolution runs at construction rather than at use."""
+    registry = default_registry()
+    assert [p.name for p in registry if p.market_wide is None] == []
+    can_see = {p.name for p in registry if p.needs_panel or p.requires_feed}
+    declared = {p.name for p in registry if p.market_wide}
+    assert declared <= can_see
+
+
+def test_a_new_panel_word_that_forgets_to_declare_is_refused_at_construction() -> None:
+    with pytest.raises(DslError, match="must declare market_wide"):
+        Primitive(
+            "_forgot",
+            Kind.SERIES,
+            "Test-only.",
+            lambda panel, **_: np.zeros((1, 1)),
+            (),
+            needs_panel=True,
+            scale_free=True,
+        )
+
+
+def test_a_word_with_no_view_of_the_market_cannot_claim_to_be_market_wide() -> None:
+    """The contradiction is refused rather than believed: it is handed one symbol's bars."""
+    with pytest.raises(DslError, match="no panel, no feed"):
+        Primitive(
+            "_impossible",
+            Kind.SERIES,
+            "Test-only.",
+            lambda bars, **_: np.zeros(1),
+            (),
+            scale_free=True,
+            market_wide=True,
+        )
+
+
+def test_a_market_wide_word_must_be_handed_the_whole_market() -> None:
+    """The flag and the evaluator have to agree (2g-3 code review).
+
+    `_matrix` returns one row for everyone only on the `needs_panel` path; a `requires_feed`-only
+    word is called once per symbol with that symbol's own `Bars`, so it could not produce a
+    market-wide answer even if its compute wanted to. `fii_net_index_fut` and `client_net_index_fut`
+    were declared `market_wide=True` with `needs_panel=False` — harmless only because both computes
+    still refuse, and a silent contradiction the day finding F7 threads the feed in.
+    """
+    with pytest.raises(DslError, match="market_wide=True but not needs_panel=True"):
+        Primitive(
+            "_feed_only",
+            Kind.CONTEXT,
+            "Test-only.",
+            lambda bars, **_: np.zeros(1),
+            (),
+            requires_feed="nse-participants",
+            scale_free=True,
+            market_wide=True,
+        )
+    registry = default_registry()
+    assert all(registry.get(n).needs_panel for n in ("fii_net_index_fut", "client_net_index_fut"))
+
+
+def test_in_fno_ban_is_per_symbol_despite_what_the_finding_said() -> None:
+    """Pinned deliberately, because finding F25 lists it as market-wide and that is wrong.
+
+    The F&O ban list is per-scrip: a stock enters it when its open interest crosses the market-wide
+    position limit, and the word's own summary says "Symbol is in the F&O ban list". Declaring it
+    market-wide would have retired a usable veto on the strength of a sentence in a finding rather
+    than the behaviour of the word. Over-correcting is still getting it wrong.
+    """
+    assert default_registry().get("in_fno_ban").market_wide is False
+
+
+# ---- and wrapping it does not launder it (2g-3 code review) --------------------------
+#
+# The first version of this guard checked only the outermost word, so `rank_by: benchmark_return`
+# was refused while `rank_by: zscore(benchmark_return(126))` parsed cleanly — the fix could be
+# walked around by wrapping the very words it existed to stop. The asymmetry with F1 is the whole
+# point and the two tests below pin both halves of it: `zscore` **repairs** a rupee quantity
+# (dividing by the symbol's own deviation removes the unit) and **cannot** repair a market-wide one
+# (a value identical across symbols has no cross-sectional dispersion to normalise).
+
+#: The two `SERIES` words that take an arbitrary nested series and can sit in `rank_by`.
+_WRAPPERS = {"zscore": "n: 20", "percentile_rank": "n: 100"}
+
+
+def _wrapped(wrapper: str, inner: str) -> str:
+    return f"{wrapper}: {{series: {{{inner}}}, {_WRAPPERS[wrapper]}}}"
+
+
+@pytest.mark.parametrize("wrapper", sorted(_WRAPPERS))
+@pytest.mark.parametrize("inner", ["benchmark_return: {n: 126}", "advance_decline_ratio: {}"])
+def test_wrapping_a_market_wide_word_does_not_make_it_rankable(wrapper: str, inner: str) -> None:
+    with pytest.raises(DslError, match="one number for the whole market"):
+        _parse_with_feeds(_strategy(rank_by=_wrapped(wrapper, inner)))
+
+
+def test_the_search_reaches_all_the_way_down_not_just_one_level() -> None:
+    """Two wrappers deep, because a guard that checks one level is walked around with two."""
+    nested = "zscore: {series: {zscore: {series: {breadth_pct_above_ma: {n: 50}}, n: 5}}, n: 20}"
+    with pytest.raises(DslError, match="one number for the whole market"):
+        _parse_with_feeds(_strategy(rank_by=nested))
+
+
+def test_the_refusal_names_the_inner_word_not_the_wrapper() -> None:
+    """`rank_by: zscore(...)` naming only 'zscore' sends the reader to the wrong word."""
+    with pytest.raises(DslError) as caught:
+        _parse_with_feeds(
+            _strategy(rank_by="zscore: {series: {benchmark_return: {n: 126}}, n: 20}")
+        )
+    message = str(caught.value)
+    assert "'benchmark_return'" in message
+    assert "wrapped in 'zscore'" in message
+
+
+def test_wrapping_still_repairs_a_rupee_quantity_which_is_the_whole_asymmetry() -> None:
+    """The over-refusal guard. If this ever fails, the market-wide search has become too greedy.
+
+    `zscore(momentum_abs(20))` **is** comparable across symbols — that is precisely why `zscore`
+    takes its input with `requires_scale_free=False`. Market-wideness propagates outward through a
+    wrapper; price-denomination does not. Refusing both would quietly delete a legitimate
+    construction to fix a different bug.
+    """
+    assert _parse(_strategy(rank_by="zscore: {series: {momentum_abs: {n: 20}}, n: 20}")) is not None
+    assert _parse(_strategy(rank_by="percentile_rank: {series: {close: {}}, n: 100}")) is not None
+
+
+def test_no_reachable_wrapper_takes_more_than_one_series() -> None:
+    """The assumption `_market_wide_word` rests on, asserted so it cannot rot quietly.
+
+    Searching the whole subtree is *exact* only because every word that can appear where symbols
+    are ordered — kind `SERIES`, `LEVEL`, `CONTEXT` or `CROSS_SECTIONAL` — nests at most one
+    series. A future word combining a market-wide input with a per-symbol one (say
+    `ratio(close, benchmark_close)`) would be per-symbol overall, and "any market-wide descendant"
+    would refuse it wrongly. This test fails the day such a word is added, which forces the
+    decision to be made rather than discovered in a result.
+    """
+    orderable = (Kind.SERIES, Kind.LEVEL, Kind.CONTEXT, Kind.CROSS_SECTIONAL)
+    for primitive in default_registry():
+        if primitive.kind not in orderable:
+            continue
+        nested = [spec for spec in primitive.params if isinstance(spec, SeriesParam)]
+        assert len(nested) <= 1, (
+            f"{primitive.name} nests {len(nested)} series and can appear where symbols are "
+            f"ordered; _market_wide_word's subtree search needs revisiting"
+        )

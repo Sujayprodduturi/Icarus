@@ -276,6 +276,7 @@ def primitives() -> tuple[Primitive, ...]:
             _refuses("delivery_pct", "feed values are not threaded into Bars until 1.7"),  # type: ignore[arg-type]
             requires_feed=FEED_DELIVERY,
             scale_free=True,
+            market_wide=False,
         ),
         Primitive(
             "delivery_qty",
@@ -284,6 +285,7 @@ def primitives() -> tuple[Primitive, ...]:
             _refuses("delivery_qty", "feed values are not threaded into Bars until 1.7"),  # type: ignore[arg-type]
             requires_feed=FEED_DELIVERY,
             scale_free=False,
+            market_wide=False,
         ),
         Primitive(
             "fii_net_index_fut",
@@ -291,7 +293,9 @@ def primitives() -> tuple[Primitive, ...]:
             "FII net index-futures position, market-wide.",
             _refuses("fii_net_index_fut", "feed values are not threaded into Bars until 1.7"),  # type: ignore[arg-type]
             requires_feed=FEED_PARTICIPANTS,
+            needs_panel=True,
             scale_free=True,
+            market_wide=True,
         ),
         Primitive(
             "client_net_index_fut",
@@ -299,7 +303,9 @@ def primitives() -> tuple[Primitive, ...]:
             "Retail net index-futures position — the natural fade.",
             _refuses("client_net_index_fut", "feed values are not threaded into Bars until 1.7"),  # type: ignore[arg-type]
             requires_feed=FEED_PARTICIPANTS,
+            needs_panel=True,
             scale_free=True,
+            market_wide=True,
         ),
         Primitive(
             "in_fno_ban",
@@ -308,5 +314,6 @@ def primitives() -> tuple[Primitive, ...]:
             _refuses("in_fno_ban", "feed values are not threaded into Bars until 1.7"),  # type: ignore[arg-type]
             requires_feed=FEED_FNO_BAN,
             scale_free=True,
+            market_wide=False,
         ),
     )

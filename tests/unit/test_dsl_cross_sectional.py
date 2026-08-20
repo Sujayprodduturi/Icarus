@@ -371,9 +371,19 @@ def test_no_panel_primitive_sees_the_future() -> None:
     full = _noisy_panel(full_size)
     cuts = range(60, full_size, 10)
 
+    # Words that cannot be evaluated at all yet, named rather than filtered by a predicate so a
+    # new one cannot join the list quietly. `xs_sector_neutral` wants a point-in-time sector map;
+    # the two participant words want the NSE feed, and became panel words in task 2g-3 because a
+    # market-wide answer can only come off the panel path. All three raise from their computes, so
+    # the sweep would fail on them for a reason that is not look-ahead. Every one is pinned in
+    # `test_dsl_scale.py::test_an_unimplemented_words_flag_is_pinned_rather_than_quietly_skipped`
+    # and will fail there the moment finding F7 implements it — which is the point.
+    unevaluable = {"xs_sector_neutral", "fii_net_index_fut", "client_net_index_fut"}
+    assert unevaluable <= {p.name for p in registry}
+
     checked = 0
     for primitive in registry:
-        if not primitive.needs_panel or primitive.name == "xs_sector_neutral":
+        if not primitive.needs_panel or primitive.name in unevaluable:
             continue
         node = _call(primitive.name, registry, n=5)
         whole = evaluate_universe(node, full, registry)

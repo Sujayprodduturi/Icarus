@@ -116,6 +116,18 @@ class FoldResult:
     could reassure the operator that nothing was assumed while capital had been left exposed by an
     exit that silently did not happen."""
 
+    ambiguous_selection_days: int
+    """Days more candidates fired than there were slots and nothing ordered them (finding F25).
+
+    Either no `rank_by` was declared, or one was and it **tied at the cut** — the same outcome
+    either way: the last slot went to whichever symbol sorts first alphabetically. A run with a
+    high count here did not test the strategy the file describes, it tested that strategy plus an
+    alphabetical selection rule, and the metric sheet has to say so.
+
+    Added by the 2g-3 code review, which caught this field being counted in the simulator and
+    never carried out of it — **the exact mistake `unfilled_exits` above records having made
+    once already.** A counter nobody reads is not a guard, it is a comment that costs CPU."""
+
     equity_curve: tuple[tuple[datetime, Decimal], ...]
     """The fold's own out-of-sample curve, kept so the folds can be stitched into one continuous
     record afterwards. A summary cannot be un-summarised."""
@@ -133,6 +145,7 @@ class FoldResult:
             "stale_mark_value": str(self.stale_mark_value),
             "concentration_capped": self.concentration_capped,
             "unfilled_exits": self.unfilled_exits,
+            "ambiguous_selection_days": self.ambiguous_selection_days,
         }
 
 
@@ -231,6 +244,7 @@ def run_walk_forward(
                 stale_mark_value=test.stale_mark_value,
                 concentration_capped=test.concentration_capped,
                 unfilled_exits=test.unfilled_exits,
+                ambiguous_selection_days=test.ambiguous_selection_days,
                 equity_curve=tuple(test.equity),
             )
         )

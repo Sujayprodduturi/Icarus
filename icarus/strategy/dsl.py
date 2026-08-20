@@ -36,6 +36,10 @@ what it declines to do:
 * A word needing a feed we have not built **raises**. This is the most dangerous of the set: a
   ``news_veto`` that quietly returns "no veto" produces a backtest showing an edge that depended on
   a filter *which was not running*, and it looks like a great result.
+* A word that answers **one question for the whole market** — breadth, the benchmark's own return
+  — is **rejected wherever symbols are ordered against each other**. It hands every candidate the
+  same number, so the sort falls through to the symbol name and the book fills alphabetically while
+  reporting a working ranker (finding F25).
 * ``risk_r`` above the ``goal.yaml`` cap is **rejected, not clamped**. Silently shrinking an
   over-sized request teaches a future Inventor that asking for too much is free (invariant #4).
 * An entry with **no protective stop** is rejected. Invariant #16 requires every open position to
@@ -460,9 +464,27 @@ class Primitive:
     Every reader treats a falsy value as not-comparable, so the one direction this can fail in is
     the safe one.
     """
+    market_wide: bool | None = None
+    """This word answers **one question for the whole universe**, not one per symbol (finding F25).
+
+    ``scale_free`` asks whether two symbols' values are comparable. This asks whether there are two
+    values at all. Market breadth, the advance/decline ratio, the benchmark's own return and the
+    FII/client index-futures positions are single numbers broadcast to every symbol — so sorting
+    the universe by one of them is not a ranking. Every candidate ties, the sort falls through to
+    whatever the tiebreak is (the symbol name), and the book fills alphabetically while the metric
+    sheet reports a working ranker. That is the same shape as the ``scale_free`` bug and the same
+    fix: refuse it where the words are read, because at run time it computes perfectly happily.
+
+    Never ``None`` after construction. Only a word that sees beyond one symbol's own bars *can* be
+    market-wide, so it must be declared on ``needs_panel`` and ``requires_feed`` words and is
+    derived ``False`` everywhere else — a word handed nothing but this symbol's ``Bars`` has no
+    way to return the market's answer. Declaring ``True`` without one of those is refused as a
+    contradiction rather than believed.
+    """
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "scale_free", self._resolve_scale_free())
+        object.__setattr__(self, "market_wide", self._resolve_market_wide())
         self._check_requires_lt()
 
     def _check_requires_lt(self) -> None:
@@ -506,6 +528,41 @@ class Primitive:
                 f"price never does."
             )
         return derived
+
+    def _resolve_market_wide(self) -> bool:
+        can_see_the_market = self.needs_panel or self.requires_feed is not None
+        if not can_see_the_market:
+            if self.market_wide:
+                raise DslError(
+                    f"primitive {self.name!r} declares market_wide=True but it is handed only "
+                    f"this symbol's own bars — no panel, no feed — so it has no way to compute "
+                    f"the market's answer. Either it needs needs_panel/requires_feed, or the "
+                    f"flag is wrong."
+                )
+            return False
+        if self.market_wide and not self.needs_panel:
+            # The flag and the evaluator have to agree. `_matrix` gives one row for everyone only
+            # on the `needs_panel` path; a `requires_feed`-only word is called once per symbol with
+            # that symbol's own `Bars`, so it could not return the market's answer even if its
+            # compute wanted to. Harmless while the feed words refuse, and a silent contradiction
+            # the moment F7 implements one — which is why it is refused here instead (2g-3 review).
+            raise DslError(
+                f"primitive {self.name!r} declares market_wide=True but not needs_panel=True. A "
+                f"word that answers for the whole universe has to be handed the whole universe: "
+                f"the per-symbol path calls it once per symbol with that symbol's own bars, so "
+                f"one answer for everyone is not something it could return."
+            )
+        if self.market_wide is None:
+            raise DslError(
+                f"primitive {self.name!r} sees beyond one symbol's bars, so it must declare "
+                f"market_wide=True or market_wide=False. It says whether the word returns one "
+                f"number for the whole universe (market breadth, the benchmark's own return) or "
+                f"one per symbol. There is no safe default: guessing False lets a single "
+                f"market-wide number be used to rank the universe, which gives every candidate "
+                f"the same score and fills the book in alphabetical order while looking like a "
+                f"ranking."
+            )
+        return self.market_wide
 
     def spec(self, name: str) -> ParamSpec | None:
         return next((p for p in self.params if p.name == name), None)
@@ -781,7 +838,7 @@ def _rank_by(node: object, ctx: _Context) -> Call | None:
     primitive = ctx.registry.get(call.primitive)
     if primitive.unrankable_reason:
         raise DslError(f"rank_by: {call.primitive!r} may not rank — {primitive.unrankable_reason}")
-    _assert_scale_free(call, ctx, where="rank_by")
+    _assert_comparable_across_symbols(call, ctx, where="rank_by")
     return call
 
 
@@ -923,7 +980,7 @@ def _resolve_params(
                     f"a {' or '.join(spec.accepts)} is required here"
                 )
             if spec.requires_scale_free:
-                _assert_scale_free(child, ctx, where=f"{where}.{spec.name}")
+                _assert_comparable_across_symbols(child, ctx, where=f"{where}.{spec.name}")
             nested[spec.name] = child
         else:
             literals[spec.name] = spec.validate(value, where=where)  # type: ignore[assignment]
@@ -937,16 +994,71 @@ def _resolve_params(
     return literals, nested
 
 
-def _assert_scale_free(call: Call, ctx: _Context, *, where: str) -> None:
-    """Refuse to compare a price-denominated quantity between symbols (finding F1).
+def _market_wide_word(call: Call, ctx: _Context) -> str | None:
+    """The first word anywhere in this expression that answers for the whole market, or ``None``.
 
-    Rejected at parse time rather than warned about at run time because the wrong version computes
-    perfectly happily: ``xs_top_n(momentum(20), 10)`` returns ten names every day, all the machinery
-    downstream works, and the only symptom is that the ten names are the expensive ones. A backtest
-    like that is not a failed strategy, it is a *plausible* one — and it took a full result set and
-    an audit to notice. The one place it can be caught for free is when the words are read.
+    **Searches the whole subtree, and that is the difference between this and the scale-free
+    check beside it.** Wrapping repairs one and not the other: ``zscore(momentum_abs(20))`` is a
+    genuinely comparable quantity, because dividing by the symbol's own standard deviation removes
+    the rupees — which is why ``zscore`` and ``percentile_rank`` take their input with
+    ``requires_scale_free=False``. But ``zscore(benchmark_return(126))`` is *still* one number for
+    the whole market: a value identical across symbols has zero cross-sectional dispersion, and
+    normalising each symbol against its own history cannot manufacture any. So market-wideness
+    propagates outward through a wrapper and price-denomination does not.
+
+    Found by the 2g-3 code review, which showed ``rank_by: zscore(benchmark_return(126))`` parsing
+    cleanly while the bare form was refused — the guard checked the outermost word only, so the
+    fix could be walked around by wrapping the very words it existed to stop.
+
+    Returning the offending *inner* name rather than a bool so the refusal can say which word is
+    the problem; ``rank_by: zscore(...)`` naming only ``zscore`` sends the reader to the wrapper.
+
+    Exact rather than conservative, given today's grammar: the only words reachable from a
+    cross-symbol position that nest a series are ``zscore`` and ``percentile_rank``, and both take
+    exactly one. A future ``SERIES`` word combining a market-wide input with a per-symbol one would
+    make "any descendant" too strong — ``test_no_reachable_wrapper_takes_more_than_one_series``
+    fails if one is ever added, so the assumption cannot rot quietly.
     """
-    if ctx.registry.get(call.primitive).scale_free:
+    if ctx.registry.get(call.primitive).market_wide:
+        return call.primitive
+    for child in call.nested.values():
+        if (found := _market_wide_word(child, ctx)) is not None:
+            return found
+    return None
+
+
+def _assert_comparable_across_symbols(call: Call, ctx: _Context, *, where: str) -> None:
+    """Refuse a word that cannot meaningfully order one symbol against another.
+
+    Two ways that fails, and this is the one place both can be caught for free — when the words are
+    read. Both are rejected at parse time rather than warned about at run time because the wrong
+    version computes perfectly happily and the result looks like a working strategy:
+
+    * **Not one value per symbol** (finding F25). ``rank_by: benchmark_return(126)`` gives every
+      candidate the identical number, so the sort falls through to the symbol name and the book
+      fills alphabetically. Checked first, because a word with no per-symbol value at all fails
+      more fundamentally than one whose values are merely incomparable.
+    * **Price-denominated** (finding F1). ``xs_top_n(momentum(20), 10)`` returns ten names every
+      day, all the machinery downstream works, and the only symptom is that the ten names are the
+      expensive ones. A backtest like that is not a failed strategy, it is a *plausible* one — and
+      it took a full result set and an audit to notice.
+    """
+    primitive = ctx.registry.get(call.primitive)
+    if (offender := _market_wide_word(call, ctx)) is not None:
+        wrapped = "" if offender == call.primitive else f" (wrapped in {call.primitive!r})"
+        raise DslError(
+            f"{where}: {offender!r}{wrapped} returns one number for the whole market, not one per "
+            f"symbol, so it cannot order the universe — every candidate would score identically "
+            f"and the tiebreak (the symbol name) would choose the book. Market breadth, the "
+            f"advance/decline ratio, the benchmark's own return and the index-futures positions "
+            f"all describe the market, not a stock in it. **Normalising it does not help**: a "
+            f"number that is the same for every symbol is still the same for every symbol after "
+            f"'zscore' or 'percentile_rank'. To trade *on* that reading, use it as a regime "
+            f"condition in 'entry' (where one value for everyone is exactly right); to order the "
+            f"universe, rank by something each symbol has its own value of — 'relative_strength' "
+            f"measures this symbol against the benchmark and is per-symbol."
+        )
+    if primitive.scale_free:
         return
     raise DslError(
         f"{where}: {call.primitive!r} is denominated in the symbol's own price (or share count), "

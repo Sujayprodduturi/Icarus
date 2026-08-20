@@ -402,6 +402,107 @@ def test_a_declared_ranking_decides_which_candidates_win(goal: GoalConfig) -> No
     assert result.ambiguous_selection_days == 0
 
 
+def test_a_ranking_that_ties_across_the_cut_is_ambiguous_too(goal: GoalConfig) -> None:
+    """A declared `rank_by` is not the same as a resolved one (finding F25).
+
+    Six candidates, four slots, and the fourth and fifth are tied on rank. The sort's tiebreak is
+    the symbol name, so `S1` takes the last slot and `S2` goes home for no reason but the alphabet.
+    Parse-time refusal stops a *market-wide* ranker, where this happens on every bar of every day;
+    it cannot stop two symbols genuinely scoring the same. So the day is counted, exactly as a day
+    with no ranking at all is counted — the consequence is identical.
+    """
+    symbols = [f"S{i}" for i in range(6)]
+    panel = _panel({s: FLAT for s in symbols})
+    ranks = dict(zip(symbols, [0.0, 2.0, 2.0, 3.0, 4.0, 5.0], strict=True))
+    result = _sim(goal).run(
+        _strategy(),  # type: ignore[arg-type]
+        panel,
+        signals={s: _column(6, [0]) for s in symbols},
+        stops={s: np.full(6, 10.0) for s in symbols},
+        starting_equity=Decimal(100_000),
+        ranks={s: np.full(6, v) for s, v in ranks.items()},
+    )
+    taken = {t.symbol for t in result.trades}
+    assert taken == {"S5", "S4", "S3", "S1"}, "the tie was broken alphabetically, as expected"
+    assert "S2" not in taken
+    assert result.ambiguous_selection_days == 1
+
+
+def test_the_tie_is_looked_for_where_the_slots_ran_out_not_at_a_fixed_index(
+    goal: GoalConfig,
+) -> None:
+    """Found by the 2g-3 code review, and the first version of this check missed it.
+
+    The allocation loop skips candidates for stop distance, whole shares, concentration, heat, cash
+    and unfilled entries, and **keeps filling from further down the list**. So the cut is wherever
+    `taken` ran out, not position `free_slots`. Here `S1` is refused for having no stop distance,
+    which pulls the cut down one: the last slot is decided between `S4` and `S5`, both ranked 5.0,
+    by the alphabet. Comparing fixed indices 3 and 4 would compare 6.0 against 5.0 and report a
+    clean selection.
+    """
+    symbols = [f"S{i}" for i in range(6)]
+    panel = _panel({s: FLAT for s in symbols})
+    ranks = dict(zip(symbols, [9.0, 8.0, 7.0, 6.0, 5.0, 5.0], strict=True))
+    stops = {s: np.full(6, 10.0) for s in symbols}
+    stops["S1"] = np.full(6, np.nan)  # no stop distance -> skipped, and the cut moves down
+    result = _sim(goal).run(
+        _strategy(),  # type: ignore[arg-type]
+        panel,
+        signals={s: _column(6, [0]) for s in symbols},
+        stops=stops,
+        starting_equity=Decimal(100_000),
+        ranks={s: np.full(6, v) for s, v in ranks.items()},
+    )
+    assert {t.symbol for t in result.trades} == {"S0", "S2", "S3", "S4"}
+    assert result.ambiguous_selection_days == 1
+
+
+def test_a_full_book_is_not_an_ambiguous_selection(goal: GoalConfig) -> None:
+    """Nothing was chosen, so nothing was chosen arbitrarily (2g-3 code review).
+
+    The unranked branch used to count any day where candidates outnumbered slots — including days
+    with **no** slots, where every candidate is refused for the same reason and no ordering was
+    consulted at all. The tied-ranker branch never counted those, so one run carried two different
+    definitions depending on whether a `rank_by` was declared, which destroys the only use the
+    number has: comparing strategies.
+
+    Bar 0 fires with an empty book and four slots for six candidates — genuinely ambiguous. Bar 2
+    fires again with the book full. Only the first is counted.
+    """
+    symbols = [f"S{i}" for i in range(6)]
+    panel = _panel({s: FLAT for s in symbols})
+    result = _sim(goal).run(
+        _strategy(),  # type: ignore[arg-type]
+        panel,
+        signals={s: _column(6, [0, 2]) for s in symbols},
+        stops={s: np.full(6, 10.0) for s in symbols},
+        starting_equity=Decimal(100_000),
+    )
+    assert len({t.symbol for t in result.trades}) == goal.risk.max_open_positions
+    assert result.ambiguous_selection_days == 1
+
+
+def test_a_ranker_that_is_nan_throughout_is_ambiguous_every_day(goal: GoalConfig) -> None:
+    """The shape of the look-ahead bug that made a ranker blind (findings F3 and F28).
+
+    A `rank_by` whose lead-in was too short returned `nan` across the whole span. Every value
+    collapses to the same `-inf`, so every candidate ties and the book is filled alphabetically —
+    while the run reports a strategy that ranked. Counting it is what makes that visible.
+    """
+    symbols = [f"S{i}" for i in range(6)]
+    panel = _panel({s: FLAT for s in symbols})
+    result = _sim(goal).run(
+        _strategy(),  # type: ignore[arg-type]
+        panel,
+        signals={s: _column(6, [0]) for s in symbols},
+        stops={s: np.full(6, 10.0) for s in symbols},
+        starting_equity=Decimal(100_000),
+        ranks={s: np.full(6, np.nan) for s in symbols},
+    )
+    assert {t.symbol for t in result.trades} == {"S0", "S1", "S2", "S3"}
+    assert result.ambiguous_selection_days == 1
+
+
 # --------------------------------------------------------------------------------------
 # The stop distance comes from the strategy, not from the engine
 # --------------------------------------------------------------------------------------

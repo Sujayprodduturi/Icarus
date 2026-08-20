@@ -26,10 +26,15 @@ F3 and F28) is ✅ done 2026-08-13, and **2c** (positions in symbols that stop t
 finding was accounted for while five were in no step at all. **Step 2g** was added on 2026-08-17 to
 hold them. Of its four tasks: **2g-1** (the look-ahead sweep was blind, not thin — finding F24) is
 ✅ done 2026-08-17, and **2g-2** (unverified `scale_free` flags — F27, plus the concentration cap
-F34 / decision D11) is ✅ done 2026-08-17. **Remaining: 2g-3** (`rank_by` and the `xs_` words accept
-a market-wide value that is identical for every symbol — F25) and **2g-4** (annulled flash-crash
-prints are still in the panel — F23). Then Step 3 — the signal test (3a), two capital rows (3b) and
-the common-window comparison (3c).
+F34 / decision D11) is ✅ done 2026-08-17, and **2g-3** (`rank_by` and the `xs_` words accept a
+market-wide value that is identical for every symbol — F25) is ✅ done 2026-08-20 — fixed with a
+declared `Primitive.market_wide`, plus a tie across the ranking cut now counted as an ambiguous
+selection rather than broken alphabetically in silence. **Remaining: 2g-4** (annulled flash-crash
+prints are still in the panel — F23, scoped by decision D13 to a bounded known-events list that
+declares itself incomplete). Then Step 3 — the signal test (3a), two capital rows (3b) and the
+common-window comparison (3c). **Task F12** (DSR/PBO/BHY) was added to the plan on 2026-08-20 and
+must land before the strategies are pre-registered; the audit-log hash chain was added after the
+run. Both from `docs/reviews/2026-08-20-vibe-trading-evaluation.md`.
 
 **Every number produced before 2f is superseded.** Fold boundaries moved (the embargo now enters
 the seam arithmetic), indicator values at the start of every span changed (`evaluate_once`

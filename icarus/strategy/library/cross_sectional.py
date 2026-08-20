@@ -83,6 +83,12 @@ def _expr() -> SeriesParam:
     quantity sorts by share price. The check happens at parse time because the broken version *runs*
     perfectly: ``xs_top_n(momentum(20), 10)`` returned ten names a day for fifteen years, and the
     only tell was that they were the expensive ten.
+
+    **"per-symbol" in the first line is enforced as of task 2g-3, not merely intended** (finding
+    F25). The same flag now also refuses a *market-wide* expression here — ``xs_top_n`` over
+    ``breadth_pct_above_ma()`` asks which ten of today's universe have the highest market breadth,
+    and every one of them has the same market breadth. This and ``rank_by`` are the only two places
+    in the grammar where symbols are ordered against each other, so between them the door is shut.
     """
     return SeriesParam("expr", requires_scale_free=True)
 
@@ -351,6 +357,7 @@ def primitives() -> tuple[Primitive, ...]:
                 "quietly buys the weakest candidates. Use xs_percentile, where 1.0 = best and the "
                 "orderings agree, or rank on the underlying expression directly"
             ),
+            market_wide=False,
         ),
         Primitive(
             "xs_percentile",
@@ -360,6 +367,7 @@ def primitives() -> tuple[Primitive, ...]:
             (_expr(), floor),
             needs_panel=True,
             scale_free=True,
+            market_wide=False,
         ),
         Primitive(
             "xs_zscore",
@@ -369,6 +377,7 @@ def primitives() -> tuple[Primitive, ...]:
             (_expr(), floor),
             needs_panel=True,
             scale_free=True,
+            market_wide=False,
         ),
         Primitive(
             "xs_demean",
@@ -378,6 +387,7 @@ def primitives() -> tuple[Primitive, ...]:
             (_expr(), floor),
             needs_panel=True,
             scale_free=True,
+            market_wide=False,
         ),
         Primitive(
             "xs_top_n",
@@ -386,6 +396,7 @@ def primitives() -> tuple[Primitive, ...]:
             _xs_top_n,
             (_expr(), cohort_n, floor),
             needs_panel=True,
+            market_wide=False,
         ),
         Primitive(
             "xs_bottom_n",
@@ -394,6 +405,7 @@ def primitives() -> tuple[Primitive, ...]:
             _xs_bottom_n,
             (_expr(), cohort_n, floor),
             needs_panel=True,
+            market_wide=False,
         ),
         Primitive(
             "xs_sector_neutral",
@@ -407,6 +419,7 @@ def primitives() -> tuple[Primitive, ...]:
             (_expr(), floor),
             needs_panel=True,
             scale_free=True,
+            market_wide=False,
         ),
         # ---- breadth ----
         Primitive(
@@ -417,6 +430,7 @@ def primitives() -> tuple[Primitive, ...]:
             (_ops.period_param(default=50), floor),
             needs_panel=True,
             scale_free=True,
+            market_wide=True,
         ),
         Primitive(
             "advance_decline_ratio",
@@ -426,6 +440,7 @@ def primitives() -> tuple[Primitive, ...]:
             (floor,),
             needs_panel=True,
             scale_free=True,
+            market_wide=True,
         ),
         Primitive(
             "new_highs_minus_new_lows",
@@ -435,6 +450,7 @@ def primitives() -> tuple[Primitive, ...]:
             (_ops.period_param(default=252), floor),
             needs_panel=True,
             scale_free=True,
+            market_wide=True,
         ),
         # ---- versus the benchmark ----
         Primitive(
@@ -445,6 +461,7 @@ def primitives() -> tuple[Primitive, ...]:
             (_ops.period_param(default=126),),
             needs_panel=True,
             scale_free=True,
+            market_wide=False,
         ),
         Primitive(
             "index_above_ma",
@@ -453,6 +470,7 @@ def primitives() -> tuple[Primitive, ...]:
             _index_above_ma,
             (_ops.period_param(default=200),),
             needs_panel=True,
+            market_wide=True,
         ),
         Primitive(
             "benchmark_return",
@@ -462,6 +480,7 @@ def primitives() -> tuple[Primitive, ...]:
             (_ops.period_param(default=126),),
             needs_panel=True,
             scale_free=True,
+            market_wide=True,
         ),
         Primitive(
             "beta_to",
@@ -471,6 +490,7 @@ def primitives() -> tuple[Primitive, ...]:
             (_ops.period_param(default=126),),
             needs_panel=True,
             scale_free=True,
+            market_wide=False,
         ),
         Primitive(
             "correlation_to",
@@ -480,6 +500,7 @@ def primitives() -> tuple[Primitive, ...]:
             (_ops.period_param(default=126),),
             needs_panel=True,
             scale_free=True,
+            market_wide=False,
         ),
     )
 

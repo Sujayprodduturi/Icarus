@@ -23,8 +23,14 @@ Then an audit of that run found the engine had been measuring something other th
 that were written down. **Every number from that run is void.** We are part-way through the repair
 plan that has to finish before the next backtest is worth running.
 
-**Current position: the post-backtest repair plan, Step 2g-3.** Two items (2g-3, 2g-4) remain
-before Step 3.
+**Current position: the post-backtest repair plan, Step 2g-4** — the last item before Step 3.
+2g-3 was completed 2026-08-20.
+
+**The plan grew on 2026-08-20, by operator decision.** Two items were added after an evaluation of
+the open-source `HKUDS/Vibe-Trading` platform found it had built things we had not: **F12
+(DSR/PBO)** moves onto the critical path *before* strategies are pre-registered, and the
+**audit-log hash chain** is scheduled after the run. Reasoning in
+`docs/reviews/2026-08-20-vibe-trading-evaluation.md`.
 
 ---
 
@@ -45,8 +51,12 @@ before Step 3.
 
 ## 3. What is built and passing
 
-**981 tests passing, 4 skipped. `mypy` clean (123 files). `ruff` clean (140 files).**
-Verified 2026-08-20 on `dev` at `414fa0d`.
+**1,013 tests passing, 4 skipped. `mypy` clean (123 files). `ruff` clean (143 files).**
+Verified 2026-08-20 on `dev`, after task 2g-3.
+
+*One pre-existing `mypy` complaint sits outside that scope and is not new:*
+`scripts/build_panel.py:118` returns a bare `tuple`. The project's `mypy` invocation is
+`mypy icarus tests`; adding `scripts` finds it. Noted rather than fixed — unrelated to 2g-3.
 
 | area | state |
 |---|---|
@@ -104,32 +114,68 @@ Full detail in the audit's §6c. Status as of 2026-08-20:
 | **F40** | The purge that protected nothing → one fixed `seam_sessions` (D10; closes F16, F31) | ✅ 2026-08-17 |
 | **2g-1** | The look-ahead sweep was blind, not thin (F24) | ✅ 2026-08-17 |
 | **2g-2** | Unverified `scale_free` flags (F27) + the concentration cap (F34, D11) | ✅ 2026-08-17 |
-| **2g-3** | `rank_by` and the `xs_` words accept a market-wide value (F25) | ⬅️ **NEXT** |
-| **2g-4** | Annulled flash-crash prints are still in the panel (F23) | todo |
+| **2g-3** | `rank_by` and the `xs_` words accept a market-wide value (F25) | ✅ 2026-08-20 |
+| **2g-4** | Annulled flash-crash prints are still in the panel (F23) | ⬅️ **NEXT** |
 | **3a** | Signal-test mode — every signal, uniform notional, no book (F2, D1) | todo |
 | **3b** | Two capital rows: ₹10,00,000 edge run and ₹1,00,000 seed run (F15, D8, D9) | todo |
 | **3c** | Common-window comparison (F16) | now the **default** after F40, not a later correction |
 | **4a–4d** | Gross · costs · tax · net columns; per-trade CSV; alpha/beta/R²; withdraw the bad Nifty line | todo |
+| **F12** | DSR/PBO/BHY overfitting guard — **added 2026-08-20**, and it must land *before* 6b: the correction is part of the gate, so adding it after results exist would change a promotion decision after the fact | todo |
 | **5a** | Capture the golden backtest regression — *from the corrected engine, never before it* | todo |
 | **6a–6b** | Write the eight strategies (audit §6d), then pre-register them with a date **before** any runs | todo |
 | **7** | Run. ← the next backtest | todo |
+| *after* | Audit-log hash chain + `verify_chain` — **added 2026-08-20**, deliberately off the critical path: no orders exist in Phase 1, so it moves no number on the metric sheet | todo |
 
-### 2g-3, in plain English (the next task)
+### 2g-4, in plain English (the next task)
 
-`rank_by` sorts the universe to decide which candidates get the limited slots. Some words in the
-vocabulary return **one number for the whole market**, not one per symbol — `benchmark_return`,
-`advance_decline_ratio`, the breadth words, and the feed words `fii_net_index_fut`,
-`client_net_index_fut`, `in_fno_ban`. Ranking a universe by a number that is identical for every
-symbol is not a ranking: the sort falls through to whatever the tiebreak is, which is the symbol
-name. **A degenerate alphabetical ranking that reports as a working one.** It has to be refused at
-parse time, the same way F1's rupee-denominated inputs are. Affects 3b and 3c directly.
+On 2012-10-05 a broker (Emkay) sent a mistaken basket of orders into the NSE open and the market
+fell ~16% in seconds. **NSE annulled those trades** — legally, they did not happen. But the prices
+printed, and the bhavcopy we backfilled from carries them: 32 symbols in our panel hold 20%-circuit
+prints from that morning. A backtest stop placed anywhere near one of those prices would "fill"
+against a trade that was undone, producing a loss that could not have occurred.
 
-Located precisely on 2026-08-20: these words are registered in
-`icarus/strategy/library/cross_sectional.py` as `Kind.SERIES` with `scale_free=True` and no
-`unrankable_reason`, so they pass all three checks `_rank_by` already performs. The fix is a
-**declared property on the primitive**, not a list maintained in the parser. Second, smaller point
-from the same day's reading: even once market-wide words are refused, a tie should *produce* a tie
-rather than falling through to alphabetical order.
+**Decision D13 (2026-08-20) bounds the work.** No statistical test can produce the list — a test
+cannot tell an annulled print from a genuine crash, and reconstructing every NSE annulment since
+2011 from circulars is open-ended. So we hard-code the events we can source, each with its source
+and as-of date, and **the list declares itself incomplete in code** so nobody later reads it as
+exhaustive.
+
+### What 2g-3 did (2026-08-20)
+
+`Primitive.market_wide`, declared beside the computation and resolved at construction like
+`scale_free`. **Required** of every `needs_panel`/`requires_feed` word; a word handed only one
+symbol's `Bars` derives `False`, and claiming `True` without a panel or feed is refused as a
+contradiction. `_assert_scale_free` became `_assert_comparable_across_symbols` and now makes both
+checks wherever symbols are ordered against each other. Final count: **7 market-wide, 13
+per-symbol, 0 undeclared** of 224 words.
+
+**The code-review pass found five real defects in the first version of this fix, one of them
+fatal to it**, and they are the reason the standing rule exists. The guard originally checked only
+the *outermost* word, so `rank_by: benchmark_return` was refused while
+`rank_by: zscore(benchmark_return(126))` parsed cleanly — the fix could be walked around by
+wrapping the very words it existed to stop. **Normalising does not repair a market-wide value**: a
+number identical across symbols has no cross-sectional dispersion for a z-score to normalise. That
+is the exact asymmetry with F1, where wrapping a rupee quantity genuinely *does* repair it, and
+both halves are now pinned by tests. The search walks the whole expression tree, and the
+assumption that makes it exact — every reachable wrapper nests at most one series — is itself
+asserted, so it cannot rot quietly.
+
+The other four: `ambiguous_selection_days` was counted and never carried out of the simulator (the
+same mistake `unfilled_exits` already records having made once); the tie was probed at a fixed
+index rather than where the slots actually ran out, which the allocation loop moves whenever a
+candidate is skipped; a full book was counted as an ambiguous *selection* when nothing was
+selected; and two words were declared market-wide while routed down the per-symbol evaluation
+path, which is now refused at construction.
+
+Two things worth carrying forward:
+
+- **The finding was wrong about `in_fno_ban`.** F25 lists it as market-wide; the F&O ban is
+  per-scrip and the word's own summary says "Symbol is in the F&O ban list". Declared per-symbol,
+  with a test pinning the correction. Following the finding would have retired a usable veto.
+- **Ties are counted, not silently broken.** A refusal cannot stop two symbols genuinely scoring
+  the same, so a ranker that ties *across the cut* now increments `ambiguous_selection_days`
+  exactly as declaring no ranker does. That also catches an all-`nan` ranker — the F3/F28 failure
+  wearing a ranker's name.
 
 ---
 

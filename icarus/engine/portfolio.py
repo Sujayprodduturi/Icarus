@@ -204,6 +204,14 @@ class RunResult:
     skipped: dict[Skipped, int] = field(default_factory=dict)
     unfilled_exits: int = 0
     ambiguous_selection_days: int = 0
+    """Days where more candidates fired than there were slots and nothing ordered them.
+
+    Two causes, counted together because they have the same consequence — the book was filled in
+    alphabetical order by the sort's tiebreak. Either the strategy declared no ``rank_by`` at all,
+    or it declared one that **tied across the cut**, which is the same thing wearing a ranker's
+    name (finding F25). A run with a high count here has not tested the strategy the file
+    describes; it has tested that strategy plus an alphabetical selection rule.
+    """
     stale_marks: int = 0
     """Positions closed at a price nobody quoted, because the symbol had stopped printing bars."""
     stale_mark_value: Decimal = Decimal(0)
@@ -551,7 +559,12 @@ class PortfolioSimulator:
                 candidates.remove(symbol)
 
         free_slots = self._risk.max_open_positions - len(book)
-        if len(candidates) > max(free_slots, 0):
+        if free_slots > 0 and len(candidates) > free_slots:
+            # Only a day that actually *chose* can have chosen ambiguously. When the book is full
+            # there is no selection to be arbitrary about — every candidate is refused for the same
+            # reason — so counting it would mix two different meanings into the one number and make
+            # it non-comparable between a ranked strategy and an unranked one, which is its only
+            # use (2g-3 code review).
             if ranks is None:
                 result.ambiguous_selection_days += 1
             else:
@@ -586,8 +599,31 @@ class PortfolioSimulator:
         # the cash gate exists, because at the tight-stop end the most expensive candidate is
         # systematically the one that blocks the slot.
         taken = 0
+        last_taken_rank: float | None = None
+        tie_decided_the_cut = False
         for symbol in candidates:
             if taken >= free_slots:
+                # **Where the ranking actually ran out.** The first candidate refused purely for
+                # want of a slot is the best-ranked loser; `last_taken_rank` is the worst-ranked
+                # winner. Equal, and the symbol name in the sort key chose between them — a
+                # declared `rank_by` that resolved nothing here (finding F25).
+                #
+                # Measured at this point rather than at index `free_slots` because the loop below
+                # skips candidates for stop distance, whole shares, concentration, heat, cash and
+                # unfilled entries, and keeps filling from further down the list. The cut is
+                # wherever `taken` ran out, which is not a fixed position (2g-3 code review).
+                #
+                # A loser that would have been refused anyway is still counted, because whether it
+                # would have been is unknowable from here — it never got the chance. For a counter
+                # whose job is to say "do not trust this selection", over-reporting is the safe
+                # direction and silent under-reporting is the failure being fixed.
+                if (
+                    ranks is not None
+                    and not tie_decided_the_cut
+                    and last_taken_rank == _rank_of(ranks[symbol], t)
+                ):
+                    result.ambiguous_selection_days += 1
+                    tie_decided_the_cut = True
                 result.record_skip(Skipped.NO_SLOT)
                 continue
             index = panel.index_of(symbol)
@@ -665,6 +701,8 @@ class PortfolioSimulator:
                 continue
             committed += outlay
             taken += 1
+            if ranks is not None:
+                last_taken_rank = _rank_of(ranks[symbol], t)
             result.concentration_capped += int(was_capped)
             book[symbol] = OpenPosition(
                 symbol=symbol,

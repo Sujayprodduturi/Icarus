@@ -84,6 +84,7 @@ def _fold(index: int, test_from: str, test_to: str) -> FoldResult:
         stale_mark_value=Decimal(1234),
         concentration_capped=3,
         unfilled_exits=2,
+        ambiguous_selection_days=4,
         equity_curve=((datetime(2014, 1, 3, tzinfo=UTC), Decimal(1)),),
     )
 
