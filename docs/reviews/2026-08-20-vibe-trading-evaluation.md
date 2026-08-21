@@ -499,16 +499,16 @@ each removes one of the four blockers in §1:
 `https://claude.ai/code/routines/trig_01ESBxmpeokKZo2Gjki1Wmxn`. It reports "nothing changed" and
 stops when that is the answer — a quiet month is meant to produce no output at all.
 
-⚠️ **It still runs in a degraded mode.** The routine cannot check out this repo: Icarus is
-private and the cloud environment is not authorised for it. So it is checked out in the *public*
-HKUDS repo instead, carries a **snapshot** of this watch list in its prompt, and reports into its
-run session rather than opening a pull request here.
+✅ **Fully wired as of 2026-08-21.** The routine now checks out *this* repo, reads the watch list
+below directly (no drifting snapshot), clones the HKUDS repo into a temp directory as untrusted
+data, and on a real change writes a delta doc, moves the pin, and opens a **pull request against
+`dev`** — never pushing to `dev` or `main`.
 
-**Retried 2026-08-21 after the operator connected the GitHub connector — still HTTP 403**
-("You don't have access to a repository this routine uses"). So connecting the account-level
-connector is *not* sufficient: the Claude GitHub app must additionally have
-`Sujayprodduturi/Icarus` granted to it. If the app was installed with "Only select repositories",
-Icarus has to be added to that selection.
+*How it got there, since it took two attempts and the first fix was not the one that worked:*
+connecting the account-level **GitHub connector was not sufficient** — the update still returned
+HTTP 403 ("You don't have access to a repository this routine uses"). Running
+**`/install-github-app`** in a Claude Code session is what granted the access. Worth knowing if a
+future routine needs a private repo.
 
 Two consequences worth knowing:
 
