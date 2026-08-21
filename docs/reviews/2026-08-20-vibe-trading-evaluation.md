@@ -444,8 +444,26 @@ strategy decision — and that is worth more than the code itself.
 *Added 2026-08-20 on operator instruction: "we need to keep a track of this repo and the
 enhancements in it that can add value to us."* A monthly scheduled check runs against this list.
 
-**Pinned at evaluation time:** `HKUDS/Vibe-Trading` @ `7329cb0`, release 0.1.14, 2026-08-20.
-Everything below is a delta against that commit.
+**Pin:** `HKUDS/Vibe-Trading` @ `1907e47`, version 0.1.14, **2026-08-21**. Everything below is a
+delta against that commit. *(Originally pinned at `7329cb0`, 2026-08-20; moved after the first
+watch run.)*
+
+### First watch run — 2026-08-21
+
+**No re-evaluation warranted.** 68 commits since the original pin; version unchanged at 0.1.14.
+Nine of the ten watched paths were **byte-identical** — compared by blob sha, not diff text — and
+none of the three triggers fired. All four blockers stand.
+
+One watched path changed: `agent/src/quantlib/crossvalidation.py`, **+87/−0**, purely additive —
+a new `group_purged_kfold_splits` that groups rows by a time-group id so simultaneous observations
+across assets cannot straddle a train/test boundary. Nothing existing was modified, so **there is
+no fix here for us to mirror**: the oracle's existing behaviour is untouched.
+
+⚠️ **And a caveat worth keeping, if we ever reach for that new function.** The run reports it
+yields `purged=0` unconditionally and embargoes *forward* from the test block without purging train
+rows backward — where the original `purged_kfold_splits` computes a real purge count. For a panel
+with multi-day labels that is a leakage path the older function closes and the newer one does not.
+**Reported by the watch run and not independently verified here**; verify before use.
 
 ### The three that would force a re-evaluation
 
@@ -481,11 +499,16 @@ each removes one of the four blockers in §1:
 `https://claude.ai/code/routines/trig_01ESBxmpeokKZo2Gjki1Wmxn`. It reports "nothing changed" and
 stops when that is the answer — a quiet month is meant to produce no output at all.
 
-⚠️ **It runs in a degraded mode, and here is the fix.** The routine cannot check out this repo:
-Icarus is private and the cloud environment is not authorised for it (`create` returned HTTP 403,
-"You don't have access to a repository this routine uses"). So it is checked out in the *public*
+⚠️ **It still runs in a degraded mode.** The routine cannot check out this repo: Icarus is
+private and the cloud environment is not authorised for it. So it is checked out in the *public*
 HKUDS repo instead, carries a **snapshot** of this watch list in its prompt, and reports into its
 run session rather than opening a pull request here.
+
+**Retried 2026-08-21 after the operator connected the GitHub connector — still HTTP 403**
+("You don't have access to a repository this routine uses"). So connecting the account-level
+connector is *not* sufficient: the Claude GitHub app must additionally have
+`Sujayprodduturi/Icarus` granted to it. If the app was installed with "Only select repositories",
+Icarus has to be added to that selection.
 
 Two consequences worth knowing:
 

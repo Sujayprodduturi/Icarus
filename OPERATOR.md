@@ -142,6 +142,44 @@ are LF; the audit file is **mixed**, line by line. The only reliable check is to
 then run* `diff <(git diff --numstat) <(git diff --ignore-cr-at-eol --numstat)` *— if a file appears
 in that output, the edit changed line endings and the diff will be noise.)*
 
+## 5b. Which skills to use, and which to leave alone
+
+*(Operator-approved 2026-08-21, after an audit of the ~90 skills available. The point is not to use
+skills because they exist — most of them have nothing to do with this project — but to stop
+re-deriving by hand the things a skill already encodes.)*
+
+**Standing, before every code commit** — unchanged from §5 above, restated here so the list is in
+one place: `ponytail-review` (or `simplify`), then `code-review`. `security-review` as well on
+money-path or safety-critical code. Documentation-only changes are exempt; say so explicitly.
+
+**Adopted, with the reason each one earns its place:**
+
+| skill | when | why this one |
+|---|---|---|
+| `superpowers:test-driven-development` | any feature or bugfix, **before** writing implementation | The strongest of the set for us. Task 2g-3 was written code-first, and the code review then found the guard could be walked around by wrapping the refused word in `zscore`. Enumerating what must be *refused* before building the refuser is exactly the discipline that finds that. |
+| `superpowers:verification-before-completion` | before claiming anything is done, fixed, or passing | Aimed at this project's worst failure: the 2026-08-07 metric sheet was reported, believed, and later voided. Evidence before assertion. |
+| `superpowers:brainstorming` | before design work, not before mechanical work | Where the design *is* the deliverable — 3a's signal-test mode, 6a's eight strategies. |
+| `superpowers:systematic-debugging` | any wrong number or failing test, before proposing a fix | Our recurring shape is "the wrong version runs perfectly", which rewards finding the cause over guessing at it. |
+| `superpowers:receiving-code-review` | on every review finding | Verify the finding against the code before implementing it. All five findings on 2g-3 were verified true — but the one that mattered would have been easy to wave through, and one review finding in this repo's history was wrong about which words were affected. |
+| `superpowers:writing-plans` / `executing-plans` | multi-step work with checkpoints | Step 3 and Step 4 of the repair plan. |
+| `superpowers:subagent-driven-development` / `dispatching-parallel-agents` | independent work that genuinely parallelises | **Enabled by the operator 2026-08-21**, reversing the earlier standing instruction not to use agents. The test is whether the tasks are actually independent — research alongside implementation, several files audited at once. Not for work with shared state or a sequential dependency. |
+| `llm-council` | a real decision with stakes and more than one defensible answer | Precedent: `docs/reviews/council-2026-07-31-prd-phases-0-1-2.md`. Finding F45 (the concentration cap) and the Vibe-Trading build/adopt/hybrid call were both of this kind. |
+| `claude-api` | **mandatory** before writing or debugging any LLM-touching code | Phase 3's Strategy-Inventor and the news/sentiment agents. Its own trigger says read it before opening the file, not after. |
+| `dataviz` / `artifact-design` | Step 4, the metric sheet | A sheet the operator can actually read beats a JSON dump. Not before Step 4. |
+| `update-config`, `schedule` | harness and routine changes | Already used for the monthly Vibe-Trading watch. |
+
+**Deliberately not used, and why — so this is a decision rather than an oversight:**
+
+- **`superpowers:using-git-worktrees`** — this session works in place, and §4's git rule is `dev`
+  plus commit every change. A worktree adds isolation we do not want here.
+- **`superpowers:using-superpowers`** instructs invoking a skill before *any* response, including
+  clarifying questions. That contradicts §1, which wants questions asked early and cheaply.
+  **§1 wins.**
+- **The `obsidian-second-brain` suite** (~40 skills) — there is no vault. **`impeccable`, `design`,
+  `design-flow`** — Icarus has no user interface. **Semrush, Canva, Gamma, Lovable, Prospecting,
+  `last30days`, `x-pulse`, `research`, `claude-in-chrome`, `init`** — marketing, vault or
+  web-research tooling with no bearing on a trading engine.
+
 ## 6. Strategy direction
 
 - **Matt Donlevey's mechanical SMC / liquidity method is the DNA** of Icarus strategies
