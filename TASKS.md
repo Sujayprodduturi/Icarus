@@ -29,10 +29,13 @@ hold them. Of its four tasks: **2g-1** (the look-ahead sweep was blind, not thin
 F34 / decision D11) is ✅ done 2026-08-17, and **2g-3** (`rank_by` and the `xs_` words accept a
 market-wide value that is identical for every symbol — F25) is ✅ done 2026-08-20 — fixed with a
 declared `Primitive.market_wide`, plus a tie across the ranking cut now counted as an ambiguous
-selection rather than broken alphabetically in silence. **Remaining: 2g-4** (annulled flash-crash
-prints are still in the panel — F23, scoped by decision D13 to a bounded known-events list that
-declares itself incomplete). Then Step 3 — the signal test (3a), two capital rows (3b) and the
-common-window comparison (3c). **Task F12** (DSR/PBO/BHY) was added to the plan on 2026-08-20 and
+selection rather than broken alphabetically in silence. **2g-4 was closed on 2026-08-21 without
+being built: its premise was false.** Finding F23 said NSE annulled the 2012-10-05 flash-crash
+trades; NSE **denied** the annulment application, SAT remanded rather than annulling, and the
+matter settled privately between brokers in 2015. The prints are valid trades and the panel is
+correct as it stands — decision D14 supersedes D13, which had scoped the task on that premise.
+**Step 2g is therefore complete and Step 3 is next** — the signal test (3a), two capital rows (3b)
+and the common-window comparison (3c). **Task F12** (DSR/PBO/BHY) was added to the plan on 2026-08-20 and
 must land before the strategies are pre-registered; the audit-log hash chain was added after the
 run. Both from `docs/reviews/2026-08-20-vibe-trading-evaluation.md`.
 

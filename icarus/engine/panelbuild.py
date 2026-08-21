@@ -65,9 +65,28 @@ a data error**:
   at a pegged ₹1000, or a thin name printing an identical price for a fortnight — the ATR
   collapses toward zero, and 8x almost-nothing is a threshold that ordinary rounding clears.
 * **158 — real prints at the 20% circuit band**, including 32 symbols on 2012-10-05, the Emkay
-  erroneous-order flash crash. Those trades happened. NSE annulled some of them afterwards, which
-  is a genuine and separate problem — and it wants a list of annulled sessions, not a statistical
-  test that cannot tell an annulled print from a real crash.
+  erroneous-order flash crash. **Those trades happened, and they were never undone.**
+
+  This paragraph used to say "NSE annulled some of them afterwards", and that was **false**
+  (corrected 2026-08-21, finding F23 closed as not-a-defect). Emkay applied for annulment and
+  **NSE's Relevant Authority denied it**; Emkay bore the loss, around ₹51 crore, more than its own
+  market capitalisation at the time. It appealed, and in September 2014 SAT **remanded** the matter
+  for NSE to reconsider rather than annulling anything itself; it ended in 2015 as a private
+  settlement between Emkay and two counterparty brokers — compensation between members, not an
+  exchange annulment. The buyers who filled at those lows kept their gains, which is precisely why
+  the application was refused.
+
+  Sources, as-of 2026-08-21: `business-standard.com/amp/article/markets/`
+  `nse-rejects-emkay-plea-for-cancellation-of-erroneous-trade-113050200929_1.html` and
+  `blog.theleapjournal.org/2014/09/sat-order-on-nse-actions-after-emkay.html` (which quotes SAT
+  directing NSE to "consider afresh whether trades ... should be annulled" — leaving them valid).
+
+  **So a stop that fills against the 2012-10-05 low is modelling what really happened**, and
+  blanking those bars would be the same biased deletion of the tail this whole note exists to
+  prevent, arriving through a different door. India had no annulment framework at all before
+  July 2015; SEBI created one *because of* this case, and made it near-impossible to invoke —
+  request within 30 minutes, fee of 5% of trade value. No NSE cash-segment annulment is documented
+  anywhere in this panel's window.
 
 The premise was wrong. Bhavcopy is the exchange's own end-of-day settlement file, not a live tick
 feed; it does not carry the random bad prints an ATR test is built to catch. A test whose every

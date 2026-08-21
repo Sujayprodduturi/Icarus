@@ -1,6 +1,6 @@
 # STATE.md — where Icarus actually is, today
 
-**Last updated: 2026-08-20.** This file is the **session entry point**. It is deliberately short:
+**Last updated: 2026-08-21.** This file is the **session entry point**. It is deliberately short:
 it tells a new agent (or the operator after a break) what is true right now, what happens next,
 and which file to open for the detail. It holds no reasoning of its own — everything here points
 somewhere durable.
@@ -23,8 +23,8 @@ Then an audit of that run found the engine had been measuring something other th
 that were written down. **Every number from that run is void.** We are part-way through the repair
 plan that has to finish before the next backtest is worth running.
 
-**Current position: the post-backtest repair plan, Step 2g-4** — the last item before Step 3.
-2g-3 was completed 2026-08-20.
+**Current position: Step 2g is complete and Step 3 is next.** 2g-3 was completed 2026-08-20;
+**2g-4 was closed on 2026-08-21 as not-a-defect** — its premise turned out to be false (see below).
 
 **The plan grew on 2026-08-20, by operator decision.** Two items were added after an evaluation of
 the open-source `HKUDS/Vibe-Trading` platform found it had built things we had not: **F12
@@ -52,7 +52,7 @@ the open-source `HKUDS/Vibe-Trading` platform found it had built things we had n
 ## 3. What is built and passing
 
 **1,013 tests passing, 4 skipped. `mypy` clean (123 files). `ruff` clean (143 files).**
-Verified 2026-08-20 on `dev`, after task 2g-3.
+Verified 2026-08-21 on `dev`.
 
 *One pre-existing `mypy` complaint sits outside that scope and is not new:*
 `scripts/build_panel.py:118` returns a bare `tuple`. The project's `mypy` invocation is
@@ -100,7 +100,7 @@ Strategy files: `strategies/*.yaml` (three, all at v2 after the F1 rewrite).
 
 ## 5. The repair plan — where we are in it
 
-Full detail in the audit's §6c. Status as of 2026-08-20:
+Full detail in the audit's §6c. Status as of 2026-08-21:
 
 | step | what | status |
 |---|---|---|
@@ -115,8 +115,8 @@ Full detail in the audit's §6c. Status as of 2026-08-20:
 | **2g-1** | The look-ahead sweep was blind, not thin (F24) | ✅ 2026-08-17 |
 | **2g-2** | Unverified `scale_free` flags (F27) + the concentration cap (F34, D11) | ✅ 2026-08-17 |
 | **2g-3** | `rank_by` and the `xs_` words accept a market-wide value (F25) | ✅ 2026-08-20 |
-| **2g-4** | Annulled flash-crash prints are still in the panel (F23) | ⬅️ **NEXT** |
-| **3a** | Signal-test mode — every signal, uniform notional, no book (F2, D1) | todo |
+| **2g-4** | ~~Annulled flash-crash prints are still in the panel (F23)~~ | ❌ closed 2026-08-21 — **not a defect**, premise false (D14) |
+| **3a** | Signal-test mode — every signal, uniform notional, no book (F2, D1) | ⬅️ **NEXT** |
 | **3b** | Two capital rows: ₹10,00,000 edge run and ₹1,00,000 seed run (F15, D8, D9) | todo |
 | **3c** | Common-window comparison (F16) | now the **default** after F40, not a later correction |
 | **4a–4d** | Gross · costs · tax · net columns; per-trade CSV; alpha/beta/R²; withdraw the bad Nifty line | todo |
@@ -126,19 +126,37 @@ Full detail in the audit's §6c. Status as of 2026-08-20:
 | **7** | Run. ← the next backtest | todo |
 | *after* | Audit-log hash chain + `verify_chain` — **added 2026-08-20**, deliberately off the critical path: no orders exist in Phase 1, so it moves no number on the metric sheet | todo |
 
-### 2g-4, in plain English (the next task)
+### Why 2g-4 was closed without being built (2026-08-21)
 
-On 2012-10-05 a broker (Emkay) sent a mistaken basket of orders into the NSE open and the market
-fell ~16% in seconds. **NSE annulled those trades** — legally, they did not happen. But the prices
-printed, and the bhavcopy we backfilled from carries them: 32 symbols in our panel hold 20%-circuit
-prints from that morning. A backtest stop placed anywhere near one of those prices would "fill"
-against a trade that was undone, producing a loss that could not have occurred.
+**The finding said NSE annulled the 2012-10-05 flash-crash trades. It didn't.**
 
-**Decision D13 (2026-08-20) bounds the work.** No statistical test can produce the list — a test
-cannot tell an annulled print from a genuine crash, and reconstructing every NSE annulment since
-2011 from circulars is open-ended. So we hard-code the events we can source, each with its source
-and as-of date, and **the list declares itself incomplete in code** so nobody later reads it as
-exhaustive.
+Emkay Global applied for annulment after its dealer error crashed the Nifty ~16%. **NSE's Relevant
+Authority denied the application.** Emkay bore the loss — around ₹51 crore, more than its own
+market capitalisation. It appealed; in September 2014 SAT **remanded** the matter for NSE to
+reconsider rather than annulling anything, and it ended in 2015 as a private settlement between
+Emkay and two counterparty brokers: compensation between members, not an exchange annulment.
+
+So those prints are **legally valid trades**. Somebody bought at those lows that morning and kept
+the gain — which is precisely why the application was refused. A backtest stop filling against that
+low is modelling what really happened, and blanking the bars would repeat the biased deletion of
+the tail that the ATR bad-tick detector already attempted and was reverted for.
+
+There is also nothing else to put in a list: India had **no annulment framework at all** before
+July 2015. SEBI created one *because of* this case and made it near-impossible to invoke — request
+within 30 minutes, fee of 5% of trade value — and no NSE cash-segment annulment is documented
+anywhere in 2011-2022. Halts are not annulments.
+
+**Decision D14 supersedes D13**, which had scoped this task on the false premise. The corrections
+are written into `panelbuild.py`, the audit, this file and `TASKS.md`, each with its source and
+as-of date. **The lesson, which cost a scheduled task:** an external fact that schedules work has
+to be sourced *before* it is scheduled. F23 sat in the plan for eleven days, and a scope for it was
+approved, on a sentence nobody had checked.
+
+**Two things worth keeping from the investigation.** The "32 symbols" figure had **no saved
+derivation** anywhere — re-measuring the raw bhavcopy, a −15% intraday cut lands on exactly 32, so
+it is reproducible by a natural measure rather than re-derived. And the **Nifty benchmark carries
+the print too**: `benchmark_low` 4888.20 against a 5746.95 close, which every index-relative word
+reads.
 
 ### What 2g-3 did (2026-08-20)
 
@@ -201,7 +219,7 @@ closed.**
 `F10` alpha/beta/R² vs Nifty (invariant #21) · `F12` DSR/PBO · `F13` withdraw the invalid Nifty
 CAGR line · `F14` universe is ~98 names not 600–900 (not a defect; the scope was chosen on a wrong
 number) · `F17` regime breakdown + cost stress · `F20` two-source cross-check never applied to the
-panel · `F22` no lag operator or series arithmetic in the DSL (partly done) · `F45` above.
+panel · `F22` no lag operator or series arithmetic in the DSL (partly done) · `F45` above · **`F47` `tradable` does not stop an exit, only an entry** — new 2026-08-21.
 
 **F12 now has a reference implementation available.** The 2026-08-20 evaluation of the open-source
 `HKUDS/Vibe-Trading` platform (`docs/reviews/2026-08-20-vibe-trading-evaluation.md`) found a
