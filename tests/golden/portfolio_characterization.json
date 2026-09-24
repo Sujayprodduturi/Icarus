@@ -1,0 +1,115 @@
+{
+  "sha256": "98e9aa17227371b9762c56b93ff04ce93de3f8f4ccba0f10b8109b5ef5d00164",
+  "observation": {
+    "ambiguous_selection_days": 0,
+    "concentration_capped": 0,
+    "equity": [
+      [
+        "2024-01-01T00:00:00+00:00",
+        "100000"
+      ],
+      [
+        "2024-01-02T00:00:00+00:00",
+        "99996.50"
+      ],
+      [
+        "2024-01-03T00:00:00+00:00",
+        "99996.50"
+      ],
+      [
+        "2024-01-04T00:00:00+00:00",
+        "99218.31361950000"
+      ],
+      [
+        "2024-01-05T00:00:00+00:00",
+        "99218.31361950000"
+      ],
+      [
+        "2024-01-06T00:00:00+00:00",
+        "99197.52384550000"
+      ]
+    ],
+    "final_equity": "99197.52384550000",
+    "skipped": {
+      "already_held": 1,
+      "entry_not_filled": 1
+    },
+    "stale_mark_value": "0",
+    "stale_marks": 0,
+    "trades": [
+      {
+        "costs": "25.68638050000",
+        "entry_charges": {
+          "brokerage": "0.000",
+          "dp_charge": "0",
+          "exchange_txn": "0.153576750",
+          "gst": "0.02854426500",
+          "sebi_fee": "0.00500250",
+          "stamp_duty": "0.7503750",
+          "stt": "5.00250",
+          "total": "5.93999851500",
+          "turnover": "5002.50"
+        },
+        "entry_price": "100.05",
+        "entry_ts": "2024-01-02T00:00:00+00:00",
+        "exit_charges": {
+          "brokerage": "0.000",
+          "dp_charge": "15.34",
+          "exchange_txn": "0.130398250",
+          "gst": "0.02423623500",
+          "sebi_fee": "0.00424750",
+          "stamp_duty": "0",
+          "stt": "4.24750",
+          "total": "19.74638198500",
+          "turnover": "4247.50"
+        },
+        "exit_price": "84.95",
+        "exit_ts": "2024-01-04T00:00:00+00:00",
+        "gross_pnl": "-755.00",
+        "holding_days": 2,
+        "net_pnl": "-780.68638050000",
+        "quantity": 50,
+        "reason": "stop_loss",
+        "risk_per_share": "10.0",
+        "symbol": "AAA"
+      },
+      {
+        "costs": "19.78977400000",
+        "entry_charges": {
+          "brokerage": "0.000",
+          "dp_charge": "0",
+          "exchange_txn": "0.061430700",
+          "gst": "0.01141770600",
+          "sebi_fee": "0.00200100",
+          "stamp_duty": "0.3001500",
+          "stt": "2.00100",
+          "total": "2.37599940600",
+          "turnover": "2001.00"
+        },
+        "entry_price": "100.05",
+        "entry_ts": "2024-01-02T00:00:00+00:00",
+        "exit_charges": {
+          "brokerage": "0.000",
+          "dp_charge": "15.34",
+          "exchange_txn": "0.061369300",
+          "gst": "0.01140629400",
+          "sebi_fee": "0.00199900",
+          "stamp_duty": "0",
+          "stt": "1.99900",
+          "total": "17.41377459400",
+          "turnover": "1999.00"
+        },
+        "exit_price": "99.95",
+        "exit_ts": "2024-01-06T00:00:00+00:00",
+        "gross_pnl": "-2.00",
+        "holding_days": 4,
+        "net_pnl": "-21.78977400000",
+        "quantity": 20,
+        "reason": "end_of_data",
+        "risk_per_share": "10.0",
+        "symbol": "BBB"
+      }
+    ],
+    "unfilled_exits": 0
+  }
+}
