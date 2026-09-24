@@ -1,6 +1,6 @@
 # STATE.md — where Icarus actually is, today
 
-**Last updated: 2026-08-21.** This file is the **session entry point**. It is deliberately short:
+**Last updated: 2026-09-24.** This file is the **session entry point**. It is deliberately short:
 it tells a new agent (or the operator after a break) what is true right now, what happens next,
 and which file to open for the detail. It holds no reasoning of its own — everything here points
 somewhere durable.
@@ -23,8 +23,7 @@ Then an audit of that run found the engine had been measuring something other th
 that were written down. **Every number from that run is void.** We are part-way through the repair
 plan that has to finish before the next backtest is worth running.
 
-**Current position: Step 2g is complete and Step 3 is next.** 2g-3 was completed 2026-08-20;
-**2g-4 was closed on 2026-08-21 as not-a-defect** — its premise turned out to be false (see below).
+**Current position: Step 2g is complete; Task 3a is planned but not implemented.** Its 2026-08-22 design was independently reviewed and corrected on 2026-09-24 with operator approval (D16). Step 0 now uses synthetic characterization; any real-data rerun counts as a trial. See `docs/plans/2026-08-22-signal-test.md`. 2g-4 was closed on 2026-08-21 as not-a-defect — its premise was false.
 
 **The plan grew on 2026-08-20, by operator decision.** Two items were added after an evaluation of
 the open-source `HKUDS/Vibe-Trading` platform found it had built things we had not: **F12
@@ -116,7 +115,7 @@ Full detail in the audit's §6c. Status as of 2026-08-21:
 | **2g-2** | Unverified `scale_free` flags (F27) + the concentration cap (F34, D11) | ✅ 2026-08-17 |
 | **2g-3** | `rank_by` and the `xs_` words accept a market-wide value (F25) | ✅ 2026-08-20 |
 | **2g-4** | ~~Annulled flash-crash prints are still in the panel (F23)~~ | ❌ closed 2026-08-21 — **not a defect**, premise false (D14) |
-| **3a** | Signal-test mode — every signal, uniform notional, no book (F2, D1) | ⬅️ **NEXT** |
+| **3a** | Signal-test mode — every signal accounted for, uniform notional, no book (F2, D1); diagnostic only | ⬅️ **NEXT: plan corrected/approved, code not built** |
 | **3b** | Two capital rows: ₹10,00,000 edge run and ₹1,00,000 seed run (F15, D8, D9) | todo |
 | **3c** | Common-window comparison (F16) | now the **default** after F40, not a later correction |
 | **4a–4d** | Gross · costs · tax · net columns; per-trade CSV; alpha/beta/R²; withdraw the bad Nifty line | todo |
@@ -202,7 +201,6 @@ Two things worth carrying forward:
 | item | what is needed | blocks |
 |---|---|---|
 | **O4** | **Host details.** The decisive question: does the line have a **static public IP**, and is it behind **CGNAT**? Indian residential broadband usually is, which makes a static IP impossible on that line at any price — and invariant #6 requires every order to originate from a registered static IP. Also: CPU arch, Ubuntu version, RAM/disk, always-on, UPS, remote access, timezone, disk encryption. | 🔴 Phase 1 going live (task 1.10) |
-| **F45** | **Should the concentration cap trim winners?** It is an *entry* bound today: nothing re-checks a position after it opens, so a name compounding 5× drifts from 25% to **61% of the book by bar 58**. Trimming has cost and tax consequences, so it is a decision, not a bug fix. Second question in the same finding: the cap is measured against **realised** equity, so unrealised losses do not shrink it. | 3b (where concentration bites) |
 | **O5** | Daily broker auth: operator one-tap vs TOTP automation. | Phase 2 |
 | **O7** | CA confirmation on the equity-delivery tax classification. | Tax model confidence |
 
@@ -219,7 +217,7 @@ closed.**
 `F10` alpha/beta/R² vs Nifty (invariant #21) · `F12` DSR/PBO · `F13` withdraw the invalid Nifty
 CAGR line · `F14` universe is ~98 names not 600–900 (not a defect; the scope was chosen on a wrong
 number) · `F17` regime breakdown + cost stress · `F20` two-source cross-check never applied to the
-panel · `F22` no lag operator or series arithmetic in the DSL (partly done) · `F45` above · **`F47` `tradable` does not stop an exit, only an entry** — new 2026-08-21.
+panel · `F22` no lag operator or series arithmetic in the DSL (partly done) · **`F47` `tradable` does not stop an exit, only an entry** — new 2026-08-21. F45 was decided in D12 and is scheduled for 3b.
 
 **F12 now has a reference implementation available.** The 2026-08-20 evaluation of the open-source
 `HKUDS/Vibe-Trading` platform (`docs/reviews/2026-08-20-vibe-trading-evaluation.md`) found a
@@ -274,5 +272,5 @@ carries the full versions.
 Repo `Sujayprodduturi/Icarus`. Work on **`dev`**; `main` holds only working code. **Commit every
 change.** **No session link in commit messages.**
 
-Current: `dev` at `414fa0d`, clean. `main` is still at the Phase-0 exit commit — the whole of
-Phase 1 lives on `dev` and has not been merged.
+Current work remains on `dev`; check `git status` and `git log` for the live commit. `main` still
+holds the Phase-0 exit; Phase 1 has not been merged.

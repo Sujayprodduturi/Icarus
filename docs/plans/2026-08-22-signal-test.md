@@ -1,6 +1,6 @@
 # Task 3a — the signal test: plan
 
-**Written 2026-08-22, before any code.** Decisions in `OPERATOR.md` §7b D15. Findings below come
+**Written 2026-08-22, before any code; corrected 2026-09-24 after independent Astra review and operator approval.** Decisions in `OPERATOR.md` §7b D15. The corrections below supersede the original Step-0 trial exemption, transfer-coefficient claim, and overstrong placebo/uncertainty claims. No real-data run or Task-3a implementation has occurred as part of this correction. Findings below come
 from six agents run in parallel — an integration researcher, a statistician, a prior-art
 researcher, a test designer, an architect, and a strategist. Where two of them reached the same
 conclusion by different routes, that is noted, because independent convergence is the strongest
@@ -95,11 +95,11 @@ D15's five answers all survive. These are gaps and conflicts on top of them.
 | **Δ4** | **Signals are currently dropped silently in three places.** A signal on the last bar (`portfolio.py:302`, `if t < last`), a signal on an untradable session (`portfolio.py:552`, filtered inside a list comprehension before any counter), and a signal that is neither 0.0 nor 1.0 (`== 1.0`, so `0.5` and `nan` read as "no"). In a mode whose output is a *fraction of signals*, a silently shrinking denominator is the failure. | test designer, researcher | Every one becomes a **counted** skip reason. The conservation identity `signals == trades + skips` is a P0 test. |
 | **Δ5** | **`summarise([], [])` does not raise — it returns `max_drawdown = 0.0`, `cagr = 0.0`, `exposure = 0.0`.** Real numbers, not `nan`; only Sharpe is `nan`. A signal result routed through the normal metrics path would print "max drawdown 0.0%", which reads as the best possible result rather than a missing one. | researcher, **verified directly** | The result type is **structurally separate**, with no field a drawdown could be silently zero in. Four independent locks — §5. |
 | **Δ6** | **`RunResult.skipped` is `dict[Skipped, int]` — counts only.** There is no per-signal record of what was discarded, so "the signals we couldn't take were the good ones" is not computable and "good idea, wrong book" stays an inference rather than a number. | strategist | Add a **per-signal discard ledger** (symbol, decision bar, reason). Scope addition, and the thing that makes the whole exercise deliver a sentence instead of a hint. |
-| **Δ7** | **There is no golden regression to protect the extraction.** `docs/STATE.md:124` has step 5a as `todo`; `tests/golden/` is empty. The design must move ~185 lines of money-path code (the exit ladder above all) into a module both simulators share — necessary, because two copies of the exit rules that drift make the mode comparison meaningless — and there is no end-to-end artefact to prove it changed nothing. | architect, **verified directly** | **Step 0**: characterization snapshot + SHA-256 before anything moves; byte-identity required after. |
-| **Δ8** | **The gap between the modes has a name and a reference band.** It is the **transfer coefficient** (Clarke, de Silva & Thorley, *FAJ* 58(5), 2002): constrained IR ÷ unconstrained IR. Real constrained portfolios run **0.3–0.8**. Below ~0.3 the constraint is doing more work than the signal — which is D9's `NEEDS_MORE_CAPITAL`, not a verdict on the strategy. | prior-art, converging with strategist's "gap diagnostic" | Print `TC_observed` on both reports with the 0.3–0.8 band beside it. |
+| **Δ7** | **There is no golden regression to protect the extraction.** `tests/golden/` is empty, yet the design moves money-path code. | architect, **verified directly** | **Step 0**: deterministic synthetic characterization before anything moves; compare exact outputs after extraction. A real-panel rerun is a counted trial, never an unlogged shortcut. The full golden backtest remains Step 5a. |
+| **Δ8** | **A proposed transfer coefficient is undefined here.** It requires comparable constrained and unconstrained information-ratio series, while D15 forbids equity-curve metrics for the signal test. A ratio of trade-level returns is not that coefficient. | Astra review, 2026-09-24 | **Do not print `TC_observed` or its 0.3–0.8 band.** Compare matched-window signal attrition, costs, and returns by reason instead. Revisit only if a defensible common estimand is specified. |
 | **Δ9** | **`Metrics.win_rate` is a naming trap.** `quantstats` and `ffn` ship a `win_rate` meaning *fraction of positive periods*; `vectorbt`, `backtrader` and `pyfolio` ship one meaning *fraction of positive trades*. Ours is per-trade. | prior-art | Rename to `win_rate_per_trade`. Costs nothing now. |
-| **Δ10** | **`objective.min_trades_oos: 100` no longer floors anything.** It is stated in raw trades; 100 clustered trades can be an effective N of 5–20. Same for `risk.stagnation_check_after_trades: 50` — #23's "confidence interval on mean R includes zero" test needs a *clustered* CI or it fires late and confidently. | statistician | **Operator decision — §4 D-f.** An #25-shaped threshold change requiring dated append-only treatment, never a silent edit. |
-| **Δ11** | **The trial ledger will inflate the bar for reasons unrelated to edge.** It stands at **12** (verified). Step 7 at eight strategies × (₹10L portfolio + ₹1L portfolio + signal) is up to 24 more, taking lifetime past 35 — pushing the effective Sharpe bar above `objective.min_sharpe: 1.0` on arithmetic alone. | strategist, test designer | **Operator decision — §4 D-e.** Needed before 6b, not discovered at Step 7. |
+| **Δ10** | **Raw trade count can overstate independent evidence.** One hundred clustered trades may represent far fewer independent observations. | statistician | Report effective sample size and uncertainty in the signal diagnostic. Any new promotion or stagnation threshold is a separate dated gate amendment, not part of Task 3a. See §4 D-f. |
+| **Δ11** | **Every result-inspecting evaluation consumes trial budget.** A historical count of 12 was observed while drafting; re-read the live ledger before reporting a count. Future signal and portfolio evaluations must not be silently exempted. | strategist, test designer; corrected by Astra review | Preserve the existing append-only trial rule. Record each capital-row result with its provenance; estimate effective correlated trials in the scheduled multiple-testing task before strategy registration. See §4 D-e. |
 
 **Rejected after checking, so they are decisions rather than oversights:**
 
@@ -128,9 +128,9 @@ D15's five answers all survive. These are gaps and conflicts on top of them.
 
 ---
 
-## 4. Open decisions — the operator's, not mine
+## 4. Design decisions and remaining approval points
 
-### D-a — fills and tradability *(recommendation, needs confirmation)*
+### D-a — fills and tradability *(required by existing invariants)*
 
 **Apply the `FillModel` in full, and keep `panel.tradable` at entry.** This is determined by the
 invariants rather than by preference: #12 says a resting LIMIT fills only if price trades strictly
@@ -163,53 +163,55 @@ alone misleads in opposite directions:
   and it is **also a free precision upgrade** — subtracting the common factor is exactly what was
   inflating the variance. In the worked example it raised effective N from **377 to 933**. Doing
   the honest thing and doing the compliant thing turn out to be the same operation.
-- **Test B — the footprint-matched random-entry placebo.** Hold the entry days and trades-per-day
-  fixed, replace the chosen *symbols* with random tradable ones, 4,999 permutations. It matches
-  market path, calendar timing, holding period and concurrency exactly, and needs no independence
-  assumption at all. Calibration verified on our data (mean p 0.483–0.498 against a target of
-  0.50; P(p<0.05) 0.030–0.037 against 0.05 — correct, slightly conservative).
+- **Test B — a fixed-footprint symbol-selection diagnostic, not a full strategy placebo.** Hold
+  observed entry dates and holding windows fixed and replace selected symbols with random names
+  tradable on those dates. This tests whether *symbol choice* beat a conditional random comparison;
+  it does not preserve the replacement symbols' own stop/target exits or establish that the full
+  strategy would have traded them. State the exchangeability assumption, show the reference
+  universe and permutation count, and suppress a p-value if the null cannot be defended. A full
+  strategy placebo would require rerunning symbol-dependent exits and would change the footprint.
 
-In the worked example A gave t = 2.40 (marginal) and B gave p = 0.0002 (strong). Not a
-contradiction: momentum's *name selection* is genuinely good, but once charged for the market days
-it chose to be invested on, the residual edge is thin. Printing only one would mislead.
+The earlier worked-example contrast between A and B is exploratory, not a validated verdict:
+A measures market-adjusted trade returns, while B holds the observed footprint fixed to examine
+symbol selection. Neither alone establishes a live edge. Keep the two estimands named and separate.
 
 ### D-d — block-clustered confidence intervals *(recommendation)*
 
-Six lines of numpy, `L = max(63, 3 × longest_holding_bars)`, `t` critical value at `df = G−1` via
-Cornish–Fisher (no scipy in this project). Block length is not delicate — sweeping
-L ∈ {21, 42, 63, 126, 189, 252} moved coverage by ≤4 points in every profile. Same estimator for
-the win rate (a proportion is a mean of a 0/1 variable); **not** Wilson or Clopper–Pearson, which
-fix small-sample skew we do not have and assume the independence we do not have. The binomial SE
-is a flat 0.0079 regardless of the truth and covers as little as **26%** of the time.
+Use a block-clustered estimator for trade-return and win-rate uncertainty, with the proposed
+`L = max(63, 3 × longest_holding_bars)` as a pre-registered starting rule. Report block count,
+effective sample size, method and assumptions. If the span yields too few independent blocks for
+a defensible interval, report `INSUFFICIENT_EVIDENCE` instead of a confidence interval or p-value.
+Validate coverage across long-hold, clustered, sparse and no-trade fixtures before quoting
+uncertainty. Ordinary per-trade binomial intervals assume independence and are not suitable here.
 
-`L`, `ci_level`, `placebo_permutations` and the RNG seed are all result-affecting and get
-pre-registered and dated with the notional, per #25.
+`L`, the minimum usable block count, `ci_level`, `placebo_permutations` and the RNG seed are
+result-affecting and must be pre-registered and dated with the notional before real-data evaluation.
 
-### D-e — the trial ledger — **needs the operator, cannot be defaulted**
+### D-e — the trial ledger — **corrected 2026-09-24**
 
-Three linked questions, all gate-affecting, all better answered now than at Step 7:
+The existing rule counts every real-data evaluation, including hand-authored candidates,
+calibration and same-strategy reruns. D15(d) explicitly counts signal tests. Therefore Step 0 may
+be uncounted only when it uses synthetic fixtures, not when it reruns the real panel with
+`ledger=None`. Record each inspected ₹10L and ₹1L capital-row result with its run/strategy/config
+identity; do not silently merge or exempt them. The scheduled multiple-testing task estimates
+how correlated evaluations contribute to *effective* trial count. Read the live ledger before
+quoting its total. This applies the existing rule; it is not a new gate amendment.
 
-1. Does a signal-test run inflate the trial count the deflated-Sharpe correction uses? *D15(d)
-   already says yes.* The consequence is arithmetic: 12 today + up to 24 at Step 7 → past 35,
-   which pushes the effective Sharpe bar above `min_sharpe: 1.0` for reasons unrelated to any
-   strategy's edge.
-2. Are 3b's ₹10L and ₹1L rows **one** trial or **two**? Undecided anywhere.
-3. Does Step 0's characterization re-run count? *My recommendation: no.* Two runs of identical
-   code over identical data are one evaluation, and #24 counts searches, not executions. The
-   `ledger=None` parameter already exists (`runner.py:201`). But it is the operator's call.
+### D-f — effective-N floor — **separate gate decision, not Task 3a**
 
-### D-f — `min_trades_oos` as an effective-N floor — **needs the operator**
-
-`objective.min_trades_oos: 100` in raw trades can be an effective N of 5–20. Restating it as an
-effective-N floor is the honest fix and it **tightens** the gate. It is an #25 threshold change:
-dated, append-only, `acknowledged_post_hoc: true` since results exist. Not a silent edit.
+Keep `objective.min_trades_oos: 100` unchanged during this diagnostic. Report raw trades,
+independent blocks and effective sample size side by side. Replacing or supplementing the
+promotion gate's raw-trade floor, or changing the stagnation test, requires its own statistical
+contract and a dated append-only amendment with post-results acknowledgement. Do not infer an
+approved numeric threshold from this plan.
 
 ### D-g — the per-signal discard ledger *(recommendation)*
 
-Scope addition per Δ6. Without it, the headline conclusion of the whole exercise is an inference.
-With it, the report emits mechanically: *"F8: 6,342 of 7,301 signals refused; refused-set mean net
-R +0.11 against taken-set +0.05; median concurrency 23 against a 4-slot book ⇒ good idea, wrong
-book."*
+Scope addition per Δ6. Record every refused signal and its reason. Skip records alone cannot
+show what the refused trade would have earned. Any refused-set outcome requires a separate,
+matched synthetic observation under stated fill and exit assumptions; report unmatched signals
+and uncertainty. Even then, a difference is descriptive, not proof that the book constraint
+caused it. The bridge may say “possible edge, wrong book,” not mechanically assert it.
 
 ---
 
@@ -273,7 +275,7 @@ Test-first throughout: write the acceptance test, watch it fail, implement, watc
 
 | step | what | depends on |
 |---|---|---|
-| **0** | **Characterization snapshot.** Run the current engine over `var/panel.npz` for all three strategies with `ledger=None`; save `backtest_results.json` outside the tree; record SHA-256 in the commit message. The stand-in for the golden regression that 5a will capture properly. | — |
+| **0** | **Synthetic characterization snapshot.** Build a deterministic small panel that exercises entries, exits, partial fills, costs and refusal paths. Save current output and a SHA-256 before extracting shared logic; require exact identity after. Do not read the real panel or the lockbox in this uncounted step. A later real-panel evaluation is a counted trial. | — |
 | **1** | `simcore.py` extraction. **A move, not a tidy** — a reviewer must read the diff as relocated lines. | 0 |
 | **2** | `signal_test:` config block + loader refusals | — |
 | **3** | Lockbox span guards: `development_span`, `assert_span_before_lockbox` | — |
@@ -285,8 +287,10 @@ Test-first throughout: write the acceptance test, watch it fail, implement, watc
 | **9** | `scripts/run_signal_test.py` — the sheet, ASCII-only, and the per-trade CSV (pre-delivers 4b) | 8 |
 
 **Waves:** A = {1, 2, 3} · B = {4} · C = {5, 6} · D = {7, 9-skeleton} · E = {8, finish 9}.
-Step 1 is one agent, one commit, reviewed against Step 0's hash. It is the only step that can
-break a currently-passing money path.
+Step 1 is one agent, one commit, reviewed against Step 0's synthetic hash and existing tests.
+It is the only step that moves a currently-passing money path. A synthetic snapshot is necessary
+but not sufficient for confidence: preserve the full failure-path unit suite and independent
+review. Do not claim the later golden backtest has been captured.
 
 ---
 
@@ -336,21 +340,27 @@ Ordered so a reader cannot reach a number before reaching the reason to doubt it
   concurrency line is what tells the reader how much to discount §3.
 - **§2 Signal shape** — signals per session, clustering in calendar time, holding-period
   distribution split winners/losers, ADV participation at the uniform notional.
-- **§3 Edge — gross and net side by side (D2), never one column.** Mean alpha per trade **± the
-  block-clustered band** (the primary); mean raw return **always printed beside the random-entry
-  null**; the placebo p-value; win rate ± band; median beside every mean; expectancy in R; cost
-  drag at ₹1L **and** restated at the portfolio's median position size.
+- **§3 Edge — gross and net side by side (D2), never one column.** Mean alpha per trade with a
+  block-clustered interval only when enough independent blocks exist; mean raw return beside the
+  fixed-footprint symbol-selection diagnostic, with its assumptions and limits stated. Show a
+  permutation p-value only when its null is defensible. Show win rate, median, expectancy in R,
+  and cost drag at ₹1L and the portfolio's median position size. Never replace an unavailable
+  interval with a misleading narrow one.
 - **§4 Distribution** — return quantiles 5/25/50/75/95, holding-time histogram, the mean−median
   gap, drop-the-best-5-trades sensitivity, and the top/bottom 10 trades named individually so the
   reader can see whether the edge is three prints.
 - **§5 Stability** — per-year mean alpha with bands.
-- **§6 Bridge to the portfolio test** — `TC_observed` against the 0.3–0.8 band; signals emitted
-  vs taken under an *identical* definition; the discard ledger's edge by reason; and the explicit
-  two-way verdict: **no edge** versus **edge, wrong book** (D9 `NEEDS_MORE_CAPITAL`).
+- **§6 Bridge to the portfolio test** — compare only the identical time window, signal definition,
+  observed attrition, costs and returns by discard reason. `TC_observed` is omitted because a
+  comparable unconstrained information-ratio series does not exist. Distinguish supported `NO_EDGE`, `POSSIBLE_EDGE_WRONG_BOOK` and
+  `INSUFFICIENT_EVIDENCE`; an interval containing zero is not proof of no edge.
+  `NEEDS_MORE_CAPITAL` remains a portfolio-gate verdict, never a promotion verdict from this
+  diagnostic.
 - **§7 Trial ledger** — the entry that was written, and the lifetime count.
 
-**Deliberately absent:** Sharpe, Sortino, Calmar, CAGR, volatility, max drawdown, exposure — every
-one derives from an equity curve that does not exist here. Also out: profit factor as a headline
+**Deliberately absent:** Sharpe, Sortino, Calmar, CAGR, volatility, max drawdown, exposure and a
+transfer coefficient — they require a comparable equity-curve or information-ratio definition
+that this signal diagnostic does not have. Also out: profit factor as a headline
 (a ratio of sums dominated by the largest few trades, with no interpretable CI), per-symbol P&L
 tables (693 symbols guarantees spurious winners), any naive t-statistic, and any compounded
 "equity curve" of trade returns.
