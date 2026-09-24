@@ -1,6 +1,6 @@
 # Task 3a — the signal test: plan
 
-**Written 2026-08-22, before any code; corrected 2026-09-24 after independent Astra review and operator approval.** Decisions in `OPERATOR.md` §7b D15. The corrections below supersede the original Step-0 trial exemption, transfer-coefficient claim, and overstrong placebo/uncertainty claims. No real-data run or Task-3a implementation has occurred as part of this correction. Findings below come
+**Written 2026-08-22, before any code; corrected 2026-09-24 after independent Astra review and operator approval.** Decisions in `OPERATOR.md` §7b D15. The corrections below supersede the original Step-0 trial exemption, transfer-coefficient claim, and overstrong placebo/uncertainty claims. No real-data run has occurred in Task 3a. Steps 0–1 were subsequently implemented on 2026-09-24; the signal-only mode remains unbuilt. Findings below come
 from six agents run in parallel — an integration researcher, a statistician, a prior-art
 researcher, a test designer, an architect, and a strategist. Where two of them reached the same
 conclusion by different routes, that is noted, because independent convergence is the strongest
@@ -276,7 +276,7 @@ Test-first throughout: write the acceptance test, watch it fail, implement, watc
 | step | what | depends on |
 |---|---|---|
 | **0** | ✅ **DONE 2026-09-24, `b54f3cb`.** Synthetic six-session characterization pins entry, gap-stop exit, partial entry fill, end-of-data exit, refused/repeated entries, exact equity path and itemized costs. The current output and SHA-256 are frozen before extraction. No real panel, lockbox or trial ledger was used. A later real-panel evaluation is a counted trial. | — |
-| **1** | `simcore.py` extraction. **A move, not a tidy** — a reviewer must read the diff as relocated lines. | 0 |
+| **1** | ✅ **DONE 2026-09-24, `83ff601`.** Shared exit mechanics moved to `simcore.py` without a behavior change; existing `portfolio` exports preserved. Synthetic hash unchanged, 1,014 unit tests, Ruff and mypy passed; independent Astra review completed. | 0 |
 | **2** | `signal_test:` config block + loader refusals | — |
 | **3** | Lockbox span guards: `development_span`, `assert_span_before_lockbox` | — |
 | **4** | `SignalTrade` + `SignalSkipped` | 1 |
