@@ -275,7 +275,7 @@ Test-first throughout: write the acceptance test, watch it fail, implement, watc
 
 | step | what | depends on |
 |---|---|---|
-| **0** | **Synthetic characterization snapshot.** Build a deterministic small panel that exercises entries, exits, partial fills, costs and refusal paths. Save current output and a SHA-256 before extracting shared logic; require exact identity after. Do not read the real panel or the lockbox in this uncounted step. A later real-panel evaluation is a counted trial. | — |
+| **0** | ✅ **DONE 2026-09-24, `b54f3cb`.** Synthetic six-session characterization pins entry, gap-stop exit, partial entry fill, end-of-data exit, refused/repeated entries, exact equity path and itemized costs. The current output and SHA-256 are frozen before extraction. No real panel, lockbox or trial ledger was used. A later real-panel evaluation is a counted trial. | — |
 | **1** | `simcore.py` extraction. **A move, not a tidy** — a reviewer must read the diff as relocated lines. | 0 |
 | **2** | `signal_test:` config block + loader refusals | — |
 | **3** | Lockbox span guards: `development_span`, `assert_span_before_lockbox` | — |

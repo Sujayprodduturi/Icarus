@@ -23,7 +23,9 @@ Then an audit of that run found the engine had been measuring something other th
 that were written down. **Every number from that run is void.** We are part-way through the repair
 plan that has to finish before the next backtest is worth running.
 
-**Current position: Step 2g is complete; Task 3a is planned but not implemented.** Its 2026-08-22 design was independently reviewed and corrected on 2026-09-24 with operator approval (D16). Step 0 now uses synthetic characterization; any real-data rerun counts as a trial. See `docs/plans/2026-08-22-signal-test.md`. 2g-4 was closed on 2026-08-21 as not-a-defect — its premise was false.
+**Current position: Step 2g is complete; Task 3a is in progress.** Its plan was corrected on 2026-09-24 with operator approval (D16). Step 0, the synthetic pre-extraction characterization, is complete at `b54f3cb`; Step 1, extraction of shared simulation logic without behavior change, is next. The signal-only simulator is not built. Any real-data rerun still counts as a trial. See `docs/plans/2026-08-22-signal-test.md`. 2g-4 was closed as not-a-defect.
+
+**The operator clarified on 2026-09-24 that learning must examine both strategy entry/exit timing and order-execution timing (D17).** The proposed phased lineage contract is `docs/plans/2026-09-24-trade-lineage-learning.md`; it does not enable future-phase behavior now.
 
 **The plan grew on 2026-08-20, by operator decision.** Two items were added after an evaluation of
 the open-source `HKUDS/Vibe-Trading` platform found it had built things we had not: **F12
@@ -50,8 +52,7 @@ the open-source `HKUDS/Vibe-Trading` platform found it had built things we had n
 
 ## 3. What is built and passing
 
-**1,013 tests passing, 4 skipped. `mypy` clean (123 files). `ruff` clean (143 files).**
-Verified 2026-08-21 on `dev`.
+**1,014 unit tests passed on 2026-09-24.** The Step-0 test also passed targeted `mypy`, `ruff check` and `ruff format --check`; the full integration suite was not completed in this slice. The older full-project `mypy`/`ruff` baseline is recorded in the previous state.
 
 *One pre-existing `mypy` complaint sits outside that scope and is not new:*
 `scripts/build_panel.py:118` returns a bare `tuple`. The project's `mypy` invocation is
@@ -68,6 +69,7 @@ Verified 2026-08-21 on `dev`.
 | Panel builder + runner (1.7c, 1.7d) | ✅ walk-forward, anchored, lockbox untouched |
 | Metric battery (1.8) | 🔨 partial — regime stability and cost stress not run |
 | Overfitting guards (1.9 — DSR/PBO) | ❌ not built (finding F12) |
+| Synthetic pre-extraction characterization (3a Step 0) | ✅ committed `b54f3cb`; exact portfolio outcome + SHA-256, no real panel or ledger |
 | Golden backtest regression (1.12) | ❌ deliberately not captured yet — see Step 5a |
 | Live order path | ❌ **and must stay that way until Phase 2** |
 
@@ -115,7 +117,7 @@ Full detail in the audit's §6c. Status as of 2026-08-21:
 | **2g-2** | Unverified `scale_free` flags (F27) + the concentration cap (F34, D11) | ✅ 2026-08-17 |
 | **2g-3** | `rank_by` and the `xs_` words accept a market-wide value (F25) | ✅ 2026-08-20 |
 | **2g-4** | ~~Annulled flash-crash prints are still in the panel (F23)~~ | ❌ closed 2026-08-21 — **not a defect**, premise false (D14) |
-| **3a** | Signal-test mode — every signal accounted for, uniform notional, no book (F2, D1); diagnostic only | ⬅️ **NEXT: plan corrected/approved, code not built** |
+| **3a** | Signal-test mode — every signal accounted for, uniform notional, no book (F2, D1); diagnostic only | 🔨 Step 0 complete; Step 1 next; signal mode not built |
 | **3b** | Two capital rows: ₹10,00,000 edge run and ₹1,00,000 seed run (F15, D8, D9) | todo |
 | **3c** | Common-window comparison (F16) | now the **default** after F40, not a later correction |
 | **4a–4d** | Gross · costs · tax · net columns; per-trade CSV; alpha/beta/R²; withdraw the bad Nifty line | todo |
