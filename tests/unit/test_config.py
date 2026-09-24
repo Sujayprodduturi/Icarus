@@ -44,6 +44,85 @@ def _valid_raw(repo_root: Path) -> dict[str, Any]:
     return raw
 
 
+def test_signal_test_accepts_only_the_pre_registered_d15_shape(
+    tmp_path: Path, repo_root: Path
+) -> None:
+    """A loader without the typed block would accept none of the settings the diagnostic needs."""
+    raw = _valid_raw(repo_root)
+    raw["signal_test"] = {
+        "registered": date(2026, 8, 22),
+        "statistics_registered": date(2026, 9, 24),
+        "notional_inr": 100_000,
+        "one_position_per_symbol": True,
+        "apply_costs": True,
+        "apply_tax": False,
+        "diagnostic_only": True,
+        "block_min_sessions": 63,
+        "holding_period_block_multiplier": 3,
+        "ci_level": 0.95,
+        "placebo_permutations": 4_999,
+        "rng_seed": 20_260_924,
+        "inference_enabled": False,
+    }
+
+    cfg = _load_dict(tmp_path, raw)
+
+    assert cfg.signal_test.notional_inr == 100_000
+    assert cfg.signal_test.apply_costs is True
+    assert cfg.signal_test.apply_tax is False
+    assert cfg.signal_test.diagnostic_only is True
+    assert cfg.signal_test.block_min_sessions == 63
+    assert cfg.signal_test.holding_period_block_multiplier == 3
+    assert cfg.signal_test.ci_level == 0.95
+    assert cfg.signal_test.placebo_permutations == 4_999
+    assert cfg.signal_test.rng_seed == 20_260_924
+    assert cfg.signal_test.inference_enabled is False
+
+
+@pytest.mark.parametrize(
+    ("key", "unsafe_value"),
+    [
+        ("registered", date(2026, 8, 23)),
+        ("statistics_registered", date(2026, 9, 25)),
+        ("notional_inr", 1_000_000),
+        ("one_position_per_symbol", False),
+        ("apply_costs", False),
+        ("apply_tax", True),
+        ("diagnostic_only", False),
+        ("block_min_sessions", 64),
+        ("holding_period_block_multiplier", 4),
+        ("ci_level", 0.90),
+        ("placebo_permutations", 5_000),
+        ("rng_seed", 1),
+        ("inference_enabled", True),
+    ],
+)
+def test_signal_test_pre_registered_contract_cannot_be_changed(
+    tmp_path: Path, repo_root: Path, key: str, unsafe_value: object
+) -> None:
+    """Every mutation would change the result or let a diagnostic masquerade as a gate."""
+    raw = _valid_raw(repo_root)
+    raw["signal_test"] = {
+        "registered": date(2026, 8, 22),
+        "statistics_registered": date(2026, 9, 24),
+        "notional_inr": 100_000,
+        "one_position_per_symbol": True,
+        "apply_costs": True,
+        "apply_tax": False,
+        "diagnostic_only": True,
+        "block_min_sessions": 63,
+        "holding_period_block_multiplier": 3,
+        "ci_level": 0.95,
+        "placebo_permutations": 4_999,
+        "rng_seed": 20_260_924,
+        "inference_enabled": False,
+    }
+    raw["signal_test"][key] = unsafe_value
+
+    with pytest.raises(ConfigError, match=key):
+        _load_dict(tmp_path, raw)
+
+
 def test_missing_key_fails_fast(tmp_path: Path, repo_root: Path) -> None:
     raw = _valid_raw(repo_root)
     del raw["risk"]  # drop a whole required block

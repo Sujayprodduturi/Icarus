@@ -216,6 +216,33 @@ backtest:
         ordinary trading halt is carried through rather than closed at a price nobody could have
         got, while a delisting does not hold one of four slots for the rest of the fold.
 
+# Signal-only diagnostic (operator decision D15, PRE-REGISTERED 2026-08-22).
+# This mode is not a portfolio, has no equity curve, and can never promote a strategy. It applies
+# real fills and costs but no account-level capital-gains tax, so every output must say
+# "net of cost, before tax". The loader pins every field below: changing the notional or sampling
+# settings after seeing a result would be choosing the answer (invariant #25).
+signal_test:
+  registered: 2026-08-22
+  notional_inr: 100000
+  one_position_per_symbol: true
+  apply_costs: true
+  apply_tax: false
+  diagnostic_only: true
+
+  # Provisional diagnostic statistics fixed 2026-09-24, before any real-data signal-test run.
+  # They do NOT amend the promotion or stagnation gates. Block length is
+  # max(block_min_sessions, holding_period_block_multiplier * longest_holding_bars).
+  statistics_registered: 2026-09-24
+  block_min_sessions: 63
+  holding_period_block_multiplier: 3
+  ci_level: 0.95
+  placebo_permutations: 4999
+  rng_seed: 20260924
+
+  # Fail closed: Step 6 must calibrate and pre-register a minimum usable-block threshold on
+  # synthetic fixtures before the report may emit any confidence interval or p-value.
+  inference_enabled: false
+
 # ⚠️ NOT ENFORCED — every key in this block is declared and read by no code as of 2026-08-16.
 # The Inventor and the reflection loop are Phase 2 (TASKS.md 2.5-2.7).
 # Kept rather than deleted: the decision is real and losing it would cost more than

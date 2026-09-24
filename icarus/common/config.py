@@ -78,6 +78,14 @@ _LTCG_EXEMPTION_STATUTORY_CEILING_INR = 125_000.0
 # quietly laundering a lowered bar (LLM council finding, 2026-07-31).
 _STOP_GATE_PRE_REGISTERED_ON = date(2026, 8, 1)
 _BACKTEST_REGISTERED_ON = date(2026, 8, 5)
+_SIGNAL_TEST_REGISTERED_ON = date(2026, 8, 22)
+_SIGNAL_TEST_NOTIONAL_INR = 100_000
+_SIGNAL_TEST_STATISTICS_REGISTERED_ON = date(2026, 9, 24)
+_SIGNAL_TEST_BLOCK_MIN_SESSIONS = 63
+_SIGNAL_TEST_HOLDING_PERIOD_BLOCK_MULTIPLIER = 3
+_SIGNAL_TEST_CI_LEVEL = 0.95
+_SIGNAL_TEST_PLACEBO_PERMUTATIONS = 4_999
+_SIGNAL_TEST_RNG_SEED = 20_260_924
 
 
 class _Strict(BaseModel):
@@ -806,6 +814,90 @@ class Backtest(_Strict):
         return self
 
 
+class SignalTest(_Strict):
+    """D15's pre-registered, non-promoting signal-diagnostic contract.
+
+    The statistical choices are provisional diagnostics fixed before any real-data evaluation;
+    they do not change the promotion or stagnation gates. Inferential output remains disabled until
+    Step 6 calibrates and pre-registers a minimum usable-block threshold on synthetic fixtures.
+    """
+
+    registered: date
+    statistics_registered: date
+    notional_inr: _PosInt
+    one_position_per_symbol: bool
+    apply_costs: bool
+    apply_tax: bool
+    diagnostic_only: bool
+    block_min_sessions: _PosInt
+    holding_period_block_multiplier: _PosInt
+    ci_level: _Fraction
+    placebo_permutations: _PosInt
+    rng_seed: _PosInt
+    inference_enabled: bool
+
+    @model_validator(mode="after")
+    def _pre_registered_contract_holds(self) -> SignalTest:
+        if self.registered != _SIGNAL_TEST_REGISTERED_ON:
+            raise ValueError(
+                f"signal_test.registered must remain {_SIGNAL_TEST_REGISTERED_ON} — D15 fixed "
+                "the diagnostic before any result existed"
+            )
+        if self.notional_inr != _SIGNAL_TEST_NOTIONAL_INR:
+            raise ValueError(
+                f"signal_test.notional_inr must remain {_SIGNAL_TEST_NOTIONAL_INR} — D15(b) fixed "
+                "the uniform notional before any result existed"
+            )
+        if not self.one_position_per_symbol:
+            raise ValueError(
+                "signal_test.one_position_per_symbol must be true — overlapping entries count one "
+                "market event as multiple observations"
+            )
+        if not self.apply_costs:
+            raise ValueError("signal_test.apply_costs must be true — gross-only results are a bug")
+        if self.apply_tax:
+            raise ValueError(
+                "signal_test.apply_tax must be false — D15(c) defines a net-of-cost, before-tax "
+                "diagnostic because this mode has no account-level tax ledger"
+            )
+        if not self.diagnostic_only:
+            raise ValueError(
+                "signal_test.diagnostic_only must be true — a signal test is never a promotion gate"
+            )
+        fixed_statistics: tuple[tuple[str, object, object], ...] = (
+            (
+                "statistics_registered",
+                self.statistics_registered,
+                _SIGNAL_TEST_STATISTICS_REGISTERED_ON,
+            ),
+            ("block_min_sessions", self.block_min_sessions, _SIGNAL_TEST_BLOCK_MIN_SESSIONS),
+            (
+                "holding_period_block_multiplier",
+                self.holding_period_block_multiplier,
+                _SIGNAL_TEST_HOLDING_PERIOD_BLOCK_MULTIPLIER,
+            ),
+            ("ci_level", self.ci_level, _SIGNAL_TEST_CI_LEVEL),
+            (
+                "placebo_permutations",
+                self.placebo_permutations,
+                _SIGNAL_TEST_PLACEBO_PERMUTATIONS,
+            ),
+            ("rng_seed", self.rng_seed, _SIGNAL_TEST_RNG_SEED),
+        )
+        for field_name, actual, expected in fixed_statistics:
+            if actual != expected:
+                raise ValueError(
+                    f"signal_test.{field_name} must remain {expected!s} — provisional diagnostic "
+                    "settings were fixed before any real-data evaluation"
+                )
+        if self.inference_enabled:
+            raise ValueError(
+                "signal_test.inference_enabled must remain false until Step 6 calibrates and "
+                "pre-registers a minimum usable-block threshold on synthetic fixtures"
+            )
+        return self
+
+
 class GoalConfig(_Strict):
     """Root config — every top-level block in goal.yaml, all required."""
 
@@ -813,6 +905,7 @@ class GoalConfig(_Strict):
     stop_gate: StopGate
     data_split: DataSplit
     backtest: Backtest
+    signal_test: SignalTest
     learning: Learning
     risk: Risk
     compliance: Compliance
