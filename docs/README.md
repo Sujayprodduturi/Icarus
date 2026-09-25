@@ -7,7 +7,7 @@ Start with [STATE.md](STATE.md): it is the current build position and the source
 - [Task 3a plan](plans/2026-08-22-signal-test.md): ordered signal-test work and scope boundaries.
 - [Step 4 record contract](plans/2026-09-25-signal-records.md): the implemented stable signal identity and outcome records.
 - [Step 5 simulator contract](plans/2026-09-25-signal-simulator.md) and [implementation plan](plans/2026-09-25-signal-simulator-implementation.md): implemented synthetic-only simulator, committed at `997bbd2`.
-- [Step 5b portfolio discard ledger plan](plans/2026-09-25-portfolio-discard-ledger-implementation.md): approved synthetic-only implementation work in progress; no portfolio decision change is authorized.
+- [Step 5b portfolio discard ledger plan](plans/2026-09-25-portfolio-discard-ledger-implementation.md): implemented at `ed9f46b` with synthetic-only tests and unchanged portfolio trade/equity/cost trace; Step 6 statistical design is next.
 - [Trade-lineage and learning proposal](plans/2026-09-24-trade-lineage-learning.md): later work, not current implementation or promotion authority.
 - [Newest ranked audit](reviews/2026-08-09-post-backtest-audit.md): known findings, including items not yet scheduled in TASKS.
 
