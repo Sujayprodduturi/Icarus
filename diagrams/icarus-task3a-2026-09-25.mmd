@@ -1,0 +1,20 @@
+flowchart TB
+    A["0  Synthetic baseline<br/>DONE"] --> B["1  Shared exit rules<br/>DONE"]
+    B --> C["2  Signal config<br/>DONE"]
+    C --> D["3  Lockbox guard<br/>DONE"]
+    D --> E["4  One signal = one record<br/>DONE"]
+    E --> F["5  Signal simulator<br/>NEXT"]
+    E --> G["5b  Portfolio discard log<br/>PENDING"]
+    F --> H["6a/6b  Honest uncertainty<br/>PENDING • method design first"]
+    G --> I["8  Fold-matched comparison<br/>PENDING"]
+    H --> J["7  Count every trial<br/>PENDING"]
+    J --> I
+    I --> K["9  Diagnostic report<br/>NOT A PROMOTION GATE"]
+    classDef done fill:#DDF4E6,stroke:#288760,color:#18372A,stroke-width:2px;
+    classDef now fill:#FFF0CC,stroke:#D99018,color:#4D3410,stroke-width:3px;
+    classDef pending fill:#E9EFF7,stroke:#647C9A,color:#233246,stroke-width:2px;
+    classDef warning fill:#FDE8E8,stroke:#B94E54,color:#63282D,stroke-width:2px;
+    class A,B,C,D,E done;
+    class F now;
+    class G,H,I,J pending;
+    class K warning;

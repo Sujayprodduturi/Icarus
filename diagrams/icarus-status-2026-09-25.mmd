@@ -1,0 +1,22 @@
+flowchart TB
+    A["1  FOUNDATION<br/>Config • safety scaffolds • audit<br/>BUILT / not deployed"]
+    B["2  DAILY RESEARCH DATA<br/>Point-in-time panel • 224 DSL words<br/>BUILT"]
+    C["3  PORTFOLIO BACKTEST<br/>Fills • costs • tax • walk-forward<br/>BUILT, repair in progress"]
+    D["4  SIGNAL DIAGNOSTIC<br/>Steps 0–4 built<br/>Step 5 simulator NEXT"]
+    E["5  HONEST EVIDENCE<br/>Signal simulation • DSR/PBO<br/>Corrected metric sheet PENDING"]
+    F{"Operator review<br/>No edge → no capital"}
+    G["6  LIVE EXECUTION<br/>Risk • broker writes • recovery<br/>FUTURE Phase 2"]
+    H["7  BOUNDED LEARNING<br/>Invent • validate • promote/rollback<br/>FUTURE Phase 3"]
+    L["2023+ LOCKBOX<br/>Untouched • one final use"]
+    A --> B --> C --> E --> F
+    B --> D --> E
+    F -->|only after approval| G --> H
+    L -.->|protected from routine runs| E
+    classDef built fill:#DDF4E6,stroke:#288760,color:#18372A,stroke-width:2px;
+    classDef now fill:#FFF0CC,stroke:#D99018,color:#4D3410,stroke-width:3px;
+    classDef pending fill:#E9EFF7,stroke:#647C9A,color:#233246,stroke-width:2px;
+    classDef gate fill:#FDE8E8,stroke:#B94E54,color:#63282D,stroke-width:3px;
+    class A,B,C built;
+    class D now;
+    class E,G,H pending;
+    class F,L gate;

@@ -1,0 +1,19 @@
+flowchart TB
+    X["UNTRUSTED INPUT<br/>News • LLM output<br/>DATA only"] --> R["RESEARCH PLANE<br/>Invent candidate<br/>FUTURE"]
+    R --> V["NUMERIC VALIDATION<br/>Costs • tax • trial correction<br/>PHASE 1 PARTIAL"]
+    V -->|PROMOTED only| S["VERSIONED REGISTRY<br/>Only bridge<br/>FUTURE"]
+    S --> Q["SIGNAL<br/>Rule version fixed"]
+    Q --> K["RISK + COMPLIANCE<br/>Independent veto<br/>LIVE wiring FUTURE"]
+    K --> E["EXECUTION<br/>Only write credentials<br/>FUTURE Phase 2"]
+    E --> P["PORTFOLIO + RECONCILIATION<br/>Trade lineage • profit/loss<br/>LIVE wiring FUTURE"]
+    P -.->|outcomes become evidence| R
+    H["PERSISTENT HALT + KILL<br/>Scaffold now • live runtime future"] -.-> K
+    H -.-> E
+    classDef research fill:#E9EFF7,stroke:#647C9A,color:#233246,stroke-width:2px;
+    classDef gate fill:#FDE8E8,stroke:#B94E54,color:#63282D,stroke-width:3px;
+    classDef future fill:#E9EFF7,stroke:#647C9A,color:#233246,stroke-width:2px;
+    classDef safety fill:#FFF0CC,stroke:#D99018,color:#4D3410,stroke-width:2px;
+    class X,R,P,Q research;
+    class V,S gate;
+    class K,H safety;
+    class E future;
