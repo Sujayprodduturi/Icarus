@@ -8,9 +8,12 @@ and write-off policy remain with each simulator.
 from __future__ import annotations
 
 import enum
-from dataclasses import dataclass, replace
+import json
+from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Protocol
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 import numpy as np
 
@@ -19,7 +22,6 @@ from icarus.engine.fills import Intent, OrderKind, SimBar
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
-    from datetime import datetime
 
     import numpy.typing as npt
 
@@ -46,6 +48,52 @@ class ExitReason(enum.StrEnum):
     ``STALE_MARK`` exit is an **assumption** — nobody was there to sell to. Blending them would put
     a made-up price into the same column as a measured one, and the metric sheet could not tell the
     operator how much of the P&L rests on the made-up half."""
+
+
+@dataclass(frozen=True, slots=True)
+class SignalId:
+    """Stable identity of one emitted entry signal in full-source coordinates.
+
+    A fold-local index, run identifier, simulator mode, and notional are deliberately absent: the
+    same market decision must join to the same observation wherever it is viewed.  UUID v5 makes
+    that identity portable without replacing the typed provenance fields that explain it.
+    """
+
+    strategy_id: str
+    strategy_version: int
+    symbol: str
+    decision_ts: datetime
+    decision_index: int
+    uuid: UUID = field(init=False)
+
+    def __post_init__(self) -> None:
+        for name, value in (
+            ("strategy_id", self.strategy_id),
+            ("symbol", self.symbol),
+        ):
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"SignalId.{name} must be a nonempty string")
+        if type(self.strategy_version) is not int or self.strategy_version <= 0:
+            raise ValueError("SignalId.strategy_version must be a positive whole number")
+        if not isinstance(self.decision_ts, datetime):
+            raise TypeError("SignalId.decision_ts must be a datetime")
+        if self.decision_ts.tzinfo is not UTC:
+            raise ValueError("SignalId.decision_ts must use datetime.UTC")
+        if type(self.decision_index) is not int or self.decision_index < 0:
+            raise ValueError("SignalId.decision_index must be a nonnegative whole index")
+
+        canonical = json.dumps(
+            [
+                self.strategy_id,
+                self.strategy_version,
+                self.symbol,
+                self.decision_ts.astimezone(UTC).isoformat(timespec="microseconds"),
+                self.decision_index,
+            ],
+            ensure_ascii=True,
+            separators=(",", ":"),
+        )
+        object.__setattr__(self, "uuid", uuid5(NAMESPACE_URL, f"icarus:signal:{canonical}"))
 
 
 class _ExitPosition(Protocol):
@@ -234,4 +282,4 @@ def stop_distance_from_exits(exits: Sequence[ExitRule], *, atr: Column, close: C
     )
 
 
-__all__ = ["ExitPlan", "ExitReason", "stop_distance_from_exits"]
+__all__ = ["ExitPlan", "ExitReason", "SignalId", "stop_distance_from_exits"]
