@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
     import numpy.typing as npt
 
-    from icarus.strategy.dsl import ExitRule
+    from icarus.strategy.dsl import ExitRule, Panel
 
     Column = npt.NDArray[np.float64]
 
@@ -118,6 +118,36 @@ def _dec(value: float) -> Decimal:
     reappears as a paisa the contract note disagrees about.
     """
     return Decimal(str(value))
+
+
+def _ts_at(panel: Panel, t: int) -> datetime:
+    """Bar ``t``'s timestamp as a tz-aware UTC datetime."""
+    naive: datetime = panel.ts[t].astype("datetime64[us]").item()
+    return naive.replace(tzinfo=UTC)
+
+
+def _sim_bar(panel: Panel, index: int, t: int, ts: datetime) -> SimBar | None:
+    """One bar in the money type, or ``None`` where the symbol had no session."""
+    bars = panel.bars[index]
+    values = (bars.open[t], bars.high[t], bars.low[t], bars.close[t], bars.volume[t])
+    if not all(np.isfinite(v) for v in values):
+        return None
+    price = [_dec(float(v)) for v in values]
+    return SimBar(
+        ts=ts, open=price[0], high=price[1], low=price[2], close=price[3], volume=price[4]
+    )
+
+
+def _last_traded_close(panel: Panel, index: int, t: int) -> tuple[Decimal, int]:
+    """The most recent finite close at or before ``t``, plus its local bar index."""
+    finite = np.flatnonzero(np.isfinite(panel.bars[index].close[: t + 1]))
+    if finite.size == 0:
+        raise ValueError(
+            f"cannot write off {panel.symbols[index]}: it has printed no close at or before bar "
+            f"{t}, so the book holds a position that could not have been opened"
+        )
+    at = int(finite[-1])
+    return _dec(float(panel.bars[index].close[at])), at
 
 
 def _exit_intent(
@@ -282,4 +312,12 @@ def stop_distance_from_exits(exits: Sequence[ExitRule], *, atr: Column, close: C
     )
 
 
-__all__ = ["ExitPlan", "ExitReason", "SignalId", "stop_distance_from_exits"]
+__all__ = [
+    "ExitPlan",
+    "ExitReason",
+    "SignalId",
+    "_last_traded_close",
+    "_sim_bar",
+    "_ts_at",
+    "stop_distance_from_exits",
+]

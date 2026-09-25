@@ -37,7 +37,6 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass, field, replace
-from datetime import UTC
 from decimal import ROUND_DOWN, Decimal
 from typing import TYPE_CHECKING
 
@@ -45,7 +44,7 @@ import numpy as np
 
 from icarus.common.types import OrderSide
 from icarus.engine.costmodel import Segment
-from icarus.engine.fills import FillModel, Intent, OrderKind, SimBar
+from icarus.engine.fills import FillModel, Intent, OrderKind
 from icarus.engine.simcore import (
     ExitPlan as ExitPlan,
 )
@@ -53,9 +52,22 @@ from icarus.engine.simcore import (
     ExitReason as ExitReason,
 )
 from icarus.engine.simcore import (
-    _dec,
-    _exit_intent,
-    _trail_stop,
+    _dec as _dec,
+)
+from icarus.engine.simcore import (
+    _exit_intent as _exit_intent,
+)
+from icarus.engine.simcore import (
+    _last_traded_close as _last_traded_close,
+)
+from icarus.engine.simcore import (
+    _sim_bar as _sim_bar,
+)
+from icarus.engine.simcore import (
+    _trail_stop as _trail_stop,
+)
+from icarus.engine.simcore import (
+    _ts_at as _ts_at,
 )
 from icarus.engine.simcore import (
     stop_distance_from_exits as stop_distance_from_exits,
@@ -648,36 +660,6 @@ class PortfolioSimulator:
         return total
 
 
-def _ts_at(panel: Panel, t: int) -> datetime:
-    """Bar ``t``'s timestamp as a **tz-aware UTC** datetime (invariant #22).
-
-    Two traps in one line. ``datetime64[ns].item()`` returns an *integer* of nanoseconds, not a
-    datetime — which compares happily against another integer, so the next-bar assertion in the
-    fill model would have been comparing two ints and passing for the wrong reason. And ``.item()``
-    yields a naive datetime; naive and aware timestamps raise on comparison, which is the good
-    outcome, but only if the conversion happens in exactly one place. This is that place.
-    """
-    naive: datetime = panel.ts[t].astype("datetime64[us]").item()
-    return naive.replace(tzinfo=UTC)
-
-
-def _sim_bar(panel: Panel, index: int, t: int, ts: datetime) -> SimBar | None:
-    """One bar in the money type, or ``None`` where the symbol had no session.
-
-    A gap in a symbol's series is real data — it did not trade — and must not become a synthetic
-    bar. Returning ``None`` makes the caller decide, which for an open position means "carry it,
-    unchanged" and for a candidate means "cannot enter".
-    """
-    bars = panel.bars[index]
-    values = (bars.open[t], bars.high[t], bars.low[t], bars.close[t], bars.volume[t])
-    if not all(np.isfinite(v) for v in values):
-        return None
-    price = [_dec(float(v)) for v in values]
-    return SimBar(
-        ts=ts, open=price[0], high=price[1], low=price[2], close=price[3], volume=price[4]
-    )
-
-
 def _committed_cash(book: Mapping[str, OpenPosition]) -> Decimal:
     """Rupees spent on what is held and not yet returned — cost basis plus acquisition charges.
 
@@ -696,31 +678,6 @@ def _committed_cash(book: Mapping[str, OpenPosition]) -> Decimal:
         ),
         Decimal(0),
     )
-
-
-def _last_traded_close(panel: Panel, index: int, t: int) -> tuple[Decimal, int]:
-    """The most recent close this symbol printed at or before bar ``t``, **and which bar it was**.
-
-    The bar comes back with the price because the two have to travel together. Dating a write-off
-    at the session it was *noticed* while pricing it at a session up to twenty earlier stretches the
-    holding period by the whole dark stretch — and the holding period is what buckets the trade as
-    short- or long-term for tax. A position entered 2020-01-05 whose last print is 2020-12-20 is
-    350 days held and taxed at the short-term rate; noticed on 2021-01-20 it becomes 381 days and
-    taxed long-term, a real after-tax difference decided by a price that never existed on that date.
-
-    Raises rather than returning a default. A position can only have been opened against a real
-    bar, so a holding with no prior close anywhere in the span is not a data gap — it is the
-    simulator having lost track of its own book, and the honest response to that is to stop
-    (invariant #10: fail safe, not silent).
-    """
-    finite = np.flatnonzero(np.isfinite(panel.bars[index].close[: t + 1]))
-    if finite.size == 0:
-        raise ValueError(
-            f"cannot write off {panel.symbols[index]}: it has printed no close at or before bar "
-            f"{t}, so the book holds a position that could not have been opened"
-        )
-    at = int(finite[-1])
-    return _dec(float(panel.bars[index].close[at])), at
 
 
 def _scaled(charges: Charges, fraction: Decimal) -> Charges:
