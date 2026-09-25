@@ -5,7 +5,8 @@ Start with [STATE.md](STATE.md): it is the current build position and the source
 ## Current work
 
 - [Task 3a plan](plans/2026-08-22-signal-test.md): ordered signal-test work and scope boundaries.
-- [Step 4 record contract](plans/2026-09-25-signal-records.md): the specific implementation contract for stable signal identity and one outcome per signal.
+- [Step 4 record contract](plans/2026-09-25-signal-records.md): the implemented stable signal identity and outcome records.
+- [Step 5 simulator contract](plans/2026-09-25-signal-simulator.md) and [implementation plan](plans/2026-09-25-signal-simulator-implementation.md): approved design and file-by-file plan awaiting operator review; no simulator code yet.
 - [Trade-lineage and learning proposal](plans/2026-09-24-trade-lineage-learning.md): later work, not current implementation or promotion authority.
 - [Newest ranked audit](reviews/2026-08-09-post-backtest-audit.md): known findings, including items not yet scheduled in TASKS.
 

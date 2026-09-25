@@ -293,6 +293,7 @@ Dated decisions that are not code and not in `goal.yaml`, so they have nowhere e
 | id | decision | owner |
 |---|---|---|
 | D19 | **Reject any signal-test source panel containing a lockbox date before evaluating a strategy; never quietly clip away the lockbox and continue.** The development view may then select the configured development dates from that already-safe source. For portfolio comparisons, run separate signal simulations over each portfolio fold's exact dates and reset boundary; filtering one continuous development run after the fact is not a matched comparison. Every inspected real-data full-span or fold-matched evaluation, including a rerun, is a separately recorded trial. No real-data run is authorised by this decision; complete the diagnostic and ledger guards first. | operator, approving the two Astra recommendations |
+| D20 | **Build Task 3a Step 5 as a synthetic-only signal simulator with explicit missingness provenance.** The caller must label expected warm-up/missing-input NaNs; unlabelled NaNs and invalid signal values fail closed. Daily bars do not define a benchmark price at an intraday stock exit, so benchmark return and pre-tax alpha stay unavailable until a separate sampling rule is reviewed. Reuse fill and exit mechanics; preserve the Phase-1 no-live-order, no-real-evaluation and no-promotion boundaries. | operator, choosing both Step-5 contracts and approving the bounded design on 2026-09-25 |
 
 ## 7c. Deferred by decision — not forgotten
 
