@@ -1,6 +1,6 @@
 # STATE.md — where Icarus actually is, today
 
-**Last updated: 2026-09-25.** This file is the **session entry point**. It is deliberately short:
+**Last updated: 2026-09-26.** This file is the **session entry point**. It is deliberately short:
 it tells a new agent (or the operator after a break) what is true right now, what happens next,
 and which file to open for the detail. It holds no reasoning of its own — everything here points
 somewhere durable.
@@ -25,7 +25,7 @@ plan that has to finish before the next backtest is worth running.
 
 **Current position: Step 2g is complete; Task 3a is in progress.** Its plan was corrected on 2026-09-24 with operator approval (D16). Step 0, the synthetic pre-extraction characterization, is complete at `b54f3cb`; Step 1, the behavior-preserving shared exit extraction, is complete at `83ff601`. Step 2 (`signal_test` config and loader refusals) is complete at `61191d6`; Step 3 (lockbox span guards) is committed at `3cf0bf3`; Step 4 (typed signal trade/skip records) is committed at `e5d9fee`; Step 5 (the synthetic-only signal simulator and remaining pure helper extraction) is complete at `997bbd2` after independent safety and standards review. Step 5b (observational portfolio discard ledger) is built at `ed9f46b` under the approved `docs/plans/2026-09-25-portfolio-discard-ledger-implementation.md` plan. It records why each emitted portfolio signal was accepted or discarded, including final-bar and untradable-session omissions, without changing the old skip counters or the frozen trade/equity/cost trace. Review found and closed a real duplicate-OOS-ID risk: overlapping test folds now fail closed rather than silently double-counting a signal. The 2026-09-25 verification passed 1,197 unit tests, Ruff format/check, and mypy. Post-commit mutation probes killed missing-discard and source-index-reset mutants; safety controls refused transient legacy-counter corruption and candidate-reordering mutants, so those two mutation claims remain unverified. The focused restoration checks passed. Step 6a/6b statistical design is next, not yet build-ready. The operator chose explicit caller-supplied missingness reasons (unlabelled NaNs rejected) and no daily-bar benchmark approximation for intraday exits (D20); both boundaries remain. No Task-3a real-data evaluation or lockbox run has occurred. Any real-data rerun still counts as a trial. The redesigned three-board visual map is linked from `docs/README.md`; the older diagrams remain dated history. See `docs/plans/2026-08-22-signal-test.md`. 2g-4 was closed as not-a-defect.
 
-**The operator clarified on 2026-09-24 that learning must examine both strategy entry/exit timing and order-execution timing (D17).** The proposed phased lineage contract is `docs/plans/2026-09-24-trade-lineage-learning.md`; it does not enable future-phase behavior now.
+**The operator clarified on 2026-09-24 that learning must examine both strategy entry/exit timing and order-execution timing (D17).** The proposed phased lineage contract is `docs/plans/2026-09-24-trade-lineage-learning.md`; it does not enable future-phase behavior now. On 2026-09-26 the operator chose a time-resolved stock-and-Nifty route for benchmark-relative signal results (D21). Its source-neutral specification is proposed for review in `docs/plans/2026-09-26-time-resolved-benchmark-design.md`; Step 6 design remains next, the first timing overlay remains M15 on the separately pinned intraday lane, and no code or historical-data subscription has been added. D20's refusal of daily-bar intraday-exit alpha remains in force until that route is proven. The hosted Zerodha MCP is available to Codex as separate operator tooling, but its exposed mutations make it potentially write-capable; it must not enter Icarus's research plane or serve as the Phase-1 acquisition path.
 
 **The plan grew on 2026-08-20, by operator decision.** Two items were added after an evaluation of
 the open-source `HKUDS/Vibe-Trading` platform found it had built things we had not: **F12
@@ -226,7 +226,7 @@ closed.**
 `F10` alpha/beta/R² vs Nifty (invariant #21) · `F12` DSR/PBO · `F13` withdraw the invalid Nifty
 CAGR line · `F14` universe is ~98 names not 600–900 (not a defect; the scope was chosen on a wrong
 number) · `F17` regime breakdown + cost stress · `F20` two-source cross-check never applied to the
-panel · `F22` no lag operator or series arithmetic in the DSL (partly done) · **`F47` `tradable` does not stop an exit, only an entry** — new 2026-08-21. F45 was decided in D12 and is scheduled for 3b.
+panel · `F22` no lag operator or series arithmetic in the DSL (partly done) · **`F47` `tradable` does not stop an exit, only an entry** — new 2026-08-21 · **`F48` same-day partial delivery sells can be charged the per-symbol/day DP fee more than once** — new 2026-09-26. F45 was decided in D12 and is scheduled for 3b.
 
 **F12 now has a reference implementation available.** The 2026-08-20 evaluation of the open-source
 `HKUDS/Vibe-Trading` platform (`docs/reviews/2026-08-20-vibe-trading-evaluation.md`) found a
