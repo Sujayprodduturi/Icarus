@@ -277,7 +277,7 @@ Test-first throughout: write the acceptance test, watch it fail, implement, watc
 | **0** | ✅ **DONE 2026-09-24, `b54f3cb`.** Synthetic six-session characterization pins entry, gap-stop exit, partial entry fill, end-of-data exit, refused/repeated entries, exact equity path and itemized costs. The current output and SHA-256 are frozen before extraction. No real panel, lockbox or trial ledger was used. A later real-panel evaluation is a counted trial. | — |
 | **1** | ✅ **DONE 2026-09-24, `83ff601`.** Shared exit mechanics moved to `simcore.py` without a behavior change; existing `portfolio` exports preserved. Synthetic hash unchanged, 1,014 unit tests, Ruff and mypy passed; independent Astra review completed. | 0 |
 | **2** | ✅ **DONE 2026-09-24, `61191d6`.** Required `signal_test:` config, D15 and provisional-statistic loader refusals, separate dated provenance, inference pinned off until Step 6 calibration. 1,028 unit tests pass. No real-data run. | — |
-| **3** | Lockbox span guards: `development_span`, `assert_span_before_lockbox` | — |
+| **3** | ✅ **DONE 2026-09-25, `3cf0bf3`.** Whole-source lockbox refusal, fixed 2023 boundary, aligned/valid daily axes and inclusive development span; 1,046 unit tests, Ruff, mypy, independent review. No real-data run. | — |
 | **4** | `SignalTrade` + `SignalSkipped` | 1 |
 | **5** | `SignalSimulator.run()` plus remaining pure helper extraction | 1, 4 |
 | **5b** | Observational portfolio discard ledger; exact count reconciliation and unchanged trade/equity/cost trace | 5 |
