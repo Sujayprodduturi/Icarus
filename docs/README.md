@@ -11,20 +11,10 @@ Start with [STATE.md](STATE.md): it is the current build position and the source
 
 ## Visual map
 
-The three diagrams show the whole system, the current Task 3a zoom-in, and the intended safe feedback loop. Each has an editable `.excalidraw` file, an SVG, and a text `.mmd` source in `diagrams/`.
+The current visual orientation is three titled, layered boards. Each has an editable SVG source and a rendered PNG in `diagrams/`:
 
-### Status by layer
+1. [System map: Phase 1 research boundary](../diagrams/icarus-system-map-2026-09-25.svg) — what is built, what is next, and how future learning/live execution stay separate.
+2. [Task 3a: one signal, one outcome](../diagrams/icarus-signal-outcomes-2026-09-25.svg) — the Step 4 record contract and proposed Step 5 simulator path.
+3. [Evidence roadmap](../diagrams/icarus-evidence-roadmap-2026-09-25.svg) — completed repair, the next implementation slice, later diagnostics, and the operator gate.
 
-![Icarus status by layer](../diagrams/icarus-status-2026-09-25.png)
-
-### Current Task 3a roadmap
-
-![Task 3a roadmap](../diagrams/icarus-task3a-2026-09-25.png)
-
-### Intended safe learning loop
-
-![Icarus safe learning loop](../diagrams/icarus-safe-loop-2026-09-25.png)
-
-Color key: **green = built**, **amber = current work**, **blue = pending/future**, and **red = protected boundary or decision gate**. The status words inside each box are authoritative where colors alone could be ambiguous.
-
-These diagrams are dated snapshots, not acceptance evidence. A colored box marked *built* can still be a research-only or undeployed component; live broker execution is not enabled. Check STATE.md for newer status before relying on a diagram.
+The older `icarus-status-*`, `icarus-task3a-*`, and `icarus-safe-loop-*` diagrams remain as dated history, not the current map. Status words inside the new boards are authoritative; colors are secondary. These snapshots are not acceptance evidence. A *built* research component is not deployed, and there is no live order path in Phase 1. Check [STATE.md](STATE.md) for the latest build position.
