@@ -1,6 +1,6 @@
 # Task 3a — the signal test: plan
 
-**Written 2026-08-22, before any code; corrected 2026-09-24 after independent Astra review and operator approval.** Decisions in `OPERATOR.md` §7b D15. The corrections below supersede the original Step-0 trial exemption, transfer-coefficient claim, and overstrong placebo/uncertainty claims. No real-data run has occurred in Task 3a. Steps 0–2 were subsequently implemented on 2026-09-24; the signal-only mode remains unbuilt. Findings below come
+**Written 2026-08-22, before any code; corrected 2026-09-24 after independent Astra review and operator approval.** Decisions in `OPERATOR.md` §7b D15. The corrections below supersede the original Step-0 trial exemption, transfer-coefficient claim, and overstrong placebo/uncertainty claims. No real-data run has occurred in Task 3a. Steps 0–5 have since been implemented on synthetic fixtures; the full diagnostic runner, trial-ledger path and real-data evaluation remain unbuilt. Findings below come
 from six agents run in parallel — an integration researcher, a statistician, a prior-art
 researcher, a test designer, an architect, and a strategist. Where two of them reached the same
 conclusion by different routes, that is noted, because independent convergence is the strongest
@@ -279,7 +279,7 @@ Test-first throughout: write the acceptance test, watch it fail, implement, watc
 | **2** | ✅ **DONE 2026-09-24, `61191d6`.** Required `signal_test:` config, D15 and provisional-statistic loader refusals, separate dated provenance, inference pinned off until Step 6 calibration. 1,028 unit tests pass. No real-data run. | — |
 | **3** | ✅ **DONE 2026-09-25, `3cf0bf3`.** Whole-source lockbox refusal, fixed 2023 boundary, aligned/valid daily axes and inclusive development span; 1,046 unit tests, Ruff, mypy, independent review. No real-data run. | — |
 | **4** | ✅ **DONE 2026-09-25, `e5d9fee`.** Stable `SignalId`, typed trade/skip records and fragments; independent architecture, standards and spec reviews; 1,106 unit tests, synthetic characterization, Ruff and mypy pass. Pre-tax alpha is explicitly named; no simulator, real panel, lockbox, trial write or live path. | 1 |
-| **5** | `SignalSimulator.run()` plus remaining pure helper extraction | 1, 4 |
+| **5** | ✅ **DONE 2026-09-25, `997bbd2`.** Synthetic-only `SignalSimulator.run()`, remaining pure helper extraction, explicit missingness and skips, actual partial exits and marked residuals. Independent safety/standards review; 1,172 unit tests, Ruff and mypy pass. No real-data, lockbox, trial ledger or broker path. | 1, 4 |
 | **5b** | Observational portfolio discard ledger; exact count reconciliation and unchanged trade/equity/cost trace | 5 |
 | **6a** | `signalmetrics.py` estimators and synthetic calibration; inference remains disabled | 4 |
 | **6b** | Date and pin the calibrated minimum-block rule in `common/config.py` and `goal.yaml`; only then may inference be enabled | 6a |
