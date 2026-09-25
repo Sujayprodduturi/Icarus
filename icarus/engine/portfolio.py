@@ -38,6 +38,7 @@ from __future__ import annotations
 import enum
 from dataclasses import dataclass, field, replace
 from decimal import ROUND_DOWN, Decimal
+from itertools import pairwise
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -51,6 +52,7 @@ from icarus.engine.simcore import (
 from icarus.engine.simcore import (
     ExitReason as ExitReason,
 )
+from icarus.engine.simcore import SignalId
 from icarus.engine.simcore import (
     _dec as _dec,
 )
@@ -74,7 +76,7 @@ from icarus.engine.simcore import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Mapping, Sequence
     from datetime import datetime
 
     import numpy.typing as npt
@@ -113,6 +115,35 @@ class Skipped(enum.StrEnum):
     NO_STOP_DISTANCE = "no_stop_distance"
     ENTRY_NOT_FILLED = "entry_not_filled"
     ALREADY_HELD = "already_held"
+
+
+class PortfolioOmission(enum.StrEnum):
+    """Observed entry signals that never reached the historical refusal counters."""
+
+    NO_NEXT_BAR = "no_next_bar"
+    NOT_TRADABLE = "not_tradable"
+    NO_EXECUTION_BAR = "no_execution_bar"
+
+
+@dataclass(frozen=True, slots=True)
+class PortfolioDiscard:
+    """One emitted entry signal that did not become a portfolio position."""
+
+    signal_id: SignalId
+    reason: Skipped | PortfolioOmission
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.signal_id, SignalId):
+            raise TypeError("PortfolioDiscard.signal_id must be a SignalId")
+        if not isinstance(self.reason, (Skipped, PortfolioOmission)):
+            raise TypeError("PortfolioDiscard.reason must be a Skipped or PortfolioOmission")
+
+
+def _legacy_skip_reason(reason: Skipped | PortfolioOmission) -> Skipped | None:
+    """Project new observations back onto the unchanged historical counters."""
+    if reason is PortfolioOmission.NO_EXECUTION_BAR:
+        return Skipped.NO_STOP_DISTANCE
+    return reason if isinstance(reason, Skipped) else None
 
 
 @dataclass(slots=True)
@@ -208,6 +239,9 @@ class RunResult:
     trades: list[ClosedTrade] = field(default_factory=list)
     equity: list[tuple[datetime, Decimal]] = field(default_factory=list)
     skipped: dict[Skipped, int] = field(default_factory=dict)
+    emitted_signals: int = 0
+    accepted_signal_ids: list[SignalId] = field(default_factory=list)
+    portfolio_discards: list[PortfolioDiscard] = field(default_factory=list)
     unfilled_exits: int = 0
     ambiguous_selection_days: int = 0
     """Days where more candidates fired than there were slots and nothing ordered them.
@@ -238,6 +272,36 @@ class RunResult:
 
     def record_skip(self, reason: Skipped) -> None:
         self.skipped[reason] = self.skipped.get(reason, 0) + 1
+
+    def record_discard(self, discard: PortfolioDiscard) -> None:
+        """Record one refusal and maintain the historical skip-counter projection."""
+        self.portfolio_discards.append(discard)
+        if (legacy_reason := _legacy_skip_reason(discard.reason)) is not None:
+            self.record_skip(legacy_reason)
+
+    def reconcile_signals(self, expected: set[SignalId]) -> None:
+        """Fail closed unless every emitted ID has exactly one accepted/discarded outcome."""
+        accepted = self.accepted_signal_ids
+        discarded = [discard.signal_id for discard in self.portfolio_discards]
+        accepted_set = set(accepted)
+        discarded_set = set(discarded)
+        projection: dict[Skipped, int] = {}
+        for discard in self.portfolio_discards:
+            if not isinstance(discard.reason, (Skipped, PortfolioOmission)):
+                raise ValueError("portfolio signal accounting contains an unknown discard reason")
+            if (legacy_reason := _legacy_skip_reason(discard.reason)) is not None:
+                projection[legacy_reason] = projection.get(legacy_reason, 0) + 1
+
+        valid = (
+            len(accepted_set) == len(accepted)
+            and len(discarded_set) == len(discarded)
+            and accepted_set.isdisjoint(discarded_set)
+            and accepted_set | discarded_set == expected
+            and projection == self.skipped
+        )
+        if not valid:
+            raise ValueError("portfolio signal accounting is not an exact one-outcome partition")
+        self.emitted_signals = len(expected)
 
     @property
     def final_equity(self) -> Decimal:
@@ -277,6 +341,7 @@ class PortfolioSimulator:
         *,
         starting_equity: Decimal,
         ranks: Mapping[str, Column] | None = None,
+        source_indices: Sequence[int] | None = None,
     ) -> RunResult:
         """Walk the panel.
 
@@ -285,21 +350,64 @@ class PortfolioSimulator:
         column. All three are computed by the caller so this class stays free of DSL evaluation and
         can be tested against hand-built arrays.
         """
+        source = tuple(range(len(panel))) if source_indices is None else tuple(source_indices)
+        if len(source) != len(panel) or any(
+            type(index) is not int or index < 0 for index in source
+        ):
+            raise ValueError("source_indices must match the panel with nonnegative whole indices")
+        if any(current != previous + 1 for previous, current in pairwise(source)):
+            raise ValueError("source_indices must be contiguous full-source indices")
+
         result = RunResult()
         plan = ExitPlan.of(strategy.exits)
         book: dict[str, OpenPosition] = {}
         equity = starting_equity
         last = len(panel) - 1
+        expected_signals = {
+            SignalId(strategy.name, strategy.version, symbol, _ts_at(panel, t), source[t])
+            for t in range(last + 1)
+            for symbol in panel.symbols
+            if signals[symbol][t] == 1.0
+        }
 
         for t in range(last + 1):
             ts = _ts_at(panel, t)
             # Exits first: a slot freed this morning is available to this morning's signal.
             equity += self._process_exits(book, panel, t, ts, stops, result, final=t == last)
-            if t < last:
+            if t == last:
+                for symbol in panel.symbols:
+                    if signals[symbol][t] == 1.0:
+                        result.record_discard(
+                            PortfolioDiscard(
+                                SignalId(strategy.name, strategy.version, symbol, ts, source[t]),
+                                PortfolioOmission.NO_NEXT_BAR,
+                            )
+                        )
+            else:
+                for symbol in panel.symbols:
+                    if signals[symbol][t] == 1.0 and not panel.tradable[panel.index_of(symbol), t]:
+                        result.record_discard(
+                            PortfolioDiscard(
+                                SignalId(strategy.name, strategy.version, symbol, ts, source[t]),
+                                PortfolioOmission.NOT_TRADABLE,
+                            )
+                        )
                 self._process_entries(
-                    strategy, plan, book, panel, t, ts, signals, stops, ranks, equity, result
+                    strategy,
+                    plan,
+                    book,
+                    panel,
+                    t,
+                    ts,
+                    signals,
+                    stops,
+                    ranks,
+                    equity,
+                    result,
+                    source[t],
                 )
             result.equity.append((ts, equity + self._unrealised(book, panel, t, ts)))
+        result.reconcile_signals(expected_signals)
         return result
 
     # -- exits -------------------------------------------------------------------------------
@@ -457,7 +565,14 @@ class PortfolioSimulator:
         ranks: Mapping[str, Column] | None,
         equity: Decimal,
         result: RunResult,
+        decision_index: int | None = None,
     ) -> None:
+        source_index = t if decision_index is None else decision_index
+        signal_ids = {
+            symbol: SignalId(strategy.name, strategy.version, symbol, ts, source_index)
+            for symbol in panel.symbols
+            if signals[symbol][t] == 1.0
+        }
         candidates = [
             symbol
             for symbol in panel.symbols
@@ -467,7 +582,7 @@ class PortfolioSimulator:
             return
         for symbol in list(candidates):
             if symbol in book:
-                result.record_skip(Skipped.ALREADY_HELD)
+                result.record_discard(PortfolioDiscard(signal_ids[symbol], Skipped.ALREADY_HELD))
                 candidates.remove(symbol)
 
         free_slots = self._risk.max_open_positions - len(book)
@@ -485,8 +600,8 @@ class PortfolioSimulator:
             # Counted, not dropped: "the strategy fired 900 times and we could take 300 of them" is
             # a fact about the strategy, and a simulator that silently discards the other 600
             # reports a hit rate measured on a sample it chose.
-            for _ in candidates:
-                result.record_skip(Skipped.NO_SLOT)
+            for symbol in candidates:
+                result.record_discard(PortfolioDiscard(signal_ids[symbol], Skipped.NO_SLOT))
             return
 
         heat_used = sum((p.open_risk for p in book.values()), Decimal(0))
@@ -536,19 +651,26 @@ class PortfolioSimulator:
                 ):
                     result.ambiguous_selection_days += 1
                     tie_decided_the_cut = True
-                result.record_skip(Skipped.NO_SLOT)
+                result.record_discard(PortfolioDiscard(signal_ids[symbol], Skipped.NO_SLOT))
                 continue
             index = panel.index_of(symbol)
             bar = _sim_bar(panel, index, t + 1, _ts_at(panel, t + 1))
             stop_distance = _dec(float(stops[symbol][t]))
-            if bar is None or not np.isfinite(stops[symbol][t]) or stop_distance <= 0:
-                result.record_skip(Skipped.NO_STOP_DISTANCE)
+            if bar is None:
+                result.record_discard(
+                    PortfolioDiscard(signal_ids[symbol], PortfolioOmission.NO_EXECUTION_BAR)
+                )
+                continue
+            if not np.isfinite(stops[symbol][t]) or stop_distance <= 0:
+                result.record_discard(
+                    PortfolioDiscard(signal_ids[symbol], Skipped.NO_STOP_DISTANCE)
+                )
                 continue
             quantity = int((risk_budget / stop_distance).to_integral_value(rounding=ROUND_DOWN))
             if quantity <= 0:
                 # Whole shares only. At seed capital this is common, and it is a trade that did
                 # not happen rather than a fractional one that did (task 2.1b).
-                result.record_skip(Skipped.ROUNDS_TO_ZERO)
+                result.record_discard(PortfolioDiscard(signal_ids[symbol], Skipped.ROUNDS_TO_ZERO))
                 continue
 
             # **The concentration cap (finding F34, decision D11).** The fourth term in the
@@ -564,7 +686,9 @@ class PortfolioSimulator:
             price = self._fills.marketable_price(bar.open, side=OrderSide.BUY)
             affordable = int((position_cap / price).to_integral_value(rounding=ROUND_DOWN))
             if affordable <= 0:
-                result.record_skip(Skipped.CONCENTRATION_CAP)
+                result.record_discard(
+                    PortfolioDiscard(signal_ids[symbol], Skipped.CONCENTRATION_CAP)
+                )
                 continue
             # Noted here, counted only if this candidate becomes a position. Incrementing on the
             # spot counted resized *candidates*, and the heat check, the fill and the cash gate
@@ -576,14 +700,16 @@ class PortfolioSimulator:
             if heat_used + stop_distance * quantity > heat_cap:
                 # Four trades each inside the per-trade cap can still breach the book-level one,
                 # which is why this is re-checked here and not only at parse time (invariant #4).
-                result.record_skip(Skipped.HEAT_CAP)
+                result.record_discard(PortfolioDiscard(signal_ids[symbol], Skipped.HEAT_CAP))
                 continue
 
             fill = self._fills.execute(
                 Intent(OrderSide.BUY, OrderKind.MARKETABLE_LIMIT, quantity, ts), bar
             )
             if not fill.filled or fill.price is None or fill.ts is None:
-                result.record_skip(Skipped.ENTRY_NOT_FILLED)
+                result.record_discard(
+                    PortfolioDiscard(signal_ids[symbol], Skipped.ENTRY_NOT_FILLED)
+                )
                 continue
             filled = fill.filled_quantity
             if fill.price * filled > position_cap:
@@ -609,7 +735,9 @@ class PortfolioSimulator:
                 # 2x-ATR stop would ask for is 77 times the account, and 0.45% of tradable
                 # symbol-days would produce one over 100% of it. This is the delivery segment,
                 # where leverage is not merely unwise but unavailable (finding F6).
-                result.record_skip(Skipped.INSUFFICIENT_CASH)
+                result.record_discard(
+                    PortfolioDiscard(signal_ids[symbol], Skipped.INSUFFICIENT_CASH)
+                )
                 continue
             committed += outlay
             taken += 1
@@ -631,6 +759,7 @@ class PortfolioSimulator:
                 trailing=plan.trailing,
                 peak_close=fill.price,
             )
+            result.accepted_signal_ids.append(signal_ids[symbol])
             heat_used += stop_distance * filled
 
     def _unrealised(

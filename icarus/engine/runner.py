@@ -37,6 +37,7 @@ import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
+from itertools import pairwise
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -56,10 +57,12 @@ from icarus.engine.fills import FillModel
 from icarus.engine.metrics import Metrics, summarise
 from icarus.engine.portfolio import (
     ClosedTrade,
+    PortfolioDiscard,
     PortfolioSimulator,
     RunResult,
     stop_distance_from_exits,
 )
+from icarus.engine.simcore import SignalId
 from icarus.engine.taxmodel import RealizedTrade, TaxModel, financial_year
 from icarus.strategy.dsl import DslError, evaluate_universe
 from icarus.strategy.library import _ops
@@ -132,6 +135,10 @@ class FoldResult:
     """The fold's own out-of-sample curve, kept so the folds can be stitched into one continuous
     record afterwards. A summary cannot be un-summarised."""
 
+    emitted_signals: int = 0
+    accepted_signal_ids: tuple[SignalId, ...] = ()
+    portfolio_discards: tuple[PortfolioDiscard, ...] = ()
+
     def as_json(self) -> dict[str, object]:
         return {
             "fold": self.index,
@@ -146,6 +153,9 @@ class FoldResult:
             "concentration_capped": self.concentration_capped,
             "unfilled_exits": self.unfilled_exits,
             "ambiguous_selection_days": self.ambiguous_selection_days,
+            "emitted_signals": self.emitted_signals,
+            "accepted_signals": len(self.accepted_signal_ids),
+            "portfolio_discard_counts": _portfolio_discard_counts(self.portfolio_discards),
         }
 
 
@@ -172,6 +182,9 @@ class BacktestResult:
     drag is visible rather than absorbed."""
 
     oos_trades: list[ClosedTrade] = field(default_factory=list)
+    oos_emitted_signals: int = 0
+    oos_accepted_signal_ids: list[SignalId] = field(default_factory=list)
+    oos_portfolio_discards: list[PortfolioDiscard] = field(default_factory=list)
     tax_years: list[FinancialYearTax] = field(default_factory=list)
     tax_total: Decimal = Decimal(0)
     sharpe_decay: float = float("nan")
@@ -186,10 +199,54 @@ class BacktestResult:
                 self.oos_after_tax.as_json() if self.oos_after_tax else None
             ),
             "tax_total_inr": float(self.tax_total),
+            "oos_emitted_signals": self.oos_emitted_signals,
+            "oos_accepted_signals": len(self.oos_accepted_signal_ids),
+            "oos_portfolio_discard_counts": _portfolio_discard_counts(self.oos_portfolio_discards),
             "tax_by_year": [
                 {"fy": t.fy_start_year, "tax_inr": float(t.total_tax)} for t in self.tax_years
             ],
         }
+
+
+def _portfolio_discard_counts(
+    discards: Sequence[PortfolioDiscard],
+) -> dict[str, int]:
+    """Compact reason counts only; individual signal identities stay in typed results."""
+    counts: dict[str, int] = {}
+    for discard in discards:
+        reason = discard.reason.value
+        counts[reason] = counts.get(reason, 0) + 1
+    return counts
+
+
+def _aggregate_oos_signal_observations(
+    folds: Sequence[FoldResult],
+) -> tuple[int, list[SignalId], list[PortfolioDiscard]]:
+    """Combine fold test observations only, refusing overlapping or contradictory IDs."""
+    emitted = sum(fold.emitted_signals for fold in folds)
+    accepted = [signal_id for fold in folds for signal_id in fold.accepted_signal_ids]
+    discards = [discard for fold in folds for discard in fold.portfolio_discards]
+    accepted_set = set(accepted)
+    discarded_ids = [discard.signal_id for discard in discards]
+    discarded_set = set(discarded_ids)
+    if len(accepted_set) != len(accepted) or len(discarded_set) != len(discarded_ids):
+        raise ValueError("duplicate OOS signal ID across walk-forward test folds")
+    if not accepted_set.isdisjoint(discarded_set):
+        raise ValueError("conflicting OOS signal ID outcomes across walk-forward test folds")
+    if len(accepted_set | discarded_set) != emitted:
+        raise ValueError("OOS signal accounting is not an exact one-outcome partition")
+    return emitted, accepted, discards
+
+
+def _validated_source_indices(
+    panel: Panel, source_indices: Sequence[int] | None
+) -> tuple[int, ...]:
+    source = tuple(range(len(panel))) if source_indices is None else tuple(source_indices)
+    if len(source) != len(panel) or any(type(index) is not int or index < 0 for index in source):
+        raise ValueError("source_indices must match the panel with nonnegative whole indices")
+    if any(current != previous + 1 for previous, current in pairwise(source)):
+        raise ValueError("source_indices must be contiguous full-source indices")
+    return source
 
 
 def run_walk_forward(
@@ -199,6 +256,7 @@ def run_walk_forward(
     goal: GoalConfig,
     registry: Registry,
     ledger: Path | None = DEFAULT_TRIAL_LEDGER,
+    source_indices: Sequence[int] | None = None,
 ) -> BacktestResult:
     """Run every walk-forward fold and stitch the out-of-sample record.
 
@@ -208,6 +266,7 @@ def run_walk_forward(
     because an overlap turns the held-out slice into training data and leaves no trace in any
     metric — there is no number afterwards that looks wrong.
     """
+    source = _validated_source_indices(panel, source_indices)
     # The panel first, then the windows. `evaluate_once` runs the strategy over everything the
     # panel contains, so a panel that includes the lockbox puts it in reach however careful the
     # window arithmetic is (invariant #26).
@@ -226,8 +285,10 @@ def run_walk_forward(
     dates = [str(t)[:10] for t in panel.ts]
 
     for i, window in enumerate(windows):
-        train = _run_span(strategy, panel, window.train_start, window.train_end, columns, goal)
-        test = _run_span(strategy, panel, window.test_start, window.test_end, columns, goal)
+        train = _run_span(
+            strategy, panel, window.train_start, window.train_end, columns, goal, source
+        )
+        test = _run_span(strategy, panel, window.test_start, window.test_end, columns, goal, source)
         result.folds.append(
             FoldResult(
                 index=i,
@@ -245,6 +306,9 @@ def run_walk_forward(
                 concentration_capped=test.concentration_capped,
                 unfilled_exits=test.unfilled_exits,
                 ambiguous_selection_days=test.ambiguous_selection_days,
+                emitted_signals=test.emitted_signals,
+                accepted_signal_ids=tuple(test.accepted_signal_ids),
+                portfolio_discards=tuple(test.portfolio_discards),
                 equity_curve=tuple(test.equity),
             )
         )
@@ -257,6 +321,11 @@ def run_walk_forward(
         )
 
     result.oos_trades = [t for fold in result.folds for t in fold.trades]
+    (
+        result.oos_emitted_signals,
+        result.oos_accepted_signal_ids,
+        result.oos_portfolio_discards,
+    ) = _aggregate_oos_signal_observations(result.folds)
     stitched, books = _stitch(result.folds)
     result.oos = summarise(
         stitched,
@@ -347,8 +416,10 @@ def _run_span(
     end: int,
     columns: _Columns,
     goal: GoalConfig,
+    source_indices: Sequence[int] | None = None,
 ) -> RunResult:
     """Simulate ``[start, end)`` against columns already computed over the whole span."""
+    source = _validated_source_indices(panel, source_indices)
     window = slice_panel(panel, start, end)
     signals, stops, ranks = columns.slice(start, end)
 
@@ -368,6 +439,7 @@ def _run_span(
         # whole money ledger. costmodel and taxmodel both use the same guard.
         starting_equity=Decimal(str(goal.backtest.starting_equity_inr)),
         ranks=ranks,
+        source_indices=source[start:end],
     )
     return run
 

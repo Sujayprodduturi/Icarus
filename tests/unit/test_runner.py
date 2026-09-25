@@ -15,16 +15,26 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import pytest
+from tests.unit.simharness import REALISM
 
 from icarus.common.config import load_goal
-from icarus.engine.backtest import slice_panel
-from icarus.engine.costmodel import Charges
+from icarus.engine import runner
+from icarus.engine.backtest import Window, slice_panel
+from icarus.engine.costmodel import Charges, CostModel
+from icarus.engine.fills import FillModel
 from icarus.engine.metrics import Metrics, SharpeEstimate
-from icarus.engine.portfolio import ClosedTrade, ExitReason
+from icarus.engine.portfolio import (
+    ClosedTrade,
+    ExitReason,
+    PortfolioDiscard,
+    PortfolioOmission,
+)
 from icarus.engine.runner import (
     BacktestResult,
     FoldResult,
     _after_tax_curve,
+    _Columns,
+    _run_span,
     _session_days,
     _sessions_held,
     _stitch,
@@ -32,9 +42,12 @@ from icarus.engine.runner import (
     gate_verdict,
     read_trials,
     record_trial,
+    run_walk_forward,
 )
+from icarus.engine.signaltest import SignalSimulator
+from icarus.engine.simcore import SignalId
 from icarus.engine.taxmodel import Bucket, BucketOutcome, FinancialYearTax
-from icarus.strategy.dsl import Bars, Panel, parse_strategy
+from icarus.strategy.dsl import Bars, Panel, StrategyCandidate, parse_strategy
 from icarus.strategy.library import default_registry
 
 if TYPE_CHECKING:
@@ -164,6 +177,180 @@ sizing:
     assert len(stops["AAA"]) == 60
     assert ranks is None
     assert np.array_equal(signals["AAA"], columns.signals["AAA"][100:160], equal_nan=True)
+
+
+def test_run_span_preserves_full_source_signal_identity_when_sliced(goal: GoalConfig) -> None:
+    """Restarting source indices at a fold boundary would create a different signal identity."""
+    panel = _column_panel(size=8)
+    strategy = parse_strategy(
+        """
+name: source_identity
+version: 1
+timeframe: 1d
+universe: nse_liquid
+entry: {structure_bullish: {k: 2}}
+exit:
+  - stop_loss_pct: {pct: 0.2}
+sizing:
+  risk_r: 0.005
+""",
+        registry=default_registry(),
+        max_risk_r=0.005,
+    )
+    columns = _Columns(
+        signals={"AAA": np.array([0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0])},
+        stops={"AAA": np.full(8, 10.0)},
+        ranks=None,
+    )
+    source_indices = tuple(range(90, 98))
+
+    whole = _run_span(strategy, panel, 0, 8, columns, goal, source_indices)
+    sliced = _run_span(strategy, panel, 2, 8, columns, goal, source_indices)
+
+    assert whole.accepted_signal_ids == sliced.accepted_signal_ids
+    assert whole.accepted_signal_ids[0].decision_index == 92
+    assert whole.accepted_signal_ids[0].uuid == sliced.accepted_signal_ids[0].uuid
+
+    signal_result = SignalSimulator(
+        notional_inr=Decimal(100_000),
+        costs=CostModel(goal.costs),
+        fills=FillModel(REALISM),
+        stale_after_sessions=goal.backtest.stale_position_sessions,
+    ).run(
+        strategy,
+        panel,
+        columns.signals,
+        columns.stops,
+        source_indices=source_indices,
+    )
+    signal_ids = {
+        *(trade.signal_id for trade in signal_result.trades),
+        *(skipped.signal_id for skipped in signal_result.skips),
+    }
+    assert whole.accepted_signal_ids[0] in signal_ids
+
+
+def _always_signal_strategy() -> StrategyCandidate:
+    return parse_strategy(
+        """
+name: runner_signal_records
+version: 1
+timeframe: 1d
+universe: nse_liquid
+entry:
+  above:
+    a: {close: {}}
+    b: {constant: {value: 0.0}}
+exit:
+  - stop_loss_pct: {pct: 0.2}
+sizing:
+  risk_r: 0.005
+""",
+        registry=default_registry(),
+        max_risk_r=0.005,
+    )
+
+
+def _observation_indices(fold: FoldResult) -> set[int]:
+    return {
+        *(signal_id.decision_index for signal_id in fold.accepted_signal_ids),
+        *(discard.signal_id.decision_index for discard in fold.portfolio_discards),
+    }
+
+
+def test_public_walk_forward_carries_only_test_observations_and_source_offsets(
+    goal: GoalConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Copying training records or restarting IDs at a fold boundary corrupts the OOS ledger."""
+    panel = _column_panel(size=8)
+    windows = [Window(0, 2, 2, 5, 0), Window(0, 5, 5, 8, 0)]
+    monkeypatch.setattr(runner, "walk_forward_windows", lambda *_args: windows)
+
+    result = run_walk_forward(
+        _always_signal_strategy(),
+        panel,
+        goal=goal,
+        registry=default_registry(),
+        ledger=None,
+        source_indices=tuple(range(100, 108)),
+    )
+
+    assert [_observation_indices(fold) for fold in result.folds] == [
+        {102, 103, 104},
+        {105, 106, 107},
+    ]
+    assert {signal_id.decision_index for signal_id in result.oos_accepted_signal_ids} | {
+        discard.signal_id.decision_index for discard in result.oos_portfolio_discards
+    } == {102, 103, 104, 105, 106, 107}
+    assert result.oos_emitted_signals == 6
+
+
+def test_public_walk_forward_refuses_overlapping_oos_signal_ids(
+    goal: GoalConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Duplicate OOS records would make later trial evidence count one decision twice."""
+    panel = _column_panel(size=8)
+    windows = [Window(0, 2, 2, 5, 0), Window(0, 3, 3, 6, 0)]
+    monkeypatch.setattr(runner, "walk_forward_windows", lambda *_args: windows)
+
+    with pytest.raises(ValueError, match="duplicate OOS"):
+        run_walk_forward(
+            _always_signal_strategy(),
+            panel,
+            goal=goal,
+            registry=default_registry(),
+            ledger=None,
+            source_indices=tuple(range(100, 108)),
+        )
+
+
+def test_portfolio_observations_propagate_as_counts_without_raw_identifiers() -> None:
+    """Publishing IDs before the ledger barrier would create an unlogged per-signal artifact."""
+    discarded_id = SignalId("runner_test", 1, "AAA", START, 90)
+    accepted_id = SignalId("runner_test", 1, "AAA", START + timedelta(days=1), 91)
+    discard = PortfolioDiscard(discarded_id, PortfolioOmission.NO_NEXT_BAR)
+    fold = FoldResult(
+        index=0,
+        window=Window(0, 1, 1, 2, 0),
+        train_from="2024-01-01",
+        train_to="2024-01-01",
+        test_from="2024-01-02",
+        test_to="2024-01-02",
+        in_sample=_metrics_stub(),
+        out_of_sample=_metrics_stub(),
+        trades=(),
+        skipped={},
+        stale_marks=0,
+        stale_mark_value=Decimal(0),
+        concentration_capped=0,
+        unfilled_exits=0,
+        ambiguous_selection_days=0,
+        equity_curve=((START, Decimal(100_000)),),
+        emitted_signals=2,
+        accepted_signal_ids=(accepted_id,),
+        portfolio_discards=(discard,),
+    )
+    result = BacktestResult(
+        strategy="runner_test",
+        folds=[fold],
+        oos_emitted_signals=2,
+        oos_accepted_signal_ids=[accepted_id],
+        oos_portfolio_discards=[discard],
+    )
+
+    fold_json = fold.as_json()
+    result_json = result.as_json()
+
+    assert fold_json["portfolio_discard_counts"] == {"no_next_bar": 1}
+    assert result_json["oos_portfolio_discard_counts"] == {"no_next_bar": 1}
+    assert fold_json["accepted_signals"] == result_json["oos_accepted_signals"] == 1
+    rendered = json.dumps({"fold": fold_json, "result": result_json})
+    assert "portfolio_discards" not in fold_json
+    assert "accepted_signal_ids" not in fold_json
+    assert str(discarded_id.uuid) not in rendered
+    assert str(accepted_id.uuid) not in rendered
+    assert discarded_id.decision_ts.isoformat() not in rendered
+    assert accepted_id.decision_ts.isoformat() not in rendered
 
 
 # --------------------------------------------------------------------------------------
