@@ -1,6 +1,6 @@
 # STATE.md — where Icarus actually is, today
 
-**Last updated: 2026-09-24.** This file is the **session entry point**. It is deliberately short:
+**Last updated: 2026-09-25.** This file is the **session entry point**. It is deliberately short:
 it tells a new agent (or the operator after a break) what is true right now, what happens next,
 and which file to open for the detail. It holds no reasoning of its own — everything here points
 somewhere durable.
@@ -23,7 +23,7 @@ Then an audit of that run found the engine had been measuring something other th
 that were written down. **Every number from that run is void.** We are part-way through the repair
 plan that has to finish before the next backtest is worth running.
 
-**Current position: Step 2g is complete; Task 3a is in progress.** Its plan was corrected on 2026-09-24 with operator approval (D16). Step 0, the synthetic pre-extraction characterization, is complete at `b54f3cb`; Step 1, the behavior-preserving shared exit extraction, is complete at `83ff601`. Step 2 (`signal_test` config and loader refusals) is complete at `61191d6`; Step 3 (lockbox span guards) is next. The signal-only simulator is not built. Any real-data rerun still counts as a trial. See `docs/plans/2026-08-22-signal-test.md`. 2g-4 was closed as not-a-defect.
+**Current position: Step 2g is complete; Task 3a is in progress.** Its plan was corrected on 2026-09-24 with operator approval (D16). Step 0, the synthetic pre-extraction characterization, is complete at `b54f3cb`; Step 1, the behavior-preserving shared exit extraction, is complete at `83ff601`. Step 2 (`signal_test` config and loader refusals) is complete at `61191d6`; Step 3 (lockbox span guards) is implemented and independently reviewed; Step 4 (typed signal trade/skip records) is next after the Step-3 commit. The signal-only simulator is not built. Any real-data rerun still counts as a trial. See `docs/plans/2026-08-22-signal-test.md`. 2g-4 was closed as not-a-defect.
 
 **The operator clarified on 2026-09-24 that learning must examine both strategy entry/exit timing and order-execution timing (D17).** The proposed phased lineage contract is `docs/plans/2026-09-24-trade-lineage-learning.md`; it does not enable future-phase behavior now.
 
@@ -52,7 +52,7 @@ the open-source `HKUDS/Vibe-Trading` platform found it had built things we had n
 
 ## 3. What is built and passing
 
-**1,028 unit tests passed after Step 2 on 2026-09-24.** `uv run ruff check icarus tests`, `uv run ruff format --check icarus tests`, and `uv run mypy icarus tests` passed; the full integration suite was not completed in these slices. The Step-0 synthetic characterization remained unchanged after Step 1, and independent Astra reviews found no remaining actionable issue. No real panel, lockbox, or trial ledger was used.
+**1,046 unit tests passed after the reviewed Step-3 implementation on 2026-09-25.** `uv run ruff check icarus tests`, `uv run ruff format --check icarus tests`, and `uv run mypy icarus tests` passed; the full integration suite was not completed in these slices. The Step-0 synthetic characterization remained unchanged after Step 1, and independent Astra reviews found no remaining actionable issue. No real panel, lockbox, or trial ledger was used.
 
 *One pre-existing `mypy` complaint sits outside that scope and is not new:*
 `scripts/build_panel.py:118` returns a bare `tuple`. The project's `mypy` invocation is
@@ -72,6 +72,7 @@ the open-source `HKUDS/Vibe-Trading` platform found it had built things we had n
 | Synthetic pre-extraction characterization (3a Step 0) | ✅ committed `b54f3cb`; exact portfolio outcome + SHA-256, no real panel or ledger |
 | Shared simulator exit mechanics (3a Step 1) | ✅ committed `83ff601`; characterization unchanged |
 | Signal-test config refusals (3a Step 2) | ✅ committed `61191d6`; D15 + provisional statistics pinned, inference disabled |
+| Lockbox span guards (3a Step 3) | ✅ implemented test-first and independently reviewed; whole-source refusal, fixed 2023 boundary, aligned valid axes, inclusive UTC-session dates |
 | Golden backtest regression (1.12) | ❌ deliberately not captured yet — see Step 5a |
 | Live order path | ❌ **and must stay that way until Phase 2** |
 
@@ -119,7 +120,7 @@ Full detail in the audit's §6c. Status as of 2026-08-21:
 | **2g-2** | Unverified `scale_free` flags (F27) + the concentration cap (F34, D11) | ✅ 2026-08-17 |
 | **2g-3** | `rank_by` and the `xs_` words accept a market-wide value (F25) | ✅ 2026-08-20 |
 | **2g-4** | ~~Annulled flash-crash prints are still in the panel (F23)~~ | ❌ closed 2026-08-21 — **not a defect**, premise false (D14) |
-| **3a** | Signal-test mode — every signal accounted for, uniform notional, no book (F2, D1); diagnostic only | 🔨 Steps 0–2 complete; Step 3 lockbox span guards next; signal mode not built |
+| **3a** | Signal-test mode — every signal accounted for, uniform notional, no book (F2, D1); diagnostic only | 🔨 Steps 0–2 committed; Step 3 verified and ready to commit; Step 4 records next; signal mode not built |
 | **3b** | Two capital rows: ₹10,00,000 edge run and ₹1,00,000 seed run (F15, D8, D9) | todo |
 | **3c** | Common-window comparison (F16) | now the **default** after F40, not a later correction |
 | **4a–4d** | Gross · costs · tax · net columns; per-trade CSV; alpha/beta/R²; withdraw the bad Nifty line | todo |

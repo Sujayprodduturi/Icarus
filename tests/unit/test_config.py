@@ -216,6 +216,17 @@ def test_lockbox_may_not_overlap_the_walk_forward_window(tmp_path: Path, repo_ro
         _load_dict(tmp_path, raw)
 
 
+def test_lockbox_start_cannot_move_behind_a_later_development_window(
+    tmp_path: Path, repo_root: Path
+) -> None:
+    raw = _valid_raw(repo_root)
+    raw["data_split"]["walk_forward_end"] = date(2023, 12, 31)
+    raw["data_split"]["lockbox_start"] = date(2024, 1, 1)
+
+    with pytest.raises(ConfigError, match="lockbox_start must remain 2023-01-01"):
+        _load_dict(tmp_path, raw)
+
+
 def test_lockbox_is_single_use(tmp_path: Path, repo_root: Path) -> None:
     raw = _valid_raw(repo_root)
     raw["data_split"]["lockbox_uses_allowed"] = 2

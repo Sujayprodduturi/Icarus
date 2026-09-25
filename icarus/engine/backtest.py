@@ -69,6 +69,9 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import numpy as np
+
+from icarus.common.config import LOCKBOX_START
 from icarus.common.logging import get_logger
 from icarus.strategy.dsl import Bars, Composite, DslError, Panel
 
@@ -450,13 +453,78 @@ def assert_panel_stops_before_lockbox(panel: Panel, split: DataSplit) -> None:
     spans it* — the test that proves :func:`walk_forward_windows` never reaches the lockbox has to
     build such a panel to prove anything. Folding the two together made that test unable to run.
     """
-    dates = _dates_of(panel)
-    if dates and dates[-1] >= split.lockbox_start:
+    if split.lockbox_start != LOCKBOX_START:
         raise DslError(
-            f"this panel runs to {dates[-1]}, at or past lockbox_start {split.lockbox_start} — "
+            f"data_split.lockbox_start must remain {LOCKBOX_START}; got {split.lockbox_start}"
+        )
+
+    timestamps = panel.ts
+    expected_shape = (len(panel),)
+    if timestamps.shape != expected_shape:
+        raise DslError(
+            f"the panel's canonical date axis must be one-dimensional with {len(panel)} sessions; "
+            f"got shape {timestamps.shape}"
+        )
+    if np.any(np.isnat(timestamps)):
+        raise DslError(
+            "the panel date axis contains NaT; refusing an invalid timestamp rather than "
+            "guessing where it belongs"
+        )
+
+    for symbol, series in zip(panel.symbols, panel.bars, strict=True):
+        if series.ts.shape != expected_shape or not np.array_equal(series.ts, timestamps):
+            raise DslError(
+                f"{symbol!r} date axis is not aligned with the panel's canonical date axis"
+            )
+    if panel.benchmark is not None and (
+        panel.benchmark.ts.shape != expected_shape
+        or not np.array_equal(panel.benchmark.ts, timestamps)
+    ):
+        raise DslError(
+            "the benchmark date axis is not aligned with the panel's canonical date axis"
+        )
+
+    session_days = timestamps.astype("datetime64[D]")
+    lockbox_start = np.datetime64(LOCKBOX_START, "D")
+    at_or_after = np.flatnonzero(session_days >= lockbox_start)
+    if at_or_after.size:
+        first = session_days[int(at_or_after[0])].astype(date)
+        raise DslError(
+            f"this panel contains {first}, at or past lockbox_start {LOCKBOX_START} — "
             f"the walk-forward path evaluates the strategy over the whole panel, so a panel that "
             f"contains the lockbox puts it in reach. Build one that stops before it (invariant #26)"
         )
+
+    if np.any(np.diff(session_days) <= np.timedelta64(0, "D")):
+        raise DslError(
+            "the panel date axis must be strictly ascending with no duplicate sessions; refusing "
+            "to sort it because reordering market data would hide an invalid source"
+        )
+
+
+def assert_span_before_lockbox(span: Panel, split: DataSplit) -> None:
+    """Refuse an invalid or lockbox-contaminated span before strategy evaluation."""
+    assert_panel_stops_before_lockbox(span, split)
+
+
+def development_span(panel: Panel, split: DataSplit) -> Panel:
+    """Return the inclusive configured development window from an already-safe source.
+
+    The whole source is checked before selecting dates. A source that contains even one lockbox
+    session is refused rather than clipped into an apparently safe view. Timestamp order is never
+    repaired here: malformed market data is an error, not input to sort silently.
+    """
+    assert_span_before_lockbox(panel, split)
+    session_days = panel.ts.astype("datetime64[D]")
+    start = np.datetime64(split.walk_forward_start, "D")
+    end = np.datetime64(split.walk_forward_end, "D")
+    selected = np.flatnonzero((session_days >= start) & (session_days <= end))
+    if not selected.size:
+        raise DslError(
+            f"the panel contains no sessions inside the development span "
+            f"{split.walk_forward_start}..{split.walk_forward_end}"
+        )
+    return slice_panel(panel, int(selected[0]), int(selected[-1]) + 1)
 
 
 def assert_no_lockbox_overlap(windows: Sequence[Window], panel: Panel, split: DataSplit) -> None:
@@ -484,6 +552,8 @@ __all__ = [
     "Window",
     "assert_no_lockbox_overlap",
     "assert_panel_stops_before_lockbox",
+    "assert_span_before_lockbox",
+    "development_span",
     "lockbox_window",
     "longest_lookback",
     "slice_panel",

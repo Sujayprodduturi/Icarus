@@ -77,6 +77,7 @@ _LTCG_EXEMPTION_STATUTORY_CEILING_INR = 125_000.0
 # than read from config so that re-dating the block in goal.yaml fails at startup instead of
 # quietly laundering a lowered bar (LLM council finding, 2026-07-31).
 _STOP_GATE_PRE_REGISTERED_ON = date(2026, 8, 1)
+LOCKBOX_START = date(2023, 1, 1)
 _BACKTEST_REGISTERED_ON = date(2026, 8, 5)
 _SIGNAL_TEST_REGISTERED_ON = date(2026, 8, 22)
 _SIGNAL_TEST_NOTIONAL_INR = 100_000
@@ -731,6 +732,11 @@ class DataSplit(_Strict):
 
     @model_validator(mode="after")
     def _windows_do_not_overlap(self) -> DataSplit:
+        if self.lockbox_start != LOCKBOX_START:
+            raise ValueError(
+                f"data_split.lockbox_start must remain {LOCKBOX_START} — moving the fixed boundary "
+                f"turns held-out data into development data. Got {self.lockbox_start}."
+            )
         # An overlap silently turns the lockbox into training data — the exact failure the
         # single-use rule exists to prevent, and one that leaves no trace in any metric.
         if self.walk_forward_end >= self.lockbox_start:

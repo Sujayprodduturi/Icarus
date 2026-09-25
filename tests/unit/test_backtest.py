@@ -17,6 +17,7 @@ import pytest
 
 from icarus.common.config import Amendment, DataSplit
 from icarus.common.config import Backtest as BacktestConfig
+from icarus.engine import backtest
 from icarus.engine.backtest import (
     LockboxExhausted,
     LockboxGuard,
@@ -28,6 +29,7 @@ from icarus.engine.backtest import (
     slice_panel,
     walk_forward_windows,
 )
+from icarus.engine.panelbuild import session_axis
 from icarus.strategy.dsl import Bars, DslError, Panel, StrategyCandidate, parse_strategy
 from icarus.strategy.library import default_registry
 
@@ -98,6 +100,31 @@ def _panel(sessions: int = 6000, start: str = "2011-01-03") -> Panel:
         volume=np.full(sessions, 1_000_000.0),
     )
     return Panel.build({"AAA": bars}, {"AAA": np.ones(sessions, dtype=np.bool_)})
+
+
+def _panel_at(dates: list[str]) -> Panel:
+    ts = np.array(dates, dtype="datetime64[ns]")
+    size = len(dates)
+
+    def bars_at(offset: float) -> Bars:
+        close = np.arange(size, dtype=np.float64) + offset
+        return Bars(
+            ts=ts.copy(),
+            open=close - 0.5,
+            high=close + 1.0,
+            low=close - 1.0,
+            close=close,
+            volume=close * 100.0,
+        )
+
+    return Panel.build(
+        {"BBB": bars_at(200.0), "AAA": bars_at(100.0)},
+        {
+            "BBB": np.array([index % 2 == 0 for index in range(size)], dtype=np.bool_),
+            "AAA": np.array([index % 2 == 1 for index in range(size)], dtype=np.bool_),
+        },
+        benchmark=bars_at(1_000.0),
+    )
 
 
 # --------------------------------------------------------------------------------------
@@ -336,6 +363,184 @@ def test_a_development_panel_is_accepted() -> None:
     dates = [d.astype("datetime64[D]").astype(date) for d in panel.ts]
     cutoff = next(i for i, d in enumerate(dates) if d >= SPLIT.lockbox_start)
     assert_panel_stops_before_lockbox(slice_panel(panel, 0, cutoff), SPLIT)
+
+
+def test_span_guard_checks_every_timestamp_not_only_the_last() -> None:
+    source = _panel_at(["2022-12-29", "2023-01-02", "2022-12-30"])
+
+    with pytest.raises(DslError, match="lockbox_start"):
+        backtest.assert_span_before_lockbox(source, SPLIT)
+
+
+def test_existing_panel_guard_also_checks_a_lockbox_timestamp_hidden_in_the_middle() -> None:
+    source = _panel_at(["2022-12-29", "2023-01-02", "2022-12-30"])
+
+    with pytest.raises(DslError, match="lockbox_start"):
+        assert_panel_stops_before_lockbox(source, SPLIT)
+
+
+def test_existing_panel_guard_refuses_a_non_one_dimensional_canonical_axis() -> None:
+    timestamps = np.array(
+        ["2021-01-05", "2021-01-04", "2021-01-03"], dtype="datetime64[ns]"
+    ).reshape(3, 1)
+    close = np.array([100.0, 101.0, 102.0])
+    bars = Bars(
+        ts=timestamps,
+        open=close.copy(),
+        high=close + 1.0,
+        low=close - 1.0,
+        close=close,
+        volume=np.full(3, 1_000_000.0),
+    )
+    source = Panel.build({"AAA": bars}, {"AAA": np.ones(3, dtype=np.bool_)})
+
+    with pytest.raises(DslError, match="one-dimensional"):
+        assert_panel_stops_before_lockbox(source, SPLIT)
+
+
+def test_existing_panel_guard_refuses_a_post_build_axis_length_mismatch() -> None:
+    source = _panel_at(["2021-01-04", "2021-01-05", "2021-01-06"])
+    source.bars[1].ts.resize(2, refcheck=False)
+
+    with pytest.raises(DslError, match="not aligned"):
+        assert_panel_stops_before_lockbox(source, SPLIT)
+
+
+@pytest.mark.parametrize("target", ["second symbol", "benchmark"])
+def test_existing_panel_guard_refuses_post_build_lockbox_mutation(target: str) -> None:
+    source = _panel_at(["2021-01-04", "2021-01-05", "2021-01-06"])
+    if target == "second symbol":
+        mutated = source.bars[1]
+    else:
+        assert source.benchmark is not None
+        mutated = source.benchmark
+    mutated.ts[1] = np.datetime64("2023-01-02")
+
+    with pytest.raises(DslError, match="not aligned"):
+        assert_panel_stops_before_lockbox(source, SPLIT)
+
+
+@pytest.mark.parametrize(
+    "dates",
+    [
+        ["2021-01-05", "2021-01-04"],
+        ["2021-01-04", "2021-01-04"],
+        ["2021-01-04T03:45", "2021-01-04T04:00"],
+    ],
+)
+def test_existing_panel_guard_refuses_a_non_strict_session_axis(dates: list[str]) -> None:
+    with pytest.raises(DslError, match="strictly ascending"):
+        assert_panel_stops_before_lockbox(_panel_at(dates), SPLIT)
+
+
+def test_existing_panel_guard_refuses_nat_in_the_source_axis() -> None:
+    source = _panel_at(["2021-01-04", "2021-01-05", "2021-01-06"])
+    source.bars[0].ts[1] = np.datetime64("NaT")
+
+    with pytest.raises(DslError, match="NaT"):
+        assert_panel_stops_before_lockbox(source, SPLIT)
+
+
+def test_development_span_refuses_a_contaminated_source_instead_of_clipping_it() -> None:
+    source = _panel_at(["2022-12-29", "2023-01-02", "2022-12-30"])
+
+    with pytest.raises(DslError, match="lockbox_start"):
+        backtest.development_span(source, SPLIT)
+
+
+def test_panel_guard_refuses_a_model_copy_that_moves_the_fixed_lockbox() -> None:
+    moved = SPLIT.model_copy(
+        update={
+            "walk_forward_end": date(2023, 12, 31),
+            "lockbox_start": date(2024, 1, 1),
+        }
+    )
+    source = _panel_at(["2023-06-01"])
+
+    with pytest.raises(DslError, match="must remain 2023-01-01"):
+        assert_panel_stops_before_lockbox(source, moved)
+
+
+def test_development_span_includes_an_intraday_session_on_the_end_date() -> None:
+    sessions = [date(2021, 1, 7), date(2021, 1, 8), date(2021, 1, 11)]
+    axis = session_axis(sessions)
+    source = _panel_at([str(session) for session in sessions])
+    for series in source.bars:
+        series.ts[:] = axis
+    assert source.benchmark is not None
+    source.benchmark.ts[:] = axis
+    split = SPLIT.model_copy(
+        update={
+            "walk_forward_start": date(2021, 1, 7),
+            "walk_forward_end": date(2021, 1, 8),
+        }
+    )
+
+    span = backtest.development_span(source, split)
+
+    np.testing.assert_array_equal(span.ts, axis[:2])
+
+
+def test_development_span_refuses_when_the_source_has_no_development_session() -> None:
+    source = _panel_at(["2009-12-30", "2009-12-31"])
+
+    with pytest.raises(DslError, match="no sessions inside the development span"):
+        backtest.development_span(source, SPLIT)
+
+
+@pytest.mark.parametrize(
+    ("start", "end", "dates"),
+    [
+        pytest.param(
+            date(2021, 1, 4),
+            date(2021, 1, 8),
+            ["2021-01-03", "2021-01-04", "2021-01-08", "2021-01-09"],
+            id="inclusive-boundaries",
+        ),
+        pytest.param(
+            date(2021, 1, 2),
+            date(2021, 1, 10),
+            ["2021-01-01", "2021-01-04", "2021-01-08", "2021-01-11"],
+            id="weekend-boundaries",
+        ),
+    ],
+)
+def test_development_span_selects_available_sessions_inclusively(
+    start: date, end: date, dates: list[str]
+) -> None:
+    split = SPLIT.model_copy(update={"walk_forward_start": start, "walk_forward_end": end})
+
+    span = backtest.development_span(_panel_at(dates), split)
+
+    np.testing.assert_array_equal(
+        span.ts,
+        np.array(["2021-01-04", "2021-01-08"], dtype="datetime64[ns]"),
+    )
+
+
+def test_development_span_preserves_bars_tradability_and_benchmark_alignment() -> None:
+    split = SPLIT.model_copy(
+        update={
+            "walk_forward_start": date(2021, 1, 4),
+            "walk_forward_end": date(2021, 1, 5),
+        }
+    )
+    source = _panel_at(["2021-01-03", "2021-01-04", "2021-01-05", "2021-01-06"])
+
+    span = backtest.development_span(source, split)
+
+    assert span.symbols == source.symbols
+    for actual, original in zip(span.bars, source.bars, strict=True):
+        for field in ("ts", "open", "high", "low", "close", "volume"):
+            np.testing.assert_array_equal(getattr(actual, field), getattr(original, field)[1:3])
+    np.testing.assert_array_equal(span.tradable, source.tradable[:, 1:3])
+    assert span.benchmark is not None
+    assert source.benchmark is not None
+    for field in ("ts", "open", "high", "low", "close", "volume"):
+        np.testing.assert_array_equal(
+            getattr(span.benchmark, field),
+            getattr(source.benchmark, field)[1:3],
+        )
 
 
 def test_the_lockbox_window_starts_where_the_development_span_ends() -> None:

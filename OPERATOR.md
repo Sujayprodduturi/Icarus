@@ -288,6 +288,12 @@ Dated decisions that are not code and not in `goal.yaml`, so they have nowhere e
 | D17 | **Learning scope includes both strategy entry/exit timing and order-execution timing.** Track the full chain of signal, risk decision, order, fills, close, costs and outcome from multiple angles so Icarus can diagnose and propose improvements. These are different hypotheses and must be evaluated separately. The existing research isolation, trial accounting, numeric validation, registry promotion, hard risk limits and Phase-1 no-live-order rule remain in force; this decision does not authorize autonomous live self-editing before the scheduled phases. | operator, clarifying “timings” and approving the plan |
 | D18 | **Task 3a statistical settings are provisional diagnostics, not gate amendments.** For the unrun signal test, use 95% nominal confidence, block length `max(63 sessions, 3 × longest holding period)`, 4,999 symbol-selection permutations and fixed RNG seed `20260924`, with separate 2026-09-24 provenance. Do not pick a minimum usable-block threshold by guesswork: Step 6 must calibrate it on synthetic fixtures and pre-register it before any real-data inferential output. Until then `inference_enabled` stays false. A fixed seed and permutation count do not by themselves validate the placebo null; suppress p-values where it is indefensible. | operator, accepting Astra's recommendation to do what is best |
 
+### 2026-09-25 — task 3a lockbox and comparison contract
+
+| id | decision | owner |
+|---|---|---|
+| D19 | **Reject any signal-test source panel containing a lockbox date before evaluating a strategy; never quietly clip away the lockbox and continue.** The development view may then select the configured development dates from that already-safe source. For portfolio comparisons, run separate signal simulations over each portfolio fold's exact dates and reset boundary; filtering one continuous development run after the fact is not a matched comparison. Every inspected real-data full-span or fold-matched evaluation, including a rerun, is a separately recorded trial. No real-data run is authorised by this decision; complete the diagnostic and ledger guards first. | operator, approving the two Astra recommendations |
+
 ## 7c. Deferred by decision — not forgotten
 
 Things consciously postponed. **Each names the condition that reopens it.** A deferral without a
