@@ -1,0 +1,9 @@
+# Step 6a.2 calibration plan review
+
+**Date:** 2026-09-26. **Scope:** the synthetic-only protocol in `docs/plans/2026-09-26-step6a2-calibration-implementation.md`. This review authorizes implementation and manifest preparation, **not a stochastic run or inference enablement**.
+
+Astra reviewed the statistical design repeatedly, and a separate implementation/test scout challenged it. Initial drafts were not ready: overlapping holds did not actually share shocks across clusters; validation reused the calibration parameter grid; the raw and win targets were mostly affine copies; dynamic holding duration, benchmark-factor coupling and artifact integrity were underspecified; and the original Monte Carlo gate had poor power. The revised plan freezes distinct calibration/validation fixtures, actual cross-block overlap, independent bounded return magnitudes, candidate-independent base checks, five simultaneous acceptance checks including joint emission-and-coverage reliability, and a committed manifest/preflight gate. Astra's final verdict was **approved for implementation and preparation of the frozen manifest**, subject to a separate review of that manifest and its analytic preflight before any random draw.
+
+The preflight must prove every mandatory anchor and dynamic-H case stays above candidate support floors, compute exact integer binomial cutoffs and an ideal-method whole-gate power bound of at least 0.90, verify hashes and a clean protected source tree, and reserve an immutable attempt artifact before drawing. Failure of any preflight leaves inference disabled. Strong serial-dependence or overlap cases may reject every candidate; that is a valid negative result, not permission to soften the gate.
+
+No simulation, market panel, broker, lockbox, trial-ledger evaluation, or paid data source was used in this review. The current product still emits no confidence interval or benchmark alpha.
