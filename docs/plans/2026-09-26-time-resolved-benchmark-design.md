@@ -1,7 +1,7 @@
-# Time-resolved benchmark comparison — design for review
+# Time-resolved benchmark comparison — approved design
 
-**Status: proposed specification; no implementation or real-data evaluation authorised by this document.**
-**Decision owner:** operator. **Design direction approved:** 2026-09-26.
+**Status: operator-approved design on 2026-09-26; authorises Step 6 planning only, not implementation or real-data evaluation.**
+**Decision owner:** operator. **Design direction and written design approved:** 2026-09-26.
 
 ## 1. Purpose and boundary
 
@@ -60,9 +60,9 @@ Before any real-data run, verify data coverage and artifact hashes without evalu
 
 ## 6. Delivery sequence and review gates
 
-This is an umbrella architecture, not a new task queue. **Task 3a Step 6 statistical design remains next** and must integrate the sampling, cost, matching-floor, and refusal contracts from this proposal before its own plan is approved. Subsequent work may be scheduled only through the existing task order or an explicit operator-approved task amendment. Acquisition, execution replay, and cost-accounting changes each need scoped design/plan review when their data and assumptions are known. No implementation plan may enable benchmark point estimates before the source-specific maximum age and sampling rule are dated and approved.
+This is an umbrella architecture, not a new task queue. **Task 3a Step 6 statistical design remains next** and must integrate the sampling, cost, matching-floor, and refusal contracts from this approved design before its own plan is approved. Subsequent work may be scheduled only through the existing task order or an explicit operator-approved task amendment. Acquisition, execution replay, and cost-accounting changes each need scoped design/plan review when their data and assumptions are known. No implementation plan may enable benchmark point estimates before the source-specific maximum age and sampling rule are dated and approved.
 
-1. Approve this source-neutral time/matching specification. The next document is the reviewed Task 3a Step 6 statistical design; this approval does not authorise product code.
+1. **Approved 2026-09-26:** this source-neutral time/matching specification. The next document is the reviewed Task 3a Step 6 statistical design; this approval does not authorise product code.
 2. Independently verify candidate data access, licence, temporal resolution, daily 2011–2022 and M15 2015–2022 coverage, point-in-time/delisted-equity treatment, and credential isolation. Any paid subscription or vendor contract is the operator's decision.
 3. Build and test the typed artifact, calendar, precision, and refusal contracts on synthetic fixtures; do not fetch real strategy data.
 4. Build a separate time-resolved execution lane, using shared fill semantics in both simulators. Prove daily-lane non-regression.
