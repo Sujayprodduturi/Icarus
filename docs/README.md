@@ -7,9 +7,10 @@ Start with [STATE.md](STATE.md): it is the current build position and the source
 - [Task 3a plan](plans/2026-08-22-signal-test.md): ordered signal-test work and scope boundaries.
 - [Step 4 record contract](plans/2026-09-25-signal-records.md): the implemented stable signal identity and outcome records.
 - [Step 5 simulator contract](plans/2026-09-25-signal-simulator.md) and [implementation plan](plans/2026-09-25-signal-simulator-implementation.md): implemented synthetic-only simulator, committed at `997bbd2`.
-- [Step 5b portfolio discard ledger plan](plans/2026-09-25-portfolio-discard-ledger-implementation.md): implemented at `ed9f46b` with synthetic-only tests and unchanged portfolio trade/equity/cost trace; Step 6 statistical design is next.
+- [Step 5b portfolio discard ledger plan](plans/2026-09-25-portfolio-discard-ledger-implementation.md): implemented at `ed9f46b` with synthetic-only tests and unchanged portfolio trade/equity/cost trace.
 - [Time-resolved benchmark design](plans/2026-09-26-time-resolved-benchmark-design.md): operator-approved source-neutral stock/Nifty timing and provenance contract for Step 6 planning; no daily-price alpha approximation or product code is enabled.
-- [Step 6 statistical design](plans/2026-09-26-signal-statistics-design.md): Astra- and safety-reviewed clustered-uncertainty and benchmark-refusal contract; an independently reviewed implementation plan is next under the operator's scoped continuation instruction.
+- [Step 6 statistical design](plans/2026-09-26-signal-statistics-design.md): Astra- and safety-reviewed clustered-uncertainty and benchmark-refusal contract; inference remains disabled.
+- [Step 6a.1 estimator implementation](plans/2026-09-26-step6a1-estimator-implementation.md): Tasks 1-2 built the synthetic-only typed boundary and independently checked CR2/Satterthwaite candidate moments (`34257f8`, `184f3b1`); this is a partial Step 6a foundation, with no intervals, calibrated floors, benchmark alpha, or real-data run.
 - [Trade-lineage and learning proposal](plans/2026-09-24-trade-lineage-learning.md): later work, not current implementation or promotion authority.
 - [Newest ranked audit](reviews/2026-08-09-post-backtest-audit.md): known findings, including items not yet scheduled in TASKS.
 

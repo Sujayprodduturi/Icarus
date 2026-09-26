@@ -369,6 +369,26 @@ def test_cr2_refusal_precedence_distinguishes_sparse_and_constant_samples() -> N
     assert _cr2_moments((1.0, 1.0), (0, 1)) is MetricRefusal.ZERO_VARIANCE
 
 
+def test_cr2_sample_variance_underflow_is_invalid_not_zero_variance() -> None:
+    """Distinct tiny values must not be misreported as genuinely constant evidence."""
+    assert _cr2_moments((1e-200, 2e-200), (0, 1)) is MetricRefusal.INVALID_VARIANCE
+
+
+def test_cr2_block_score_square_underflow_is_invalid_not_exact_cancellation() -> None:
+    """Nonzero block scores whose squares round away must fail rather than look independent."""
+    assert _cr2_moments((1.0, -1.0, 1e-200, 0.0), (0, 0, 1, 2)) is MetricRefusal.INVALID_VARIANCE
+
+
+def test_cr2_ratio_denominator_underflow_is_a_typed_refusal() -> None:
+    """A positive sample variance that vanishes after division must not raise ZeroDivisionError."""
+    assert _cr2_moments((0.0, 0.0, 0.0, 6e-162), (0, 0, 1, 2)) is MetricRefusal.INVALID_VARIANCE
+
+
+def test_cr2_exact_nonconstant_block_score_cancellation_is_zero_variance() -> None:
+    """True zero block scores remain a principled refusal distinct from arithmetic underflow."""
+    assert _cr2_moments((-1.0, 1.0, -2.0, 2.0), (0, 0, 1, 1)) is MetricRefusal.ZERO_VARIANCE
+
+
 @pytest.mark.parametrize(
     "values",
     [
@@ -436,6 +456,33 @@ def test_public_adapter_uses_fixed_origin_and_retains_empty_calendar_blocks() ->
     assert result.raw_return.moments is not None
     assert result.raw_return.moments.block_counts == ((1, 1), (3, 1))
     assert result.raw_return.moments.degrees_of_freedom == pytest.approx(1.0)
+
+
+def test_public_adapter_refuses_all_win_variance_without_erasing_return_moments() -> None:
+    """A component-local all-win refusal must not discard varying positive return evidence."""
+    smaller_winner = _trade(
+        decision_index=162,
+        entry_index=163,
+        fragments=(_fragment(quantity=10, price=Decimal(110), source_index=164),),
+    )
+    larger_winner = _trade(
+        symbol="BBB",
+        decision_index=225,
+        entry_index=226,
+        fragments=(_fragment(quantity=10, price=Decimal(120), source_index=227),),
+    )
+
+    result = summarize_signal_run(
+        _run(trades=(larger_winner, smaller_winner)),
+        source_axis=_axis(stop=227),
+        settings=_settings(),
+    )
+
+    assert result.raw_return.moments is not None
+    assert result.raw_return.refusal is None
+    assert result.win_rate.moments is None
+    assert result.win_rate.mean == pytest.approx(1.0)
+    assert result.win_rate.refusal is MetricRefusal.ZERO_VARIANCE
 
 
 @pytest.mark.parametrize(

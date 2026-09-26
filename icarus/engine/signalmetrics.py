@@ -1,8 +1,8 @@
-"""Pure, synthetic-only boundary for signal-run statistical diagnostics.
+"""Pure, synthetic-only boundary for candidate signal-run statistical diagnostics.
 
-This module validates that every recorded outcome belongs to one caller-supplied canonical
-source-session axis, then reports descriptive raw-return and win-rate summaries. The CR2 kernel,
-intervals, benchmark matching, and placebo engine are deliberately outside this first slice.
+This module validates every outcome against a caller-supplied canonical source-session axis and
+computes descriptive raw-return and win-rate summaries with candidate CR2/Satterthwaite moments.
+Intervals, benchmark matching, and the placebo engine remain deliberately unavailable.
 """
 
 from __future__ import annotations
@@ -91,7 +91,7 @@ class SourceSessionAxis:
 
 @dataclass(frozen=True, slots=True)
 class CandidateMoments:
-    """Candidate CR2/Satterthwaite diagnostics populated by the next implementation task."""
+    """Candidate CR2/Satterthwaite diagnostics without interval or calibration claims."""
 
     count: int
     block_counts: tuple[tuple[int, int], ...]
@@ -194,28 +194,33 @@ def _cr2_moments(
 
     try:
         mean = math.fsum(values) / count
-        squared_residuals = tuple((value - mean) ** 2 for value in values)
-        sample_variance = math.fsum(squared_residuals) / (count - 1)
+        sample_variance = math.fsum((value - mean) ** 2 for value in values) / (count - 1)
     except OverflowError:
         return MetricRefusal.INVALID_VARIANCE
     if not math.isfinite(mean) or not math.isfinite(sample_variance):
         return MetricRefusal.INVALID_VARIANCE
     if sample_variance == 0.0:
-        return MetricRefusal.ZERO_VARIANCE
+        if all(value == values[0] for value in values):
+            return MetricRefusal.ZERO_VARIANCE
+        return MetricRefusal.INVALID_VARIANCE
     if sample_variance < 0.0:
         return MetricRefusal.INVALID_VARIANCE
 
     try:
         variance_terms = []
+        scores = []
         for block_id, block_count in block_counts:
             leverage = block_count / count
             score = math.fsum(value - mean for value in grouped[block_id])
+            scores.append(score)
             variance_terms.append(score * score / (1.0 - leverage))
         cr2_variance = math.fsum(variance_terms) / (count * count)
     except OverflowError:
         return MetricRefusal.INVALID_VARIANCE
     if cr2_variance == 0.0:
-        return MetricRefusal.ZERO_VARIANCE
+        if all(score == 0.0 for score in scores):
+            return MetricRefusal.ZERO_VARIANCE
+        return MetricRefusal.INVALID_VARIANCE
     if not math.isfinite(cr2_variance) or cr2_variance < 0.0:
         return MetricRefusal.INVALID_VARIANCE
 
@@ -240,9 +245,20 @@ def _cr2_moments(
     if not math.isfinite(degrees_of_freedom) or degrees_of_freedom <= 0.0:
         return MetricRefusal.INVALID_DF
 
-    design_effect = cr2_variance / (sample_variance / count)
-    effective_n_uncapped = sample_variance / cr2_variance
-    if not math.isfinite(design_effect) or not math.isfinite(effective_n_uncapped):
+    variance_of_mean_iid = sample_variance / count
+    if not math.isfinite(variance_of_mean_iid) or variance_of_mean_iid <= 0.0:
+        return MetricRefusal.INVALID_VARIANCE
+    try:
+        design_effect = cr2_variance / variance_of_mean_iid
+        effective_n_uncapped = sample_variance / cr2_variance
+    except (OverflowError, ZeroDivisionError):
+        return MetricRefusal.INVALID_VARIANCE
+    if (
+        not math.isfinite(design_effect)
+        or design_effect <= 0.0
+        or not math.isfinite(effective_n_uncapped)
+        or effective_n_uncapped <= 0.0
+    ):
         return MetricRefusal.INVALID_VARIANCE
     effective_n_capped = effective_n_uncapped > count
     effective_n_display = min(effective_n_uncapped, float(count))
