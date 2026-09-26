@@ -79,8 +79,8 @@ class SourceSessionAxis:
                 raise ValueError(
                     "SourceSessionAxis session indices must be contiguous and strictly increasing"
                 )
-            if prior_ts is not None and ts <= prior_ts:
-                raise ValueError("SourceSessionAxis timestamps must be strictly increasing")
+            if prior_ts is not None and ts.date() <= prior_ts.date():
+                raise ValueError("SourceSessionAxis UTC dates must be strictly increasing")
             indices.add(index)
             prior_index = index
             prior_ts = ts
@@ -272,9 +272,7 @@ def summarize_signal_run(
 
 
 def _describe(values: tuple[Decimal, ...], block_ids: tuple[int, ...]) -> MetricDiagnostic:
-    mean = float(sum(values, Decimal(0)) / len(values))
-    if not math.isfinite(mean):
-        raise ValueError("descriptive mean must be representable as a finite float64")
+    mean = _finite_float64_decimal("descriptive mean", sum(values, Decimal(0)) / len(values))
     refusal: MetricRefusal | None = None
     if len(values) < 2 or len(set(block_ids)) < 2:
         refusal = MetricRefusal.TOO_FEW_BLOCKS
@@ -319,8 +317,8 @@ def _finite_float64_decimal(name: str, value: Decimal) -> float:
     if not value.is_finite():
         raise ValueError(f"{name} must be representable as a finite float64")
     converted = float(value)
-    if not math.isfinite(converted):
-        raise ValueError(f"{name} must be representable as a finite float64")
+    if not math.isfinite(converted) or (converted == 0.0 and value != 0):
+        raise ValueError(f"{name} must be representable as a finite float64 without underflow")
     return converted
 
 

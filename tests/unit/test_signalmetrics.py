@@ -17,6 +17,7 @@ from icarus.engine.signalmetrics import (
     MetricRefusal,
     SignalDiagnostics,
     SourceSessionAxis,
+    _describe,
     summarize_signal_run,
 )
 from icarus.engine.signaltest import (
@@ -32,7 +33,7 @@ from icarus.engine.simcore import ExitReason, SignalId
 
 
 def _at(day: int) -> datetime:
-    return datetime(2020, 1, day, tzinfo=UTC)
+    return datetime(2020, 1, 1, tzinfo=UTC) + timedelta(days=day - 1)
 
 
 def _axis(*, origin: int = 100, stop: int = 106) -> SourceSessionAxis:
@@ -203,6 +204,20 @@ def test_partial_exit_fragments_contribute_one_return_observation() -> None:
     assert result.block_length == 63
 
 
+def test_long_holding_period_expands_block_length_from_validated_settings() -> None:
+    """Hard-coding the 63-session minimum would ignore the declared 3H dependence rule."""
+    trade = _trade(
+        fragments=(_fragment(quantity=10, price=Decimal(110), source_index=126),),
+    )
+
+    result = summarize_signal_run(
+        _run(trades=(trade,)), source_axis=_axis(stop=126), settings=_settings()
+    )
+
+    assert result.longest_holding_sessions == 26
+    assert result.block_length == 78
+
+
 @pytest.mark.parametrize("origin", [-1, True])
 def test_source_axis_refuses_negative_or_boolean_origin(origin: int) -> None:
     """A Boolean or negative origin would make block identity non-canonical."""
@@ -217,8 +232,18 @@ def test_source_axis_refuses_negative_or_boolean_origin(origin: int) -> None:
         ((101, _at(1)), (100, _at(2))),
         ((100, _at(2)), (101, _at(1))),
         ((100, _at(1)), (101, _at(1))),
+        (
+            (100, datetime(2020, 1, 1, 9, tzinfo=UTC)),
+            (101, datetime(2020, 1, 1, 15, tzinfo=UTC)),
+        ),
     ],
-    ids=["index-gap", "unsorted-index", "unsorted-time", "duplicate-date"],
+    ids=[
+        "index-gap",
+        "unsorted-index",
+        "unsorted-time",
+        "duplicate-timestamp",
+        "duplicate-utc-date",
+    ],
 )
 def test_source_axis_refuses_noncanonical_ordering(
     sessions: tuple[tuple[int, datetime], ...],
@@ -303,11 +328,20 @@ def test_forged_exit_recognition_coordinate_is_refused_before_it_can_change_h_or
         summarize_signal_run(_run(trades=(trade,)), source_axis=_axis(), settings=_settings())
 
 
-@pytest.mark.parametrize("value", [Decimal("NaN"), Decimal("Infinity"), Decimal("1e10000")])
-def test_metric_observation_refuses_nonfinite_or_float64_overflow(value: Decimal) -> None:
-    """A value that cannot be represented safely must not contaminate later arithmetic."""
+@pytest.mark.parametrize(
+    "value",
+    [Decimal("NaN"), Decimal("Infinity"), Decimal("1e10000"), Decimal("1e-10000")],
+)
+def test_metric_observation_refuses_nonfinite_or_float64_range_loss(value: Decimal) -> None:
+    """Overflow or nonzero underflow must not contaminate later arithmetic."""
     with pytest.raises(ValueError, match="finite float64"):
         MetricObservation(_trade().signal_id, 101, 2, value)
+
+
+def test_descriptive_mean_refuses_nonzero_decimal_underflow_to_float64_zero() -> None:
+    """A representable observation pair must not publish a rounded-away nonzero mean."""
+    with pytest.raises(ValueError, match="descriptive mean"):
+        _describe((Decimal("5e-324"), Decimal("-4e-324")), (0, 1))
 
 
 @pytest.mark.parametrize(
