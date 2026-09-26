@@ -689,6 +689,57 @@ def _preflight_cutoffs(manifest: Mapping[str, Any]) -> tuple[dict[str, Any], dic
     return cutoffs, power
 
 
+def _analytic_targets(
+    cell: Mapping[str, Any], occupancy: tuple[tuple[int, int], ...]
+) -> dict[str, float]:
+    """Derive declared cell targets from the frozen family parameters and occupancy."""
+    parameters = _mapping(cell["parameters"], "cell parameters")
+    family = cell["family"]
+    if family == "two_regime_shift":
+        if len(occupancy) % 2 != 0:
+            raise ManifestError("two-regime target needs an even occupied-block count")
+        first = parameters["p_first"]
+        last = parameters["p_last"]
+        if not isinstance(first, int | float) or not isinstance(last, int | float):
+            raise ManifestError("two-regime target probabilities are invalid")
+        midpoint = len(occupancy) // 2
+        weighted_probability = sum(
+            count * (float(first) if block < midpoint else float(last))
+            for block, count in occupancy
+        ) / sum(count for _, count in occupancy)
+    else:
+        probability = parameters.get("p")
+        if not isinstance(probability, int | float):
+            raise ManifestError(f"{family} target probability is invalid")
+        weighted_probability = float(probability)
+    amplitude_mean = 1.0
+    if family == "bounded_rare_magnitude":
+        high = parameters["amplitude_high"]
+        high_probability = parameters["amplitude_high_probability"]
+        if not isinstance(high, int | float) or not isinstance(high_probability, int | float):
+            raise ManifestError("rare-magnitude target parameters are invalid")
+        amplitude_mean = 1.0 + (float(high) - 1.0) * float(high_probability)
+    raw_mean = 0.01 * amplitude_mean * (2.0 * weighted_probability - 1.0)
+    return {
+        "raw_mean": raw_mean,
+        "win_probability": weighted_probability,
+        "excess_mean": raw_mean - 0.002,
+    }
+
+
+def _assert_analytic_targets(
+    cell: Mapping[str, Any], occupancy: tuple[tuple[int, int], ...]
+) -> None:
+    expected = _analytic_targets(cell, occupancy)
+    targets = _mapping(cell["targets"], "cell targets")
+    for name, value in expected.items():
+        actual = targets[name]
+        if not isinstance(actual, int | float) or not math.isclose(
+            float(actual), value, rel_tol=1e-13, abs_tol=1e-15
+        ):
+            raise ManifestError(f"cell {cell['id']} analytic target differs: {name}")
+
+
 def preflight_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
     """Recompute every deterministic support and analytic acceptance proof."""
     _validate_manifest(manifest)
@@ -727,6 +778,14 @@ def preflight_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
             )
         if occupancy != derived_occupancy:
             raise ManifestError(f"{geometry_id} derived occupancy differs from claimed occupancy")
+        fixed_h = geometry.get("fixed_h")
+        if (
+            not isinstance(fixed_h, int)
+            or isinstance(fixed_h, bool)
+            or fixed_h <= 0
+            or geometry.get("l") != max(63, 3 * fixed_h)
+        ):
+            raise ManifestError(f"{geometry_id} fixed H/L equation differs")
         actual_nu = satterthwaite_nu(occupancy)
         if geometry.get("expected_blocks") != len(occupancy):
             raise ManifestError(f"{geometry_id} expected block proof differs")
@@ -744,6 +803,7 @@ def preflight_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
         for raw_cell in _sequence(phase["cells"], f"phases.{phase_name}.cells"):
             cell = _mapping(raw_cell, "cell")
             if cell["role"] == "dynamic":
+                _assert_analytic_targets(cell, ((0, 1),))
                 actual_support = [True] * len(floors)
             else:
                 geometry = _mapping(geometries[cell["geometry_id"]], "geometry")
@@ -759,6 +819,10 @@ def preflight_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
                     != occupancy
                 ):
                     raise ManifestError(f"cell {cell['id']} burst source occupancy differs")
+                parameters = _mapping(cell["parameters"], "cell parameters")
+                if "h" in parameters and parameters["h"] != geometry["fixed_h"]:
+                    raise ManifestError(f"cell {cell['id']} H differs from its fixed geometry")
+                _assert_analytic_targets(cell, occupancy)
                 actual_support = _support(occupancy, floors)
             if cell["expected_candidate_support"] != actual_support:
                 raise ManifestError(f"cell {cell['id']} expected candidate support differs")
@@ -782,6 +846,27 @@ def preflight_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
         ]
         if not dynamic_cells:
             raise ManifestError(f"{phase_name} has no dynamic geometry cells")
+        declared_holdings: set[int] = set()
+        for cell in dynamic_cells:
+            parameters = _mapping(cell["parameters"], "dynamic parameters")
+            h_loss = parameters["h_loss"]
+            h_win = parameters["h_win"]
+            if (
+                not isinstance(h_loss, int)
+                or isinstance(h_loss, bool)
+                or not isinstance(h_win, int)
+                or isinstance(h_win, bool)
+                or h_loss <= 0
+                or h_win <= 0
+                or h_loss == h_win
+            ):
+                raise ManifestError(f"dynamic {phase_name} has invalid declared H outcomes")
+            if parameters["nominal_l"] != max(63, 3 * max(h_loss, h_win)):
+                raise ManifestError(f"dynamic {phase_name} nominal L equation differs")
+            declared_holdings.update((h_loss, h_win))
+        expected_outcomes = {f"H={holding}" for holding in declared_holdings}
+        if set(outcomes) != expected_outcomes:
+            raise ManifestError(f"dynamic {phase_name} outcomes differ from declared H values")
         dynamic_support[phase_name] = {}
         for outcome_name, raw_outcome in outcomes.items():
             if not isinstance(outcome_name, str) or not outcome_name.startswith("H="):

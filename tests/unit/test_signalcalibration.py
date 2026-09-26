@@ -189,6 +189,35 @@ def test_preflight_derives_each_dynamic_h_outcome_from_the_nominal_source_grid(
         preflight_manifest(load_manifest(path, digest))
 
 
+@pytest.mark.parametrize(
+    ("mutate", "match"),
+    [
+        (
+            lambda value: value["geometries"]["cal_overlap_h42"].__setitem__("fixed_h", 21),
+            "fixed H",
+        ),
+        (
+            lambda value: value["dynamic_geometries"]["calibration"]["outcomes"].pop("H=21"),
+            "outcomes",
+        ),
+        (
+            lambda value: value["phases"]["calibration"]["cells"][0]["targets"].__setitem__(
+                "raw_mean", 1.0
+            ),
+            "analytic target",
+        ),
+    ],
+)
+def test_preflight_rejects_h_and_analytic_target_claims(
+    tmp_path: Path, mutate: Any, match: str
+) -> None:
+    """H/L and target claims are derived values, not trusted manifest annotations."""
+    path, digest = _mutated_manifest(tmp_path, mutate)
+
+    with pytest.raises(ManifestError, match=match):
+        preflight_manifest(load_manifest(path, digest))
+
+
 def test_exact_clopper_pearson_endpoints_and_frozen_integer_cutoffs() -> None:
     """Changing endpoint conventions or strictness at an equality boundary must move a cutoff."""
     assert clopper_pearson_lower(0, 10, 0.001) == 0.0
