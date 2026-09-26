@@ -1,0 +1,9 @@
+# Step 6a.2 Task 2 — offline generator and interval review
+
+**Decision (2026-09-26): approved at `13ccece` for Task 3 counted-gate implementation, not for a calibration or validation run.** The frozen manifest SHA-256 remains `0ffd312b3a3bfd03d465bc1ce5d655bff2055861a99d1cf4c17287b4a450e3e5`.
+
+Task 2 adds test-only artificial trade/benchmark generation and a pure CR2/Student-t interval evaluator in `scripts/signal_calibration.py`; production `icarus/` diagnostics and `goal.yaml` are unchanged. The public fixture APIs use only a separate fixed test seed. Both reserved phase seeds are refused before RNG construction or cache access. No frozen calibration/validation observation, real panel, lockbox, broker, or order path was used.
+
+Independent spec and standards review first rejected wrong H=42 overlap grouping, numeric/refusal mismatches, unbounded or mutable RNG caching, an arbitrary-seed API, and insufficient parity tests. Each was repaired before commit. The final suite checks both phases, all 82 cells, 128 predeclared IDs per cell, and raw/win/excess against the scalar estimator using a separate test seed. Astra independently reproduced a final finite-term CR2 sum-overflow case; the repaired batch and scalar implementations both refuse it as `INVALID_VARIANCE`. Astra approved the final staged diff for commit.
+
+Fresh verification on the staged code: 38 Task 2 tests and 1,307 full unit tests passed; Ruff check/format, mypy, and staged whitespace checks passed. Post-commit deterministic preflight passed. Task 3 must add phase-scoped counted-run authorization, immutable attempt/result artifacts, selection hash bound to actual calibration-result bytes, runtime/memory caps, and one calibration followed by at most one gated validation. Until separately reviewed, the fixture code is **not** a calibration runner and no floor is accepted.
