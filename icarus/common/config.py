@@ -824,8 +824,10 @@ class SignalTest(_Strict):
     """D15's pre-registered, non-promoting signal-diagnostic contract.
 
     The statistical choices are provisional diagnostics fixed before any real-data evaluation;
-    they do not change the promotion or stagnation gates. Inferential output remains disabled until
-    Step 6 calibrates and pre-registers a minimum usable-block threshold on synthetic fixtures.
+    they do not change the promotion or stagnation gates. Inferential output remains disabled
+    through synthetic-only Step 6a/6b work. Enabling it requires a later dated, separately reviewed
+    change after the trial ledger, time matcher, F48 same-day delivery-DP-fee cost correction,
+    and source-specific matching rule pass.
     """
 
     registered: date
@@ -898,8 +900,10 @@ class SignalTest(_Strict):
                 )
         if self.inference_enabled:
             raise ValueError(
-                "signal_test.inference_enabled must remain false until Step 6 calibrates and "
-                "pre-registers a minimum usable-block threshold on synthetic fixtures"
+                "signal_test.inference_enabled must remain false through synthetic-only Step "
+                "6a/6b; a later dated, separately reviewed change also requires the trial ledger, "
+                "time matcher, F48 same-day delivery-DP-fee cost correction, and source-specific "
+                "matching rule to pass"
             )
         return self
 
