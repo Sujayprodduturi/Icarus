@@ -14,15 +14,22 @@ import json
 import math
 import re
 import subprocess
+from collections import OrderedDict
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, cast
 
-from scipy.stats import beta, binom
+import numpy as np
+from numpy.typing import NDArray
+from scipy.stats import beta, binom, norm, t
 
 PROTOCOL_VERSION: Final = "step6a2-synthetic-calibration-v1"
 SELECTION_SCHEMA: Final = "step6a2-calibration-selection-v1"
 METHOD_VERSION: Final = "entry-session-cr2-satterthwaite-v1"
+_TEST_FIXTURE_SEED: Final = 917260001
+_RESERVED_PHASE_SEEDS: Final = frozenset({2026092602, 2026092603})
 _ROOT: Final = Path(__file__).resolve().parents[1]
 _MANIFEST: Final = _ROOT / "docs/plans/2026-09-26-step6a2-calibration-manifest.json"
 _DIGEST: Final = _MANIFEST.with_suffix(".sha256")
@@ -60,6 +67,10 @@ _EXPECTED_FLOORS: Final = (
     (12, 8.0),
     (16, 12.0),
 )
+_NU_CACHE: dict[tuple[str, tuple[tuple[int, int], ...]], float] = {}
+_STREAM_CACHE: OrderedDict[tuple[int, int, int, int, int, str], NDArray[np.float64]] = OrderedDict()
+_MAX_CACHED_COMPONENT_CHUNKS: Final = 8
+
 _EXPECTED_STREAMS: Final = {
     "amplitude": 2,
     "block_session_factor_or_ar_innovations": 1,
@@ -94,6 +105,433 @@ class ManifestError(ValueError):
 
 class SelectionArtifactError(ValueError):
     """A calibration selection artifact cannot unlock held-back validation."""
+
+
+class BatchRefusal(StrEnum):
+    """Offline component-local reasons an exact synthetic interval is unavailable."""
+
+    EMPTY_SAMPLE = "empty_sample"
+    TOO_FEW_BLOCKS = "too_few_blocks"
+    ZERO_VARIANCE = "zero_variance"
+    INVALID_VARIANCE = "invalid_variance"
+    INVALID_DF = "invalid_df"
+
+
+@dataclass(frozen=True, slots=True)
+class BatchInterval:
+    """Exact offline CR2/t interval; raw bounds are retained before display clipping."""
+
+    mean: float
+    variance: float
+    degrees_of_freedom: float
+    raw_lower: float
+    raw_upper: float
+    lower: float
+    upper: float
+
+
+@dataclass(frozen=True, slots=True)
+class SyntheticReplicate:
+    """One artificial paired stock/benchmark vector for offline calibration only."""
+
+    entry_indices: tuple[int, ...]
+    holding_sessions: tuple[int, ...]
+    block_ids: tuple[int, ...]
+    block_length: int
+    wins: tuple[bool, ...]
+    raw: tuple[float, ...]
+    benchmark: tuple[float, ...]
+    excess: tuple[float, ...]
+
+
+def parity_audit_ids(replicates: int) -> tuple[int, ...]:
+    """Return the 128 fixed parity addresses without consuming any random stream."""
+    if type(replicates) is not int or replicates < 2:
+        raise ValueError("replicates must be an integer of at least two")
+    return tuple(index * (replicates - 1) // 127 for index in range(128))
+
+
+def evaluate_batch_interval(
+    values: NDArray[np.float64],
+    block_ids: NDArray[np.int64],
+    *,
+    confidence: float = 0.95,
+    is_win_rate: bool = False,
+) -> BatchInterval | BatchRefusal:
+    """Evaluate the frozen intercept-only CR2/t candidate on one offline vector."""
+    if values.ndim != 1 or block_ids.ndim != 1 or values.size != block_ids.size:
+        raise ValueError("values and block_ids must be equal-length one-dimensional arrays")
+    if not 0.0 < confidence < 1.0:
+        raise ValueError("confidence must lie strictly between zero and one")
+    if values.size == 0:
+        return BatchRefusal.EMPTY_SAMPLE
+    values = values.astype(float, copy=False)
+    if not np.isfinite(values).all():
+        raise ValueError("batch values must be finite floats")
+    if not np.isfinite(block_ids).all():
+        raise ValueError("batch block IDs must be finite whole integers")
+    if not np.equal(block_ids, np.floor(block_ids)).all():
+        raise TypeError("batch block IDs must be whole integers")
+    unique_blocks, inverse, counts = np.unique(block_ids, return_inverse=True, return_counts=True)
+    count = values.size
+    if count < 2 or unique_blocks.size < 2:
+        return BatchRefusal.TOO_FEW_BLOCKS
+    try:
+        mean = math.fsum(float(value) for value in values) / count
+        residuals = values - mean
+        sample_variance = math.fsum(float(residual * residual) for residual in residuals) / (
+            count - 1
+        )
+    except OverflowError:
+        return BatchRefusal.INVALID_VARIANCE
+    if not math.isfinite(sample_variance) or sample_variance < 0.0:
+        return BatchRefusal.INVALID_VARIANCE
+    if sample_variance == 0.0:
+        return (
+            BatchRefusal.ZERO_VARIANCE
+            if np.all(values == values[0])
+            else BatchRefusal.INVALID_VARIANCE
+        )
+    leverage = counts / count
+    if np.any(leverage >= 1.0):
+        return BatchRefusal.TOO_FEW_BLOCKS
+    try:
+        scores = np.array(
+            [
+                math.fsum(float(residual) for residual in residuals[inverse == index])
+                for index in range(unique_blocks.size)
+            ]
+        )
+        variance = math.fsum(
+            float(score * score / (1.0 - item_leverage))
+            for score, item_leverage in zip(scores, leverage, strict=True)
+        ) / (count * count)
+    except OverflowError:
+        return BatchRefusal.INVALID_VARIANCE
+    if not math.isfinite(variance) or variance < 0.0:
+        return BatchRefusal.INVALID_VARIANCE
+    if variance == 0.0:
+        return (
+            BatchRefusal.ZERO_VARIANCE if np.all(scores == 0.0) else BatchRefusal.INVALID_VARIANCE
+        )
+    occupancy = tuple(
+        (int(block), int(size)) for block, size in zip(unique_blocks, counts, strict=True)
+    )
+    cache_key = (METHOD_VERSION, occupancy)
+    degrees_of_freedom = _NU_CACHE.get(cache_key)
+    if degrees_of_freedom is None:
+        numerator = np.diag(counts.astype(float)) - np.outer(counts, counts) / count
+        denominator = count * count * np.sqrt(np.outer(1.0 - leverage, 1.0 - leverage))
+        kernel = numerator / denominator
+        trace = float(np.trace(kernel))
+        trace_squared = float(np.sum(kernel * kernel))
+        if not math.isfinite(trace_squared) or trace_squared <= 0.0:
+            return BatchRefusal.INVALID_DF
+        degrees_of_freedom = trace * trace / trace_squared
+        if not math.isfinite(degrees_of_freedom) or degrees_of_freedom <= 0.0:
+            return BatchRefusal.INVALID_DF
+        _NU_CACHE[cache_key] = degrees_of_freedom
+    iid_variance = sample_variance / count
+    if not math.isfinite(iid_variance) or iid_variance <= 0.0:
+        return BatchRefusal.INVALID_VARIANCE
+    design_effect = variance / iid_variance
+    effective_n = sample_variance / variance
+    if (
+        not math.isfinite(design_effect)
+        or design_effect <= 0.0
+        or not math.isfinite(effective_n)
+        or effective_n <= 0.0
+    ):
+        return BatchRefusal.INVALID_VARIANCE
+    critical = float(t.ppf(1.0 - (1.0 - confidence) / 2.0, degrees_of_freedom))
+    margin = critical * math.sqrt(variance)
+    if not math.isfinite(critical) or not math.isfinite(margin):
+        return BatchRefusal.INVALID_DF
+    raw_lower = mean - margin
+    raw_upper = mean + margin
+    lower, upper = raw_lower, raw_upper
+    if is_win_rate:
+        lower, upper = max(0.0, lower), min(1.0, upper)
+    return BatchInterval(
+        mean=mean,
+        variance=variance,
+        degrees_of_freedom=degrees_of_freedom,
+        raw_lower=raw_lower,
+        raw_upper=raw_upper,
+        lower=lower,
+        upper=upper,
+    )
+
+
+def _test_or_rng(
+    seed: int, cell_id: int, component_id: int, replicate_id: int, size: int, rows: int
+) -> NDArray[np.float64]:
+    """Slice a once-generated PCG64 normal component chunk at its addressed row."""
+    if seed in _RESERVED_PHASE_SEEDS:
+        raise ValueError("reserved phase seeds cannot generate Task 2 fixtures")
+    if type(seed) is not int or type(cell_id) is not int or type(replicate_id) is not int:
+        raise TypeError("synthetic stream addresses must be whole integers")
+    if replicate_id < 0 or size < 1 or not 1 <= rows <= 256:
+        raise ValueError("synthetic stream dimensions are invalid")
+    chunk_id, offset = divmod(replicate_id, 256)
+    if offset >= rows:
+        raise ValueError("replicate lies outside its declared chunk remainder")
+    cache_key = (seed, cell_id, component_id, chunk_id, size, "normal")
+    draws = _STREAM_CACHE.get(cache_key)
+    if draws is None:
+        generator = np.random.Generator(
+            np.random.PCG64(
+                np.random.SeedSequence(seed, spawn_key=(cell_id, component_id, chunk_id))
+            )
+        )
+        draws = cast(NDArray[np.float64], generator.standard_normal((rows, size)))
+        _STREAM_CACHE[cache_key] = draws
+        if len(_STREAM_CACHE) > _MAX_CACHED_COMPONENT_CHUNKS:
+            _STREAM_CACHE.popitem(last=False)
+    else:
+        _STREAM_CACHE.move_to_end(cache_key)
+    return cast(NDArray[np.float64], draws[offset].copy())
+
+
+def _uniform_component_draw(
+    seed: int, cell_id: int, component_id: int, replicate_id: int, size: int, rows: int
+) -> NDArray[np.float64]:
+    """Slice a once-generated PCG64 uniform component chunk for amplitudes."""
+    if seed in _RESERVED_PHASE_SEEDS:
+        raise ValueError("reserved phase seeds cannot generate Task 2 fixtures")
+    if replicate_id < 0 or size < 1 or not 1 <= rows <= 256:
+        raise ValueError("synthetic stream dimensions are invalid")
+    chunk_id, offset = divmod(replicate_id, 256)
+    if offset >= rows:
+        raise ValueError("replicate lies outside its declared chunk remainder")
+    cache_key = (seed, cell_id, component_id, chunk_id, size, "uniform")
+    draws = _STREAM_CACHE.get(cache_key)
+    if draws is None:
+        generator = np.random.Generator(
+            np.random.PCG64(
+                np.random.SeedSequence(seed, spawn_key=(cell_id, component_id, chunk_id))
+            )
+        )
+        draws = cast(NDArray[np.float64], generator.uniform(0.0, 1.0, (rows, size)))
+        _STREAM_CACHE[cache_key] = draws
+        if len(_STREAM_CACHE) > _MAX_CACHED_COMPONENT_CHUNKS:
+            _STREAM_CACHE.popitem(last=False)
+    else:
+        _STREAM_CACHE.move_to_end(cache_key)
+    return cast(NDArray[np.float64], draws[offset].copy())
+
+
+def _cell_for_phase(manifest: Mapping[str, Any], phase: str, cell_id: int) -> dict[str, Any]:
+    if phase not in {"calibration", "validation"}:
+        raise ValueError("phase must be calibration or validation")
+    phase_payload = _mapping(manifest["phases"][phase], f"phases.{phase}")
+    for cell in _sequence(phase_payload["cells"], f"phases.{phase}.cells"):
+        if isinstance(cell, dict) and cell.get("id") == cell_id:
+            return cell
+    raise ManifestError(f"unknown {phase} cell id: {cell_id}")
+
+
+def _fixed_entry_indices(
+    manifest: Mapping[str, Any], cell: Mapping[str, Any]
+) -> tuple[list[int], int]:
+    geometry = _mapping(manifest["geometries"][cell["geometry_id"]], "geometry")
+    block_length = int(geometry["l"])
+    entries: list[int] = []
+    for block, count in enumerate(geometry["entry_counts"]):
+        if geometry["entry_rule"] == "ordinary":
+            entries.extend(
+                block * block_length + math.floor((index + 0.5) * block_length / count)
+                for index in range(count)
+            )
+        elif geometry["entry_rule"] == "burst":
+            location = cell["parameters"]["location"]
+            offset = {"first": 0, "middle": block_length // 2, "last": block_length - 1}[location]
+            entries.extend([block * block_length + offset] * count)
+        else:
+            offsets = (
+                (range(4), range(block_length - 4, block_length))
+                if count == 8
+                else (range(5), range(block_length - 5, block_length))
+            )
+            entries.extend(block * block_length + offset for span in offsets for offset in span)
+    return entries, block_length
+
+
+def generate_test_fixture_replicate(
+    manifest: Mapping[str, Any],
+    *,
+    phase: str,
+    cell_id: int,
+    replicate_id: int,
+    scripted_latents: NDArray[np.float64] | None = None,
+    scripted_amplitudes: NDArray[np.float64] | None = None,
+    scripted_factors: NDArray[np.float64] | None = None,
+    scripted_wins: NDArray[np.bool_] | None = None,
+    scripted_daily_innovations: NDArray[np.float64] | None = None,
+) -> SyntheticReplicate:
+    """Generate one artificial paired vector with the fixed Task 2 fixture seed."""
+    master_seed = _TEST_FIXTURE_SEED
+    cell = _cell_for_phase(manifest, phase, cell_id)
+    phase_payload = _mapping(manifest["phases"][phase], f"phases.{phase}")
+    phase_replicates = int(phase_payload["replicates"])
+    if not 0 <= replicate_id < phase_replicates:
+        raise ValueError("replicate_id lies outside the frozen phase range")
+    chunk_id, _ = divmod(replicate_id, 256)
+    chunk_rows = min(256, phase_replicates - chunk_id * 256)
+    parameters = _mapping(cell["parameters"], "cell parameters")
+    family = str(cell["family"])
+    dynamic = family == "dynamic_h_block_factor"
+    if dynamic:
+        nominal_length = int(parameters["nominal_l"])
+        count_blocks = int(parameters["source_span"]) // nominal_length
+        per_block = int(parameters["trades_per_nominal_block"])
+        entries = [
+            block * nominal_length + math.floor((index + 0.5) * nominal_length / per_block)
+            for block in range(count_blocks)
+            for index in range(per_block)
+        ]
+    else:
+        entries, nominal_length = _fixed_entry_indices(manifest, cell)
+    count = len(entries)
+    source_blocks = np.array([entry // nominal_length for entry in entries], dtype=np.int64)
+    block_count = int(source_blocks.max()) + 1
+    raw_latents = (
+        _test_or_rng(master_seed, cell_id, 0, replicate_id, count, chunk_rows)
+        if family != "overlapping_holds"
+        else np.zeros(count)
+    )
+    amplitudes = _uniform_component_draw(master_seed, cell_id, 2, replicate_id, count, chunk_rows)
+    if family in {
+        "bounded_rare_magnitude",
+        "cross_block_serial_factor",
+        "dynamic_h_block_factor",
+        "independent_block_factor",
+        "same_session_burst",
+        "two_regime_shift",
+        "unequal_occupancy",
+    }:
+        factors = _test_or_rng(master_seed, cell_id, 1, replicate_id, block_count, chunk_rows)
+    else:
+        factors = np.zeros(block_count)
+    if family == "independent":
+        benchmark_factors = _test_or_rng(
+            master_seed, cell_id, 3, replicate_id, block_count, chunk_rows
+        )
+    else:
+        benchmark_factors = np.zeros(block_count)
+    if scripted_latents is not None:
+        raw_latents[: min(count, scripted_latents.size)] = scripted_latents[:count]
+    if scripted_factors is not None:
+        factors[: min(count, scripted_factors.size)] = scripted_factors[:count]
+    if scripted_amplitudes is not None:
+        amplitudes[: min(count, scripted_amplitudes.size)] = scripted_amplitudes[:count]
+    if family == "independent":
+        latent = raw_latents
+        factor = benchmark_factors[source_blocks]
+    elif family == "cross_block_serial_factor":
+        rho = float(parameters["rho"])
+        block_factor = np.empty(source_blocks.max() + 1)
+        block_factor[0] = factors[0]
+        for block in range(1, block_factor.size):
+            block_factor[block] = (
+                rho * block_factor[block - 1] + math.sqrt(1.0 - rho * rho) * factors[block]
+            )
+        factor = block_factor[source_blocks]
+        latent = math.sqrt(0.5) * factor + math.sqrt(0.5) * raw_latents
+    elif family == "same_session_burst":
+        factor = factors[source_blocks]
+        latent = math.sqrt(0.75) * factor + 0.5 * raw_latents
+    elif family == "overlapping_holds":
+        holding = int(parameters["h"])
+        daily = _test_or_rng(
+            master_seed, cell_id, 4, replicate_id, max(entries) + holding, chunk_rows
+        )
+        if scripted_daily_innovations is not None:
+            daily[: min(daily.size, scripted_daily_innovations.size)] = scripted_daily_innovations[
+                : daily.size
+            ]
+        factor = np.array(
+            [np.sum(daily[entry : entry + holding]) / math.sqrt(holding) for entry in entries]
+        )
+        latent = factor
+    else:
+        rho = float(parameters.get("rho", 0.25))
+        block_factor = factors[source_blocks]
+        factor = block_factor
+        latent = math.sqrt(rho) * factor + math.sqrt(1.0 - rho) * raw_latents
+    if scripted_latents is not None:
+        latent[: min(count, scripted_latents.size)] = scripted_latents[:count]
+    if family == "two_regime_shift":
+        probabilities = np.where(
+            source_blocks < (source_blocks.max() + 1) // 2,
+            float(parameters["p_first"]),
+            float(parameters["p_last"]),
+        )
+    else:
+        probabilities = np.full(count, float(parameters["p"]))
+    wins = latent > norm.ppf(1.0 - probabilities)
+    if scripted_wins is not None:
+        if scripted_wins.size != count:
+            raise ValueError("scripted_wins must cover the complete synthetic vector")
+        wins = scripted_wins.astype(bool, copy=False)
+    if family == "bounded_rare_magnitude":
+        threshold = float(parameters["amplitude_high_probability"])
+        high = float(parameters["amplitude_high"])
+        amplitude = np.where(amplitudes < threshold, high, 1.0)
+    else:
+        amplitude = 0.5 + amplitudes
+    if scripted_amplitudes is not None:
+        amplitude[: min(count, scripted_amplitudes.size)] = scripted_amplitudes[:count]
+    fixed_h = parameters.get("h")
+    if isinstance(fixed_h, int):
+        holding_sessions = np.full(count, fixed_h, dtype=np.int64)
+    elif family == "dynamic_h_block_factor":
+        holding_sessions = np.where(wins, int(parameters["h_win"]), int(parameters["h_loss"]))
+    else:
+        holding_sessions = np.full(count, 21, dtype=np.int64)
+    block_length = max(63, 3 * int(holding_sessions.max()))
+    blocks = np.array(entries) // block_length
+    raw = 0.01 * amplitude * (2.0 * wins.astype(float) - 1.0)
+    benchmark = 0.002 + 0.005 * factor
+    excess = raw - benchmark
+    return SyntheticReplicate(
+        entry_indices=tuple(entries),
+        holding_sessions=tuple(int(item) for item in holding_sessions),
+        block_ids=tuple(int(item) for item in blocks),
+        block_length=block_length,
+        wins=tuple(bool(item) for item in wins),
+        raw=tuple(float(item) for item in raw),
+        benchmark=tuple(float(item) for item in benchmark),
+        excess=tuple(float(item) for item in excess),
+    )
+
+
+def generate_test_fixture_chunk(
+    manifest: Mapping[str, Any],
+    *,
+    phase: str,
+    cell_id: int,
+    chunk_id: int,
+    rows: int,
+) -> tuple[SyntheticReplicate, ...]:
+    """Generate a declared chunk by slicing its cached component arrays in row order."""
+    if type(chunk_id) is not int or chunk_id < 0 or not 1 <= rows <= 256:
+        raise ValueError("chunk_id and rows must name a nonempty declared chunk")
+    phase_payload = _mapping(manifest["phases"][phase], f"phases.{phase}")
+    phase_replicates = int(phase_payload["replicates"])
+    start = chunk_id * 256
+    expected_rows = min(256, phase_replicates - start)
+    if expected_rows <= 0 or rows != expected_rows:
+        raise ValueError("rows must equal the declared chunk size or final remainder")
+    return tuple(
+        generate_test_fixture_replicate(
+            manifest,
+            phase=phase,
+            cell_id=cell_id,
+            replicate_id=start + offset,
+        )
+        for offset in range(rows)
+    )
 
 
 def _canonical_bytes(payload: Mapping[str, Any]) -> bytes:
