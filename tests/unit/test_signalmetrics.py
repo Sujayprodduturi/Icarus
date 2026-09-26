@@ -103,6 +103,7 @@ def _trade(
     entry_index: int = 101,
     entry_price: Decimal = Decimal(100),
     quantity: int = 10,
+    entry_charges: Charges | None = None,
     fragments: tuple[SignalExitFragment, ...] | None = None,
 ) -> SignalTrade:
     exits = fragments or (_fragment(quantity=quantity, price=Decimal(110), source_index=102),)
@@ -120,7 +121,9 @@ def _trade(
         filled_quantity=quantity,
         intended_notional=entry_price * quantity,
         risk_per_share=Decimal(10),
-        entry_charges=_charges(entry_price * quantity),
+        entry_charges=(
+            entry_charges if entry_charges is not None else _charges(entry_price * quantity)
+        ),
         exit_fragments=exits,
     )
 
@@ -483,6 +486,55 @@ def test_public_adapter_refuses_all_win_variance_without_erasing_return_moments(
     assert result.win_rate.moments is None
     assert result.win_rate.mean == pytest.approx(1.0)
     assert result.win_rate.refusal is MetricRefusal.ZERO_VARIANCE
+
+
+def test_public_adapter_descriptive_mean_is_stable_under_trade_permutation() -> None:
+    """Ambient Decimal precision must not make a refused component's mean depend on trade order."""
+    tiny_capital = Decimal("1e-100")
+    huge_win = _trade(
+        symbol="HUGE_WIN",
+        entry_price=tiny_capital,
+        quantity=1,
+        fragments=(_fragment(quantity=1, price=Decimal(1), source_index=102),),
+    )
+    small_win = _trade(
+        symbol="SMALL_WIN",
+        entry_price=Decimal(1),
+        quantity=1,
+        fragments=(_fragment(quantity=1, price=Decimal(2), source_index=102),),
+    )
+    huge_loss = _trade(
+        symbol="HUGE_LOSS",
+        entry_price=tiny_capital,
+        quantity=1,
+        entry_charges=Charges(
+            brokerage=Decimal(1),
+            stt=Decimal(0),
+            exchange_txn=Decimal(0),
+            sebi_fee=Decimal(0),
+            gst=Decimal(0),
+            stamp_duty=Decimal(0),
+            dp_charge=Decimal(0),
+            turnover=tiny_capital,
+        ),
+        fragments=(_fragment(quantity=1, price=tiny_capital, source_index=102),),
+    )
+
+    first = summarize_signal_run(
+        _run(trades=(huge_win, small_win, huge_loss)),
+        source_axis=_axis(),
+        settings=_settings(),
+    )
+    second = summarize_signal_run(
+        _run(trades=(huge_win, huge_loss, small_win)),
+        source_axis=_axis(),
+        settings=_settings(),
+    )
+
+    assert first.raw_return.refusal is MetricRefusal.TOO_FEW_BLOCKS
+    assert second.raw_return.refusal is MetricRefusal.TOO_FEW_BLOCKS
+    assert first.raw_return.mean == pytest.approx(1.0 / 3.0)
+    assert second.raw_return.mean == first.raw_return.mean
 
 
 @pytest.mark.parametrize(

@@ -12,6 +12,7 @@ import math
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
+from fractions import Fraction
 
 from icarus.common.config import SignalTest
 from icarus.engine.signaltest import SignalRunResult
@@ -107,7 +108,7 @@ class CandidateMoments:
 
 @dataclass(frozen=True, slots=True)
 class MetricDiagnostic:
-    """One metric's descriptive result, future candidate moments, and typed refusal."""
+    """One metric's descriptive result, candidate moments, and typed refusal."""
 
     count: int
     mean: float | None
@@ -380,8 +381,8 @@ def summarize_signal_run(
 def _describe(values: tuple[Decimal, ...], block_ids: tuple[int, ...]) -> MetricDiagnostic:
     if not values:
         return _unavailable(MetricRefusal.EMPTY_SAMPLE)
-    mean = _finite_float64_decimal("descriptive mean", sum(values, Decimal(0)) / len(values))
     float_values = tuple(_finite_float64_decimal("metric value", value) for value in values)
+    mean = _exact_decimal_mean(values)
     moments = _cr2_moments(float_values, block_ids)
     if isinstance(moments, CandidateMoments):
         return MetricDiagnostic(count=len(values), mean=moments.mean, moments=moments, refusal=None)
@@ -426,6 +427,20 @@ def _finite_float64_decimal(name: str, value: Decimal) -> float:
     converted = float(value)
     if not math.isfinite(converted) or (converted == 0.0 and value != 0):
         raise ValueError(f"{name} must be representable as a finite float64 without underflow")
+    return converted
+
+
+def _exact_decimal_mean(values: tuple[Decimal, ...]) -> float:
+    exact_total = sum((Fraction(value) for value in values), Fraction())
+    exact_mean = exact_total / len(values)
+    try:
+        converted = float(exact_mean)
+    except OverflowError as exc:
+        raise ValueError("descriptive mean must be representable as a finite float64") from exc
+    if not math.isfinite(converted) or (converted == 0.0 and exact_mean != 0):
+        raise ValueError(
+            "descriptive mean must be representable as a finite float64 without underflow"
+        )
     return converted
 
 
