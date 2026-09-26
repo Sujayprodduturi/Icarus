@@ -36,6 +36,8 @@ crypto = [
 dev = [
   "ruff>=0.6,<1",
   "mypy==1.11.2",  # pinned: newer mypy pulls compiled `librt`, blocked by Windows Smart App Control (dev machine)
+  "scipy==1.14.1",  # offline Step-6a.2 exact t/beta/binomial calibration arithmetic only
+  "psutil==6.1.1",  # offline Step-6a.2 calibration peak-RSS enforcement only
   "pytest>=8.2,<9",
   "pytest-asyncio>=0.23,<1",
   "types-pyyaml>=6.0,<7",
@@ -101,7 +103,7 @@ namespace_packages = true
 
 [[tool.mypy.overrides]]
 # Third-party libs without shipped type stubs — don't fail strict mode on their internals.
-module = ["kiteconnect.*", "ccxt.*", "fakeredis.*"]
+module = ["kiteconnect.*", "ccxt.*", "fakeredis.*", "scipy.*"]
 ignore_missing_imports = true
 
 # ---------------------------------------------------------------------------
