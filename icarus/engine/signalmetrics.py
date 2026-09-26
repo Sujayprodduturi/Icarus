@@ -170,6 +170,96 @@ class SignalDiagnostics:
             raise ValueError("SignalDiagnostics.method_version must be a nonempty string")
 
 
+def _cr2_moments(
+    values: tuple[float, ...], block_ids: tuple[int, ...]
+) -> CandidateMoments | MetricRefusal:
+    """Compute candidate CR2/Satterthwaite moments for occupied time blocks."""
+    count = len(values)
+    if count == 0:
+        return MetricRefusal.EMPTY_SAMPLE
+    if len(block_ids) != count:
+        raise ValueError("values and block_ids must have equal length")
+
+    grouped: dict[int, list[float]] = {}
+    for value, block_id in zip(values, block_ids, strict=True):
+        if type(value) is not float or not math.isfinite(value):
+            raise ValueError("CR2 values must be finite floats")
+        if type(block_id) is not int:
+            raise TypeError("CR2 block IDs must be whole integers")
+        grouped.setdefault(block_id, []).append(value)
+
+    block_counts = tuple((block_id, len(grouped[block_id])) for block_id in sorted(grouped))
+    if count < 2 or len(block_counts) < 2:
+        return MetricRefusal.TOO_FEW_BLOCKS
+
+    try:
+        mean = math.fsum(values) / count
+        squared_residuals = tuple((value - mean) ** 2 for value in values)
+        sample_variance = math.fsum(squared_residuals) / (count - 1)
+    except OverflowError:
+        return MetricRefusal.INVALID_VARIANCE
+    if not math.isfinite(mean) or not math.isfinite(sample_variance):
+        return MetricRefusal.INVALID_VARIANCE
+    if sample_variance == 0.0:
+        return MetricRefusal.ZERO_VARIANCE
+    if sample_variance < 0.0:
+        return MetricRefusal.INVALID_VARIANCE
+
+    try:
+        variance_terms = []
+        for block_id, block_count in block_counts:
+            leverage = block_count / count
+            score = math.fsum(value - mean for value in grouped[block_id])
+            variance_terms.append(score * score / (1.0 - leverage))
+        cr2_variance = math.fsum(variance_terms) / (count * count)
+    except OverflowError:
+        return MetricRefusal.INVALID_VARIANCE
+    if cr2_variance == 0.0:
+        return MetricRefusal.ZERO_VARIANCE
+    if not math.isfinite(cr2_variance) or cr2_variance < 0.0:
+        return MetricRefusal.INVALID_VARIANCE
+
+    try:
+        k_matrix = tuple(
+            tuple(
+                ((left_count if left_id == right_id else 0.0) - left_count * right_count / count)
+                / (
+                    count
+                    * count
+                    * math.sqrt((1.0 - left_count / count) * (1.0 - right_count / count))
+                )
+                for right_id, right_count in block_counts
+            )
+            for left_id, left_count in block_counts
+        )
+        trace = math.fsum(k_matrix[index][index] for index in range(len(k_matrix)))
+        trace_squared = math.fsum(item * item for row in k_matrix for item in row)
+        degrees_of_freedom = trace * trace / trace_squared
+    except (OverflowError, ZeroDivisionError):
+        return MetricRefusal.INVALID_DF
+    if not math.isfinite(degrees_of_freedom) or degrees_of_freedom <= 0.0:
+        return MetricRefusal.INVALID_DF
+
+    design_effect = cr2_variance / (sample_variance / count)
+    effective_n_uncapped = sample_variance / cr2_variance
+    if not math.isfinite(design_effect) or not math.isfinite(effective_n_uncapped):
+        return MetricRefusal.INVALID_VARIANCE
+    effective_n_capped = effective_n_uncapped > count
+    effective_n_display = min(effective_n_uncapped, float(count))
+    return CandidateMoments(
+        count=count,
+        block_counts=block_counts,
+        mean=mean,
+        sample_variance=sample_variance,
+        cr2_variance=cr2_variance,
+        degrees_of_freedom=degrees_of_freedom,
+        design_effect=design_effect,
+        effective_n_uncapped=effective_n_uncapped,
+        effective_n_display=effective_n_display,
+        effective_n_capped=effective_n_capped,
+    )
+
+
 def summarize_signal_run(
     run: SignalRunResult,
     *,
@@ -272,13 +362,14 @@ def summarize_signal_run(
 
 
 def _describe(values: tuple[Decimal, ...], block_ids: tuple[int, ...]) -> MetricDiagnostic:
+    if not values:
+        return _unavailable(MetricRefusal.EMPTY_SAMPLE)
     mean = _finite_float64_decimal("descriptive mean", sum(values, Decimal(0)) / len(values))
-    refusal: MetricRefusal | None = None
-    if len(values) < 2 or len(set(block_ids)) < 2:
-        refusal = MetricRefusal.TOO_FEW_BLOCKS
-    elif len(set(values)) == 1:
-        refusal = MetricRefusal.ZERO_VARIANCE
-    return MetricDiagnostic(count=len(values), mean=mean, moments=None, refusal=refusal)
+    float_values = tuple(_finite_float64_decimal("metric value", value) for value in values)
+    moments = _cr2_moments(float_values, block_ids)
+    if isinstance(moments, CandidateMoments):
+        return MetricDiagnostic(count=len(values), mean=moments.mean, moments=moments, refusal=None)
+    return MetricDiagnostic(count=len(values), mean=mean, moments=None, refusal=moments)
 
 
 def _unavailable(refusal: MetricRefusal) -> MetricDiagnostic:

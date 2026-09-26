@@ -17,6 +17,7 @@ from icarus.engine.signalmetrics import (
     MetricRefusal,
     SignalDiagnostics,
     SourceSessionAxis,
+    _cr2_moments,
     _describe,
     summarize_signal_run,
 )
@@ -342,6 +343,99 @@ def test_descriptive_mean_refuses_nonzero_decimal_underflow_to_float64_zero() ->
     """A representable observation pair must not publish a rounded-away nonzero mean."""
     with pytest.raises(ValueError, match="descriptive mean"):
         _describe((Decimal("5e-324"), Decimal("-4e-324")), (0, 1))
+
+
+def test_cr2_hand_case_preserves_unequal_block_occupancy() -> None:
+    """Equal-weighting occupied blocks would change the hand-derived variance and effective N."""
+    result = _cr2_moments((0.0, 1.0, 2.0), (0, 1, 1))
+
+    assert isinstance(result, CandidateMoments)
+    assert result.count == 3
+    assert result.block_counts == ((0, 1), (1, 2))
+    assert result.mean == pytest.approx(1.0)
+    assert result.sample_variance == pytest.approx(1.0)
+    assert result.cr2_variance == pytest.approx(0.5)
+    assert result.degrees_of_freedom == pytest.approx(1.0)
+    assert result.design_effect == pytest.approx(1.5)
+    assert result.effective_n_uncapped == pytest.approx(2.0)
+    assert result.effective_n_display == pytest.approx(2.0)
+    assert result.effective_n_capped is False
+
+
+def test_cr2_refusal_precedence_distinguishes_sparse_and_constant_samples() -> None:
+    """Checking variance first would mislabel one occupied block as zero-variance evidence."""
+    assert _cr2_moments((), ()) is MetricRefusal.EMPTY_SAMPLE
+    assert _cr2_moments((1.0, 1.0), (0, 0)) is MetricRefusal.TOO_FEW_BLOCKS
+    assert _cr2_moments((1.0, 1.0), (0, 1)) is MetricRefusal.ZERO_VARIANCE
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        (1e308, 1e308, -1e308, -1e308),
+        (1e308, -1e308),
+    ],
+    ids=["finite-sum-overflow", "finite-square-overflow"],
+)
+def test_cr2_finite_input_arithmetic_overflow_is_a_typed_refusal(
+    values: tuple[float, ...],
+) -> None:
+    """Finite inputs must not let overflow escape or publish non-finite variance diagnostics."""
+    block_ids = (0, 0, 1, 1) if len(values) == 4 else (0, 1)
+
+    assert _cr2_moments(values, block_ids) is MetricRefusal.INVALID_VARIANCE
+
+
+def test_cr2_is_stable_to_observation_reordering_and_dates_within_blocks() -> None:
+    """Input order and dates that preserve block membership must not change the estimator."""
+    original = _cr2_moments((0.0, 1.0, 2.0), (4, 5, 5))
+    reordered = _cr2_moments((2.0, 0.0, 1.0), (5, 4, 5))
+
+    assert original == reordered
+
+
+def test_return_and_win_rate_keep_separate_effective_sample_sizes() -> None:
+    """Borrowing return's effective N would overstate the win-rate component's evidence."""
+    returns = _describe(
+        (Decimal("-2"), Decimal("1"), Decimal("0.5"), Decimal("0.5")),
+        (0, 0, 1, 1),
+    )
+    wins = _describe(
+        (Decimal(0), Decimal(1), Decimal(1), Decimal(1)),
+        (0, 0, 1, 1),
+    )
+
+    assert returns.moments is not None
+    assert wins.moments is not None
+    assert returns.moments.effective_n_uncapped == pytest.approx(22.0 / 3.0)
+    assert wins.moments.effective_n_uncapped == pytest.approx(4.0)
+    assert returns.moments.effective_n_capped is True
+    assert wins.moments.effective_n_capped is False
+
+
+def test_public_adapter_uses_fixed_origin_and_retains_empty_calendar_blocks() -> None:
+    """Re-anchoring at the first trade or counting empty blocks would invent degrees of freedom."""
+    loser = _trade(
+        decision_index=162,
+        entry_index=163,
+        fragments=(_fragment(quantity=10, price=Decimal(90), source_index=164),),
+    )
+    winner = _trade(
+        symbol="BBB",
+        decision_index=288,
+        entry_index=289,
+        fragments=(_fragment(quantity=10, price=Decimal(110), source_index=290),),
+    )
+
+    result = summarize_signal_run(
+        _run(trades=(winner, loser)), source_axis=_axis(stop=290), settings=_settings()
+    )
+
+    assert result.study_origin_index == 100
+    assert result.block_length == 63
+    assert result.raw_return.moments is not None
+    assert result.raw_return.moments.block_counts == ((1, 1), (3, 1))
+    assert result.raw_return.moments.degrees_of_freedom == pytest.approx(1.0)
 
 
 @pytest.mark.parametrize(
