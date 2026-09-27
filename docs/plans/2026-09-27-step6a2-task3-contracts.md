@@ -15,6 +15,14 @@ Implementation is ordered as four independently reviewable slices:
 3. Counted provider and chunk orchestration using the already-frozen equations, followed by the same pure validator.
 4. Calibration-to-validation unlock, CLI refusal paths and whole-run verification.
 
+### Slice 1B input clarification — approved 2026-09-27
+
+Fresh Astra Medium review approves a private immutable expected-context dataclass containing phase, independently established provenance/claim identity, expected runtime snapshot and `verified_calibration_floor`. Validate context values as strictly as artifact fields. Calibration requires no floor; validation requires exactly the independently verified passing calibration floor. The later calibration-trio boundary constructs production context; its type alone proves no verification.
+
+Cell summary metrics and chunk metrics are ordered arrays exactly `raw`, `win`, `synthetic_excess`. All manifest-owned topology and order come from the full authenticated manifest, not caller overrides. Bind the complete runtime snapshot to independent controller inputs and require the Linux backend/source pair, frozen limits, finite nonnegative measurements and WITHIN_LIMIT. This checks recorded consistency, not actual OS enforcement. The runtime literals are `platform: linux`, `resource_backend: linux-rlimit-as`, and `peak_rss_source: getrusage-ru_maxrss-kib`; the source unit is KiB and stored peak values are converted to bytes. An immutable context may store canonical JSON bytes for its attempt/provenance/runtime records, parsed and strictly validated internally; a frozen dataclass containing mutable dictionaries is insufficient.
+
+Refusal controls reconstruct geometry/masks and explicitly apply candidate floors. Tests must witness block-floor rejection and degree-of-freedom rejection when the block floor passes. Base event partitions cannot contain candidate-floor refusals. The pure verifier accepts complete PASSED or FAILED evidence only with UNVERIFIED terminal state, null failure and complete recomputed partitions/parity/summaries. It rejects INCOMPLETE evidence and never creates a seal or unlocks validation. Unsaved-trigger completeness remains a later orchestration obligation.
+
 ## 2. Common JSON rules
 
 All four evidence documents are strict UTF-8 JSON with one trailing LF, no BOM, duplicate keys, trailing bytes, `NaN` or infinities. Writers use sorted keys and separators `(',', ':')`; parsers reject bytes that do not round-trip to that canonical form. Unknown or missing keys fail. JSON `integer` below excludes booleans; `number` is a finite JSON integer or float. IDs are non-negative integers. Lists whose name ends in `_ids` are strictly increasing and duplicate-free.

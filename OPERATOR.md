@@ -315,6 +315,12 @@ Dated decisions that are not code and not in `goal.yaml`, so they have nowhere e
 |---|---|---|
 | D25 | **Continue planning, implementation, scouting and independent review with task-appropriate models and effort.** The operator confirmed continuous PC/router power with UPS backup can be arranged, but does not know the ISP. This records feasibility, not installed UPS or static-IP readiness. Existing safety boundaries, exact-runner review before frozen synthetic draws, and separate approval for real-data/broker/live work remain unchanged. | operator, 2026-09-27 |
 
+### 2026-09-27 — milestone cadence, medium effort and GitHub sync
+
+| id | decision | owner |
+|---|---|---|
+| D26 | **Continue autonomously within the approved scope and stop only at major milestones or genuine blockers. Use medium effort for delegated models and reviews, never high effort. Push committed changes to the Icarus GitHub repository.** This changes cadence and model settings, not frozen-stream, real-data, broker or live-trading authorization. | operator, 2026-09-27 |
+
 ## 7c. Deferred by decision — not forgotten
 
 Things consciously postponed. **Each names the condition that reopens it.** A deferral without a
