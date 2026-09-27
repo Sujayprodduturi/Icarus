@@ -158,3 +158,28 @@ Provider failures already close descriptors; their reserved partial bytes are pr
 ### Slice 3A accepted milestone
 
 Exact code `71820d8b1d64a495d3a354a5114910c43a37514a` passed GitHub Ubuntu CI https://github.com/Sujayprodduturi/Icarus/actions/runs/36310199592: 1,484 passed, four pre-existing integration skips, 105.60s; Ruff lint/format and mypy (136 files) passed. Kernel/filesystem tests excluded on Windows executed on Linux. Together with independent review, root unit/static/fixture checks and 5/5 fault probes, this accepts the guarded generator only. F11 integration skips remain open. No completed-runner attestation, official calibration/validation draw, accepted floor or inference unlock exists. 3B is being implemented; 3C has only the reviewed design/ownership ruling above.
+
+### Slice 3B early review findings (pending repair)
+
+Root required CR1 to compute its own moments/refusals even when CR2 refuses, with variance/denominator guards before division; copying a batch failure would conceal a valid comparator and comparator arithmetic failure must not erase valid base events. The nonfinite flag must describe actual nonfinite/overflow intermediates, not every finite zero/negative invalid value. Validate strict chunk integer IDs, strict source block integers and boolean wins before NumPy coercion; do not silently truncate malformed input. Refusal mapping must explicitly reject unknown/floor reasons and preserve the actual estimator status: mapping every empty vector to EMPTY_SAMPLE regardless of the reported reason would hide a scalar mismatch. Builder received these as bounded test-first fixes; they are not yet accepted.
+
+Astra's 3B simplicity pass found no justified removal. Its additional correctness finding requires the near-zero trigger to use the exact frozen/verifier arithmetic `1e-12 * scale**2`, not the differently associated `1e-12 * scale * scale`, with a nextafter boundary witness and finite handling. Root's first post-refactor 2,952-case public interval comparison already matches the saved baseline exactly; final frozen-byte verification remains pending.
+
+
+### Slice 3B committed verification
+
+All early review findings were repaired and independently approved by Astra Medium. Root verified 1,504 unit passes/three Windows skips, clean Ruff/format/mypy and the exact 2,952-case old-code interval baseline. Code `7450d47` is pushed to origin/dev. The events review records exact frozen hashes and independent numerical checks.
+
+Initial post-commit mutations caught seven of eight faults. The empty-refusal mutation exposed a weak test: patching the scalar refusal for every row allowed unrelated nonempty rows to satisfy the expected parity failure. Production code was unchanged; the regression is being narrowed to the empty row so its failure proves the intended guard. No eighth-probe success is claimed pending that correction. Linux CI is running; 3B acceptance remains pending these checks.
+
+
+The regression was corrected and independently approved: only the empty row receives the deliberately wrong scalar status; other rows use the real scalar estimator. Follow-up `261e11a` is pushed. Root repeated the post-commit probes: 8/8 caught, unchanged production source. Linux CI for `7450d47` passed 1,507 tests/four existing integration skips and static checks; follow-up test-only CI remains pending. Slice 3C implementation is now authorized under the reviewed streaming plan, with Sol Medium as sole code writer and Astra Medium independent reviewer. Added explicit reader ownership, no-double-close, handoff-deadline, bounded-diagnostic and real read-only-fd test cases. No frozen draw or seal is authorized.
+
+
+3C failure-format ambiguity was resolved before implementation: incomplete summaries use empty cells/candidates, null floor, parity false and INCOMPLETE. Saved chunk partitions retain observed durable counts/ranges; no partial confidence bounds or invented remaining outcomes are emitted. Astra and root approved this minimal representation and the exact-contract clarification. Root also requested a separate deterministic evidence-size feasibility scout against the fixed verifier memory budget; it must not draw either reserved stream or change the statistical protocol.
+
+
+Deterministic size scout (Astra Medium, reserved-seed guard, no draws): existing all-covered scripted complete fixtures serialize to 34,762,220 bytes calibration and 49,329,321 bytes validation. The fixed verifier projection leaves at most 967,983,744 and 501,836,512 bytes respectively for current VMS under 2 GiB. These simple fixtures are not lower bounds or predicted real output sizes; real float representations and triggered parity may enlarge them. Native Windows import VMS was 853,688,320 bytes but Windows counted mode already refuses. Linux headroom and mandatory-trigger envelope remain a first-invocation hold check, not permission to change the frozen resource limit.
+
+
+Slice 3B accepted: exact test follow-up `261e11a` passed Ubuntu CI (1,507 passed/four existing integration skips, 144.72s), Ruff lint/format and mypy. Root independently fetched the completion logs. Both code and test correction are pushed. 3C is in progress; no completed runner or official experiment exists.
