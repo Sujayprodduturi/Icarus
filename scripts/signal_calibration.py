@@ -17,6 +17,7 @@ import subprocess
 from collections import OrderedDict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Final, cast
@@ -1943,6 +1944,630 @@ def validate_selection_artifact(
     )
     if first_passing is None or artifact["selected_candidate"] != first_passing:
         raise _selection_error("selected floor is not the first passing candidate")
+
+
+@dataclass(frozen=True, slots=True)
+class _ExpectedPhaseContext:
+    """Immutable values established outside the untrusted result bytes."""
+
+    phase: str
+    provenance_bytes: bytes
+    attempt_bytes: bytes
+    runtime_bytes: bytes
+    verified_calibration_floor: tuple[int, float] | None
+
+    def __post_init__(self) -> None:
+        if type(self.phase) is not str or self.phase not in {"calibration", "validation"}:
+            raise ManifestError("expected phase is invalid")
+        for label, raw in (
+            ("expected provenance", self.provenance_bytes),
+            ("expected attempt", self.attempt_bytes),
+            ("expected runtime", self.runtime_bytes),
+        ):
+            _parse_canonical_json_bytes(raw, label=label)
+        floor = self.verified_calibration_floor
+        if self.phase == "calibration" and floor is not None:
+            raise ManifestError("calibration must not have a verified floor")
+        if self.phase == "validation":
+            if (
+                not isinstance(floor, tuple)
+                or len(floor) != 2
+                or type(floor[0]) is not int
+                or type(floor[1]) not in (int, float)
+            ):
+                raise ManifestError("validation requires an external verified floor")
+            _finite_number(floor[1], "validation floor")
+
+
+@dataclass(frozen=True, slots=True)
+class VerifiedPhaseResult:
+    phase: str
+    phase_verdict: str
+    selected_floor: tuple[int, float] | None
+
+
+def _finite_number(value: object, label: str, *, nonnegative: bool = False) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ManifestError(f"{label} must be finite number excluding booleans")
+    try:
+        number = float(value)
+    except (OverflowError, ValueError) as exc:
+        raise ManifestError(f"{label} must be finite number") from exc
+    if not math.isfinite(number):
+        raise ManifestError(f"{label} must be finite number")
+    if nonnegative and number < 0.0:
+        raise ManifestError(f"{label} must be non-negative")
+    return number
+
+
+def _nonnegative_int(value: object, label: str) -> int:
+    if type(value) is not int or value < 0:
+        raise ManifestError(f"{label} must be non-negative integer excluding booleans")
+    return value
+
+
+def _check_utc(value: object, label: str) -> None:
+    if (
+        not isinstance(value, str)
+        or re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z", value) is None
+    ):
+        raise ManifestError(f"{label} must be six-digit UTC")
+    try:
+        datetime.strptime(value, "%Y-%m-%dT%H:%M:%S.%fZ")
+    except ValueError as exc:
+        raise ManifestError(f"{label} has an invalid UTC calendar value") from exc
+
+
+def _same_frozen(value: object, expected: object, label: str) -> None:
+    if _canonical_bytes(_mapping(value, label)) != _canonical_bytes(_mapping(expected, label)):
+        raise ManifestError(f"{label} differs from frozen expected value")
+
+
+def _verify_expected_identity(
+    manifest: dict[str, Any],
+    result: dict[str, Any],
+    context: _ExpectedPhaseContext,
+    expected: dict[str, Any],
+) -> None:
+    _exact_keys(
+        expected,
+        {
+            "manifest_sha256",
+            "method_version",
+            "selection_artifact_schema",
+            "reviewed_commit",
+            "invocation_commit",
+            "protected_blobs",
+            "review_attestation_sha256",
+            "claim_sha256",
+            "dependencies",
+        },
+        "expected provenance",
+    )
+    for name in ("manifest_sha256", "review_attestation_sha256", "claim_sha256"):
+        if type(expected[name]) is not str or _HEX64.fullmatch(expected[name]) is None:
+            raise ManifestError(f"provenance {name} is invalid")
+    for name in ("reviewed_commit", "invocation_commit"):
+        if type(expected[name]) is not str or re.fullmatch(r"[0-9a-f]{40}", expected[name]) is None:
+            raise ManifestError(f"provenance {name} is invalid")
+    blobs = _mapping(expected["protected_blobs"], "protected blobs")
+    if set(blobs) != set(_manifest_protected_paths(manifest)) or any(
+        type(value) is not str or _HEX64.fullmatch(value) is None for value in blobs.values()
+    ):
+        raise ManifestError("provenance protected blobs are invalid")
+    if (
+        expected["method_version"] != manifest["method_version"]
+        or expected["selection_artifact_schema"] != manifest["selection_artifact_schema"]
+    ):
+        raise ManifestError("provenance method or selection schema differs")
+    _same_frozen(expected["dependencies"], manifest["versions"], "provenance dependencies")
+    _same_frozen(result["provenance"], expected, "result provenance")
+    attempt = _parse_canonical_json_bytes(context.attempt_bytes, label="expected attempt")
+    _exact_keys(attempt, {"attempt_id", "started_at_utc"}, "expected attempt")
+    if attempt["attempt_id"] != f"{expected['reviewed_commit']}-{context.phase}":
+        raise ManifestError("expected attempt ID differs from reviewed commit and phase")
+    _check_utc(attempt["started_at_utc"], "attempt start")
+    _same_frozen(result["attempt"], attempt, "result attempt")
+    phase_data = manifest["phases"][context.phase]
+    contract = {
+        "master_seed": phase_data["master_seed"],
+        "replicates_per_cell": phase_data["replicates"],
+        "cell_definitions": phase_data["cells"],
+        "candidate_floors": manifest["candidate_floors"],
+        "metrics": manifest["acceptance"]["metrics"],
+        "checks": manifest["acceptance"]["checks"],
+        "family_size": manifest["acceptance"]["family_sizes"][context.phase],
+    }
+    _same_frozen(result["phase_contract"], contract, "phase contract")
+    runtime = _parse_canonical_json_bytes(context.runtime_bytes, label="expected runtime")
+    _exact_keys(
+        runtime,
+        {
+            "platform",
+            "resource_backend",
+            "address_space_limit_bytes",
+            "peak_rss_before_verification_bytes",
+            "peak_rss_source",
+            "planned_peak_bytes",
+            "maximum_result_bytes",
+            "generation_elapsed_seconds",
+            "deadline_seconds",
+            "resource_state",
+        },
+        "expected runtime",
+    )
+    if (
+        runtime["platform"],
+        runtime["resource_backend"],
+        runtime["peak_rss_source"],
+        runtime["resource_state"],
+    ) != ("linux", "linux-rlimit-as", "getrusage-ru_maxrss-kib", "WITHIN_LIMIT"):
+        raise ManifestError("runtime platform, backend, source or state differs")
+    limits = manifest["runtime_limits"]
+    if (
+        runtime["address_space_limit_bytes"] != limits["max_peak_rss_bytes"]
+        or type(runtime["address_space_limit_bytes"]) is not int
+        or runtime["deadline_seconds"] != limits["max_elapsed_seconds"]
+        or type(runtime["deadline_seconds"]) is not int
+    ):
+        raise ManifestError("runtime limits differ from frozen manifest")
+    for name in (
+        "peak_rss_before_verification_bytes",
+        "planned_peak_bytes",
+        "maximum_result_bytes",
+    ):
+        amount = _nonnegative_int(runtime[name], f"runtime {name}")
+        if amount > limits["max_peak_rss_bytes"]:
+            raise ManifestError(f"runtime {name} exceeds frozen memory limit")
+    elapsed = _finite_number(
+        runtime["generation_elapsed_seconds"], "runtime elapsed", nonnegative=True
+    )
+    if elapsed > limits["max_elapsed_seconds"]:
+        raise ManifestError("runtime generation exceeds frozen deadline")
+    _same_frozen(result["runtime"], runtime, "result runtime")
+    terminal = _mapping(result["terminal"], "terminal")
+    _exact_keys(terminal, {"state", "ended_at_utc", "failure"}, "terminal")
+    if terminal["state"] != "UNVERIFIED" or terminal["failure"] is not None:
+        raise ManifestError("only complete unverified results can be verified")
+    _check_utc(terminal["ended_at_utc"], "terminal end")
+    if terminal["ended_at_utc"] < attempt["started_at_utc"]:
+        raise ManifestError("terminal precedes attempt")
+
+
+def _verify_parity(
+    manifest: dict[str, Any],
+    events: dict[str, Any],
+    cell: dict[str, Any],
+    metric: str,
+    replicates: int,
+    start: int,
+    stop: int,
+) -> None:
+    records = _sequence(events["parity"], "parity records")
+    fixed = set(parity_audit_ids(replicates)) & set(range(start, stop))
+    target_key = {"raw": "raw_mean", "win": "win_probability", "synthetic_excess": "excess_mean"}[
+        metric
+    ]
+    target = _finite_number(cell["targets"][target_key], "parity target")
+    covered, lower, upper = (
+        set(events[name]) for name in ("coverage_ids", "lower_miss_ids", "upper_miss_ids")
+    )
+    emitted = set(events["emitted_ids"])
+    refusal_status = {
+        item: refusal["reason"] for refusal in events["refusals"] for item in refusal["ids"]
+    }
+    seen: list[int] = []
+    trigger_names = {"ordinary", "non_finite", "zero", "near_zero", "t_critical"}
+    result_keys = {
+        "status",
+        "mean",
+        "cr2_variance",
+        "nu",
+        "sample_variance",
+        "design_effect",
+        "effective_n",
+        "raw_lower",
+        "raw_upper",
+        "coverage",
+        "lower_miss",
+        "upper_miss",
+    }
+    numeric = result_keys - {"status", "coverage", "lower_miss", "upper_miss"}
+    for record in records:
+        item = _mapping(record, "parity record")
+        _exact_keys(
+            item,
+            {"replicate_id", "triggers", "max_abs_outcome", "batch", "scalar", "cr1"},
+            "parity record",
+        )
+        rid = _nonnegative_int(item["replicate_id"], "parity replicate ID")
+        if rid < start or rid >= stop or (seen and rid <= seen[-1]):
+            raise ManifestError("parity IDs must be ordered and inside their chunk")
+        seen.append(rid)
+        triggers = _sequence(item["triggers"], "parity triggers")
+        if (
+            not triggers
+            or any(type(value) is not str or value not in trigger_names for value in triggers)
+            or triggers != sorted(set(triggers))
+        ):
+            raise ManifestError("parity triggers must be sorted, nonempty and unique")
+        if (rid in fixed) != ("ordinary" in triggers):
+            raise ManifestError("fixed ordinary parity audit IDs differ")
+        scale = _finite_number(item["max_abs_outcome"], "parity max outcome", nonnegative=True)
+        parsed: dict[str, dict[str, Any]] = {}
+        for name in ("batch", "scalar", "cr1"):
+            value = _mapping(item[name], f"parity {name}")
+            variance_name = "cr1_variance" if name == "cr1" else "cr2_variance"
+            _exact_keys(value, (result_keys - {"cr2_variance"}) | {variance_name}, f"parity {name}")
+            status = value["status"]
+            if status != "EMITTED" and status not in manifest["refusals"]:
+                raise ManifestError("parity status is unknown")
+            if status == "EMITTED":
+                for field in (numeric - {"cr2_variance"}) | {variance_name}:
+                    number = _finite_number(value[field], f"parity {name} {field}")
+                    if (
+                        field
+                        in {variance_name, "nu", "sample_variance", "design_effect", "effective_n"}
+                        and number <= 0.0
+                    ):
+                        raise ManifestError("emitted parity numeric must be positive")
+                if any(
+                    type(value[field]) is not bool
+                    for field in ("coverage", "lower_miss", "upper_miss")
+                ):
+                    raise ManifestError("emitted parity decisions must be booleans")
+                if (
+                    sum(bool(value[field]) for field in ("coverage", "lower_miss", "upper_miss"))
+                    != 1
+                ):
+                    raise ManifestError("emitted parity decisions do not partition")
+            elif any(value[field] is not None for field in value if field != "status"):
+                raise ManifestError("refused parity must have null numbers and decisions")
+            parsed[name] = value
+        batch, scalar = parsed["batch"], parsed["scalar"]
+        if (
+            batch["status"] != scalar["status"]
+            or (batch["status"] == "EMITTED") != (rid in emitted)
+            or (batch["status"] != "EMITTED") != (rid in refusal_status)
+            or (rid in refusal_status and batch["status"] != refusal_status[rid])
+        ):
+            raise ManifestError("parity status differs from base event partition")
+        if batch["status"] == "EMITTED":
+            variance_scale = scale * scale
+            if not math.isfinite(variance_scale):
+                raise ManifestError("parity scaled variance tolerance is non-finite")
+            for field in numeric:
+                absolute = (
+                    1e-14 * variance_scale
+                    if field in {"cr2_variance", "sample_variance"}
+                    else 1e-14 * scale
+                    if field in {"mean", "raw_lower", "raw_upper"}
+                    else 1e-12
+                )
+                a, b = float(batch[field]), float(scalar[field])
+                if (
+                    not math.isfinite(absolute)
+                    or abs(a - b) > 1e-11 * max(abs(a), abs(b)) + absolute
+                ):
+                    raise ManifestError("batch/scalar parity differs beyond frozen tolerance")
+            for source in (batch, scalar):
+                margin = float(t.ppf(0.975, float(source["nu"]))) * math.sqrt(
+                    float(source["cr2_variance"])
+                )
+                for bound, calculated in (
+                    ("raw_lower", float(source["mean"]) - margin),
+                    ("raw_upper", float(source["mean"]) + margin),
+                ):
+                    absolute = 1e-14 * scale
+                    saved = float(source[bound])
+                    if (
+                        not math.isfinite(calculated)
+                        or abs(saved - calculated)
+                        > 1e-11 * max(abs(saved), abs(calculated)) + absolute
+                    ):
+                        raise ManifestError(
+                            "parity raw interval differs from mean, variance and nu"
+                        )
+            if any(
+                batch[field] != scalar[field] for field in ("coverage", "lower_miss", "upper_miss")
+            ):
+                raise ManifestError("batch/scalar parity decisions differ")
+            if (batch["coverage"], batch["lower_miss"], batch["upper_miss"]) != (
+                rid in covered,
+                rid in lower,
+                rid in upper,
+            ):
+                raise ManifestError("parity decisions differ from event IDs")
+            decisions = (
+                float(batch["raw_lower"]) <= target <= float(batch["raw_upper"]),
+                target < float(batch["raw_lower"]),
+                target > float(batch["raw_upper"]),
+            )
+            if decisions != (batch["coverage"], batch["lower_miss"], batch["upper_miss"]):
+                raise ManifestError("parity decision differs from raw interval and target")
+            near_zero = (
+                0.0 < float(batch["cr2_variance"]) <= 1e-12 * scale**2
+                or 0.0 < float(batch["sample_variance"]) <= 1e-12 * scale**2
+            )
+            if ("near_zero" in triggers) != near_zero or "zero" in triggers:
+                raise ManifestError("zero/near-zero parity trigger differs")
+            critical = (
+                abs(
+                    abs((float(batch["mean"]) - target) / math.sqrt(float(batch["cr2_variance"])))
+                    - float(t.ppf(0.975, float(batch["nu"])))
+                )
+                <= 1e-8
+            )
+            if ("t_critical" in triggers) != critical:
+                raise ManifestError("t-critical parity trigger differs")
+        elif "near_zero" in triggers or ("zero" in triggers) != (
+            batch["status"] == "ZERO_VARIANCE"
+        ):
+            raise ManifestError("refusal parity trigger differs")
+    if not fixed <= set(seen):
+        raise ManifestError("fixed parity audit is incomplete")
+
+
+def _candidate_support(
+    manifest: dict[str, Any], phase: str, cell: dict[str, Any], floor: dict[str, Any]
+) -> tuple[bool, bool, bool]:
+    if cell["role"] == "dynamic":
+        parameters = cell["parameters"]
+        occupancies = tuple(
+            _derived_dynamic_occupancy(parameters, parameters[name]) for name in ("h_loss", "h_win")
+        )
+    else:
+        geometry = manifest["geometries"][cell["geometry_id"]]
+        location = cell["parameters"].get("location")
+        occupancies = (
+            _derived_fixed_occupancy(
+                geometry["entry_rule"],
+                geometry["l"],
+                geometry["entry_counts"],
+                manifest["source_geometry"],
+                location,
+            ),
+        )
+    block_fail = False
+    df_only_fail = False
+    supported = True
+    for occupancy in occupancies:
+        blocks_ok = len(occupancy) >= floor["minimum_blocks"]
+        nu_ok = satterthwaite_nu(occupancy) >= floor["minimum_nu"]
+        supported &= blocks_ok and nu_ok
+        block_fail |= not blocks_ok
+        df_only_fail |= blocks_ok and not nu_ok
+    return supported, block_fail, df_only_fail
+
+
+def _verify_summary(
+    manifest: dict[str, Any],
+    raw: object,
+    phase: str,
+    cell_summaries: list[dict[str, Any]],
+    verified_floor: tuple[int, float] | None,
+) -> VerifiedPhaseResult:
+    summary = _mapping(raw, "phase summary")
+    _exact_keys(
+        summary,
+        {"cells", "candidate_results", "selected_floor", "parity_complete", "phase_verdict"},
+        "phase summary",
+    )
+    if _canonical_bytes({"cells": summary["cells"]}) != _canonical_bytes({"cells": cell_summaries}):
+        raise ManifestError("phase summary cell counts or CP checks differ from event partitions")
+    if summary["parity_complete"] is not True:
+        raise ManifestError("phase parity is incomplete")
+    all_floors = manifest["candidate_floors"]
+    if phase == "calibration":
+        floors = all_floors
+    else:
+        assert verified_floor is not None
+        floors = [
+            floor
+            for floor in all_floors
+            if (floor["minimum_blocks"], float(floor["minimum_nu"])) == verified_floor
+        ]
+        if len(floors) != 1:
+            raise ManifestError("externally verified validation floor is not frozen")
+    candidate_results: list[dict[str, Any]] = []
+    block_witness = False
+    df_witness = False
+    for floor in floors:
+        eligible_cells = []
+        for cell in manifest["phases"][phase]["cells"]:
+            support, block_fail, df_only_fail = _candidate_support(manifest, phase, cell, floor)
+            index = all_floors.index(floor)
+            if support is not cell["expected_candidate_support"][index]:
+                raise ManifestError("derived candidate floor mask differs from frozen cell")
+            block_witness |= block_fail
+            df_witness |= df_only_fail
+            if support:
+                eligible_cells.append(cell["id"])
+        by_id = {cell["cell_id"]: cell for cell in cell_summaries}
+        passed = all(
+            check["passed"]
+            for cell_id in eligible_cells
+            for metric in by_id[cell_id]["metrics"]
+            for check in metric["checks"].values()
+        )
+        candidate_results.append(
+            {"floor": floor, "fixed_refusal_controls_passed": True, "passed": passed}
+        )
+    if phase == "calibration" and (not block_witness or not df_witness):
+        raise ManifestError("candidate refusal controls lack actual block and df-only witnesses")
+    if _canonical_bytes({"candidate_results": summary["candidate_results"]}) != _canonical_bytes(
+        {"candidate_results": candidate_results}
+    ):
+        raise ManifestError("candidate floor controls or verdicts differ")
+    selected = next((item["floor"] for item in candidate_results if item["passed"]), None)
+    if _canonical_bytes({"floor": summary["selected_floor"]}) != _canonical_bytes(
+        {"floor": selected}
+    ):
+        raise ManifestError("selected floor is not first passing or external validation floor")
+    verdict = "PASSED" if selected is not None else "FAILED"
+    if summary["phase_verdict"] != verdict:
+        raise ManifestError("phase verdict differs from event-derived candidate gates")
+    frozen_selected = (
+        (selected["minimum_blocks"], float(selected["minimum_nu"]))
+        if selected is not None
+        else None
+    )
+    return VerifiedPhaseResult(phase, verdict, frozen_selected)
+
+
+def validate_phase_result(
+    manifest: dict[str, Any], result: dict[str, Any], expected_provenance: _ExpectedPhaseContext
+) -> VerifiedPhaseResult:
+    """Purely rederive the complete phase verdict from independently bound evidence."""
+    if not isinstance(expected_provenance, _ExpectedPhaseContext):
+        raise ManifestError("expected context has the wrong type")
+    _validate_manifest(manifest)
+    phase = expected_provenance.phase
+    phase_data = manifest["phases"][phase]
+    expected = _parse_canonical_json_bytes(
+        expected_provenance.provenance_bytes, label="expected provenance"
+    )
+    _exact_keys(
+        expected,
+        {
+            "manifest_sha256",
+            "method_version",
+            "selection_artifact_schema",
+            "reviewed_commit",
+            "invocation_commit",
+            "protected_blobs",
+            "review_attestation_sha256",
+            "claim_sha256",
+            "dependencies",
+        },
+        "expected provenance",
+    )
+    if expected["manifest_sha256"] != hashlib.sha256(_canonical_bytes(manifest)).hexdigest():
+        raise ManifestError("manifest bytes do not match expected provenance hash")
+    result = _mapping(result, "phase result")
+    _exact_keys(
+        result,
+        {
+            "schema",
+            "protocol_version",
+            "phase",
+            "attempt",
+            "provenance",
+            "phase_contract",
+            "chunks",
+            "summary",
+            "runtime",
+            "terminal",
+        },
+        "phase result",
+    )
+    if (
+        result["schema"] != "step6a2-calibration-result-v1"
+        or result["protocol_version"] != PROTOCOL_VERSION
+        or result["phase"] != phase
+    ):
+        raise ManifestError("phase result schema, protocol or phase differs")
+    _verify_expected_identity(manifest, result, expected_provenance, expected)
+    metrics = manifest["acceptance"]["metrics"]
+    cells = phase_data["cells"]
+    replicates = phase_data["replicates"]
+    chunks = _sequence(result["chunks"], "phase chunks")
+    cell_summaries: list[dict[str, Any]] = []
+    cursor = 0
+    for cell in cells:
+        totals = {metric: [0] * 6 for metric in metrics}
+        for chunk_id, start in enumerate(range(0, replicates, 256)):
+            if cursor >= len(chunks):
+                raise ManifestError("phase chunks omit a frozen cell or range")
+            stop = min(start + 256, replicates)
+            chunk = _mapping(chunks[cursor], f"chunk {cursor}")
+            _exact_keys(
+                chunk,
+                {"cell_id", "chunk_id", "replicate_start", "replicate_stop_exclusive", "metrics"},
+                f"chunk {cursor}",
+            )
+            if (
+                type(chunk["cell_id"]) is not int
+                or type(chunk["chunk_id"]) is not int
+                or type(chunk["replicate_start"]) is not int
+                or type(chunk["replicate_stop_exclusive"]) is not int
+                or (
+                    chunk["cell_id"],
+                    chunk["chunk_id"],
+                    chunk["replicate_start"],
+                    chunk["replicate_stop_exclusive"],
+                )
+                != (cell["id"], chunk_id, start, stop)
+            ):
+                raise ManifestError("phase chunk cell, order or range differs")
+            events = _sequence(chunk["metrics"], "chunk metrics")
+            if len(events) != len(metrics):
+                raise ManifestError("chunk lacks all ordered metrics")
+            for metric, value in zip(metrics, events, strict=True):
+                metric_events = _mapping(value, "metric events")
+                _exact_keys(
+                    metric_events,
+                    {
+                        "metric",
+                        "emitted_ids",
+                        "refusals",
+                        "coverage_ids",
+                        "lower_miss_ids",
+                        "upper_miss_ids",
+                        "joint_success_ids",
+                        "parity",
+                    },
+                    "metric events",
+                )
+                base = {key: item for key, item in metric_events.items() if key != "parity"}
+                counts = _validate_metric_event_partition(
+                    manifest,
+                    base,
+                    replicate_start=start,
+                    replicate_stop_exclusive=stop,
+                    declared_metric=metric,
+                )
+                if any(
+                    refusal["reason"] in {"BELOW_CALIBRATED_BLOCKS", "BELOW_CALIBRATED_DF"}
+                    for refusal in base["refusals"]
+                ):
+                    raise ManifestError("candidate-floor refusal appears in base events")
+                _verify_parity(manifest, metric_events, cell, metric, replicates, start, stop)
+                for index, amount in enumerate(
+                    (
+                        counts.emitted,
+                        counts.refusal_total,
+                        counts.coverage_successes,
+                        counts.lower_tail_misses,
+                        counts.upper_tail_misses,
+                        counts.joint_successes,
+                    )
+                ):
+                    totals[metric][index] += amount
+            cursor += 1
+        cell_summaries.append(
+            {
+                "cell_id": cell["id"],
+                "generated": replicates,
+                "metrics": [
+                    _recompute_metric_summary(
+                        manifest,
+                        phase=phase,
+                        counts=_MetricEventCounts(metric, replicates, *totals[metric]),
+                    )
+                    for metric in metrics
+                ],
+            }
+        )
+    if cursor != len(chunks):
+        raise ManifestError("phase chunks contain extra cells or ranges")
+    return _verify_summary(
+        manifest,
+        result["summary"],
+        phase,
+        cell_summaries,
+        expected_provenance.verified_calibration_floor,
+    )
 
 
 def _manifest_protected_paths(manifest: Mapping[str, Any]) -> tuple[str, ...]:

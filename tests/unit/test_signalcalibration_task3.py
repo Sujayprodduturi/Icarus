@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import json
 from typing import Any
 
 import pytest
 import scripts.signal_calibration as calibration
+from scipy.stats import t
 from scripts.signal_calibration import ManifestError, load_manifest
 
 
@@ -332,3 +334,597 @@ def test_summary_recomputation_uses_validation_phase_contract() -> None:
     assert emission["absolute_minimum"] == 19_000
     assert emission["trials"] == 20_000
     assert emission["rate"] == pytest.approx(0.95)
+
+
+def _canonical(value: dict[str, Any]) -> bytes:
+    return (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
+
+
+def _result_envelope(phase: str) -> tuple[dict[str, Any], Any]:
+    manifest = _manifest()
+    commit = "a" * 40
+    blob = "b" * 64
+    protected = {path: blob for path in manifest["integrity"]["protected_paths"].values()}
+    attempt = {"attempt_id": f"{commit}-{phase}", "started_at_utc": "2026-09-27T00:00:00.000000Z"}
+    provenance = {
+        "manifest_sha256": hashlib.sha256(_canonical(manifest)).hexdigest(),
+        "method_version": manifest["method_version"],
+        "selection_artifact_schema": manifest["selection_artifact_schema"],
+        "reviewed_commit": commit,
+        "invocation_commit": commit,
+        "protected_blobs": protected,
+        "review_attestation_sha256": "d" * 64,
+        "claim_sha256": "e" * 64,
+        "dependencies": manifest["versions"],
+    }
+    runtime = {
+        "platform": "linux",
+        "resource_backend": "linux-rlimit-as",
+        "address_space_limit_bytes": 2_147_483_648,
+        "peak_rss_before_verification_bytes": 2_000_000,
+        "peak_rss_source": "getrusage-ru_maxrss-kib",
+        "planned_peak_bytes": 3_000_000,
+        "maximum_result_bytes": 100_000_000,
+        "generation_elapsed_seconds": 1.0,
+        "deadline_seconds": 7_200,
+        "resource_state": "WITHIN_LIMIT",
+    }
+    phase_data = manifest["phases"][phase]
+    result = {
+        "schema": "step6a2-calibration-result-v1",
+        "protocol_version": manifest["protocol_version"],
+        "phase": phase,
+        "attempt": attempt,
+        "provenance": provenance,
+        "phase_contract": {
+            "master_seed": phase_data["master_seed"],
+            "replicates_per_cell": phase_data["replicates"],
+            "cell_definitions": phase_data["cells"],
+            "candidate_floors": manifest["candidate_floors"],
+            "metrics": manifest["acceptance"]["metrics"],
+            "checks": manifest["acceptance"]["checks"],
+            "family_size": manifest["acceptance"]["family_sizes"][phase],
+        },
+        "chunks": [],
+        "summary": {},
+        "runtime": runtime,
+        "terminal": {
+            "state": "UNVERIFIED",
+            "ended_at_utc": "2026-09-27T00:00:01.000000Z",
+            "failure": None,
+        },
+    }
+    floor = (6, 4.0) if phase == "validation" else None
+    context = calibration._ExpectedPhaseContext(
+        phase=phase,
+        provenance_bytes=_canonical(provenance),
+        attempt_bytes=_canonical(attempt),
+        runtime_bytes=_canonical(runtime),
+        verified_calibration_floor=floor,
+    )
+    return result, context
+
+
+def test_result_verifier_rejects_incomplete_evidence() -> None:
+    result, context = _result_envelope("calibration")
+    with pytest.raises(ManifestError):
+        calibration.validate_phase_result(_manifest(), result, context)
+
+
+def _complete_result(phase: str) -> tuple[dict[str, Any], Any]:
+    result, context = _result_envelope(phase)
+    manifest = _manifest()
+    metrics = manifest["acceptance"]["metrics"]
+    replicates = manifest["phases"][phase]["replicates"]
+    summaries = []
+    for cell in manifest["phases"][phase]["cells"]:
+        cell_metrics = []
+        for metric in metrics:
+            counts = calibration._MetricEventCounts(
+                metric, replicates, replicates, 0, replicates, 0, 0, replicates
+            )
+            cell_metrics.append(
+                calibration._recompute_metric_summary(manifest, phase=phase, counts=counts)
+            )
+        summaries.append({"cell_id": cell["id"], "generated": replicates, "metrics": cell_metrics})
+        for chunk_id, start in enumerate(range(0, replicates, 256)):
+            stop = min(start + 256, replicates)
+            events = []
+            for metric in metrics:
+                target_key = {
+                    "raw": "raw_mean",
+                    "win": "win_probability",
+                    "synthetic_excess": "excess_mean",
+                }[metric]
+                target = cell["targets"][target_key]
+                mean = 0.5 if metric == "win" else 0.0
+                critical = float(t.ppf(0.975, 10.0))
+                interval = {
+                    "status": "EMITTED",
+                    "mean": mean,
+                    "cr2_variance": 1.0,
+                    "nu": 10.0,
+                    "sample_variance": 1.0,
+                    "design_effect": 1.0,
+                    "effective_n": 1.0,
+                    "raw_lower": mean - critical,
+                    "raw_upper": mean + critical,
+                    "coverage": mean - critical <= target <= mean + critical,
+                    "lower_miss": target < mean - critical,
+                    "upper_miss": target > mean + critical,
+                }
+                cr1 = dict(interval)
+                cr1["cr1_variance"] = cr1.pop("cr2_variance")
+                parity = [
+                    {
+                        "replicate_id": replicate_id,
+                        "triggers": ["ordinary"],
+                        "max_abs_outcome": 1.0,
+                        "batch": interval,
+                        "scalar": dict(interval),
+                        "cr1": cr1,
+                    }
+                    for replicate_id in calibration.parity_audit_ids(replicates)
+                    if start <= replicate_id < stop
+                ]
+                events.append(
+                    {
+                        "metric": metric,
+                        "emitted_ids": list(range(start, stop)),
+                        "refusals": [],
+                        "coverage_ids": list(range(start, stop)),
+                        "lower_miss_ids": [],
+                        "upper_miss_ids": [],
+                        "joint_success_ids": list(range(start, stop)),
+                        "parity": parity,
+                    }
+                )
+            result["chunks"].append(
+                {
+                    "cell_id": cell["id"],
+                    "chunk_id": chunk_id,
+                    "replicate_start": start,
+                    "replicate_stop_exclusive": stop,
+                    "metrics": events,
+                }
+            )
+    floors = (
+        manifest["candidate_floors"]
+        if phase == "calibration"
+        else [manifest["candidate_floors"][0]]
+    )
+    result["summary"] = {
+        "cells": summaries,
+        "candidate_results": [
+            {"floor": floor, "fixed_refusal_controls_passed": True, "passed": True}
+            for floor in floors
+        ],
+        "selected_floor": floors[0],
+        "parity_complete": True,
+        "phase_verdict": "PASSED",
+    }
+    return result, context
+
+
+@pytest.mark.parametrize("phase", ["calibration", "validation"])
+def test_complete_phase_result_verifies_all_frozen_cells(phase: str) -> None:
+    result, context = _complete_result(phase)
+    verified = calibration.validate_phase_result(_manifest(), result, context)
+    assert verified.phase == phase
+    assert verified.phase_verdict == "PASSED"
+    assert verified.selected_floor == (6, 4.0)
+
+
+@pytest.fixture(scope="module")
+def full_calibration() -> tuple[dict[str, Any], Any]:
+    return _complete_result("calibration")
+
+
+@pytest.fixture(scope="module")
+def full_validation() -> tuple[dict[str, Any], Any]:
+    return _complete_result("validation")
+
+
+def _replace_first_chunk(result: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    changed = dict(result)
+    changed["chunks"] = list(result["chunks"])
+    chunk = dict(changed["chunks"][0])
+    changed["chunks"][0] = chunk
+    return changed, chunk
+
+
+@pytest.mark.parametrize(
+    "field,bad",
+    [
+        ("phase", "validation"),
+        ("schema", "wrong"),
+        ("protocol_version", "wrong"),
+    ],
+)
+def test_result_refuses_wrong_envelope(
+    full_calibration: tuple[dict[str, Any], Any], field: str, bad: Any
+) -> None:
+    original, context = full_calibration
+    changed = dict(original)
+    changed[field] = bad
+    with pytest.raises(ManifestError):
+        calibration.validate_phase_result(_manifest(), changed, context)
+
+
+@pytest.mark.parametrize(
+    "field,bad",
+    [
+        ("platform", "win32"),
+        ("resource_backend", "none"),
+        ("peak_rss_source", "windows"),
+        ("address_space_limit_bytes", True),
+        ("deadline_seconds", 7199),
+        ("generation_elapsed_seconds", float("inf")),
+        ("planned_peak_bytes", -1),
+        ("resource_state", "EXCEEDED"),
+    ],
+)
+def test_result_refuses_invalid_expected_runtime(
+    full_calibration: tuple[dict[str, Any], Any], field: str, bad: Any
+) -> None:
+    original, context = full_calibration
+    runtime = dict(original["runtime"])
+    runtime[field] = bad
+    changed = dict(original)
+    changed["runtime"] = runtime
+    with pytest.raises(ManifestError):
+        changed_context = dataclasses.replace(context, runtime_bytes=_canonical(runtime))
+        calibration.validate_phase_result(_manifest(), changed, changed_context)
+
+
+def test_result_refuses_unbound_expected_context(
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    original, context = full_calibration
+    with pytest.raises(ManifestError, match="context"):
+        calibration.validate_phase_result(_manifest(), original, dict(dataclasses.asdict(context)))  # type: ignore[arg-type]
+
+
+def test_result_refuses_wrong_manifest_hash(full_calibration: tuple[dict[str, Any], Any]) -> None:
+    original, context = full_calibration
+    provenance = dict(original["provenance"])
+    provenance["manifest_sha256"] = "0" * 64
+    changed = dict(original)
+    changed["provenance"] = provenance
+    context = dataclasses.replace(context, provenance_bytes=_canonical(provenance))
+    with pytest.raises(ManifestError, match="manifest"):
+        calibration.validate_phase_result(_manifest(), changed, context)
+
+
+@pytest.mark.parametrize(
+    "mutation", ["omit", "overlap", "wrong_cell", "wrong_metric", "candidate_refusal"]
+)
+def test_result_refuses_chunk_or_partition_tamper(
+    full_calibration: tuple[dict[str, Any], Any], mutation: str
+) -> None:
+    original, context = full_calibration
+    changed, chunk = _replace_first_chunk(original)
+    if mutation == "omit":
+        changed["chunks"].pop(0)
+    elif mutation == "wrong_cell":
+        chunk["cell_id"] = 1001
+    else:
+        chunk["metrics"] = list(chunk["metrics"])
+        events = dict(chunk["metrics"][0])
+        chunk["metrics"][0] = events
+        if mutation == "overlap":
+            events["emitted_ids"] = [0, *events["emitted_ids"]]
+        elif mutation == "wrong_metric":
+            events["metric"] = "win"
+        else:
+            events["emitted_ids"] = list(range(1, 256))
+            events["coverage_ids"] = list(range(1, 256))
+            events["joint_success_ids"] = list(range(1, 256))
+            events["refusals"] = [{"reason": "BELOW_CALIBRATED_DF", "ids": [0]}]
+    with pytest.raises(ManifestError):
+        calibration.validate_phase_result(_manifest(), changed, context)
+
+
+@pytest.mark.parametrize(
+    "mutation", ["missing", "duplicate", "wrong_trigger", "wrong_scalar", "forged_success"]
+)
+def test_result_refuses_parity_tamper(
+    full_calibration: tuple[dict[str, Any], Any], mutation: str
+) -> None:
+    original, context = full_calibration
+    changed, chunk = _replace_first_chunk(original)
+    chunk["metrics"] = list(chunk["metrics"])
+    events = dict(chunk["metrics"][0])
+    chunk["metrics"][0] = events
+    records = list(events["parity"])
+    events["parity"] = records
+    if mutation == "missing":
+        records.pop(0)
+    elif mutation == "duplicate":
+        records.insert(1, records[0])
+    else:
+        record = dict(records[0])
+        records[0] = record
+        if mutation == "wrong_trigger":
+            record["triggers"] = ["ordinary", "t_critical"]
+        elif mutation == "wrong_scalar":
+            scalar = dict(record["scalar"])
+            scalar["mean"] = 1.0
+            record["scalar"] = scalar
+        else:
+            events["coverage_ids"] = list(range(1, 256))
+    with pytest.raises(ManifestError):
+        calibration.validate_phase_result(_manifest(), changed, context)
+
+
+def test_result_refuses_forged_cp_bound(full_calibration: tuple[dict[str, Any], Any]) -> None:
+    original, context = full_calibration
+    changed = dict(original)
+    summary = dict(original["summary"])
+    changed["summary"] = summary
+    cells = list(summary["cells"])
+    summary["cells"] = cells
+    cell = dict(cells[0])
+    cells[0] = cell
+    metrics = list(cell["metrics"])
+    cell["metrics"] = metrics
+    metric = dict(metrics[0])
+    metrics[0] = metric
+    checks = dict(metric["checks"])
+    metric["checks"] = checks
+    coverage = dict(checks["coverage_lower"])
+    checks["coverage_lower"] = coverage
+    coverage["bound"] = 1.0
+    with pytest.raises(ManifestError, match="summary"):
+        calibration.validate_phase_result(_manifest(), changed, context)
+
+
+@pytest.mark.parametrize("floor", [None, (8, 6.0), (6, 4.0, 0), (True, 4.0)])
+def test_validation_requires_external_exact_floor(
+    full_validation: tuple[dict[str, Any], Any], floor: Any
+) -> None:
+    original, context = full_validation
+    with pytest.raises(ManifestError):
+        altered = dataclasses.replace(context, verified_calibration_floor=floor)
+        calibration.validate_phase_result(_manifest(), original, altered)
+
+
+def test_parity_accepts_sum_of_relative_and_scaled_absolute_tolerances(
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    original, context = full_calibration
+    changed, chunk = _replace_first_chunk(original)
+    chunk["metrics"] = list(chunk["metrics"])
+    events = dict(chunk["metrics"][0])
+    chunk["metrics"][0] = events
+    events["parity"] = list(events["parity"])
+    record = dict(events["parity"][0])
+    events["parity"][0] = record
+    scalar = dict(record["scalar"])
+    record["scalar"] = scalar
+    scalar["cr2_variance"] = 1.0 + 1.0005e-11
+    margin = float(t.ppf(0.975, 10.0)) * scalar["cr2_variance"] ** 0.5
+    scalar["raw_lower"] = -margin
+    scalar["raw_upper"] = margin
+    calibration.validate_phase_result(_manifest(), changed, context)
+
+
+def test_parity_refuses_identically_forged_wider_raw_bounds(
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    original, context = full_calibration
+    changed, chunk = _replace_first_chunk(original)
+    chunk["metrics"] = list(chunk["metrics"])
+    events = dict(chunk["metrics"][0])
+    chunk["metrics"][0] = events
+    events["parity"] = list(events["parity"])
+    record = dict(events["parity"][0])
+    events["parity"][0] = record
+    for name in ("batch", "scalar"):
+        interval = dict(record[name])
+        interval["raw_lower"] -= 1.0
+        interval["raw_upper"] += 1.0
+        record[name] = interval
+    with pytest.raises(ManifestError, match="interval"):
+        calibration.validate_phase_result(_manifest(), changed, context)
+
+
+def test_parity_refuses_overflowed_scaled_tolerance(
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    original, context = full_calibration
+    changed, chunk = _replace_first_chunk(original)
+    chunk["metrics"] = list(chunk["metrics"])
+    events = dict(chunk["metrics"][0])
+    chunk["metrics"][0] = events
+    events["parity"] = list(events["parity"])
+    record = dict(events["parity"][0])
+    events["parity"][0] = record
+    record["max_abs_outcome"] = 1e308
+    with pytest.raises(ManifestError, match="tolerance"):
+        calibration.validate_phase_result(_manifest(), changed, context)
+
+
+def test_selected_floor_requires_frozen_json_number_type(
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    original, context = full_calibration
+    changed = dict(original)
+    summary = dict(original["summary"])
+    changed["summary"] = summary
+    summary["selected_floor"] = {"minimum_blocks": 6, "minimum_nu": 4.0}
+    with pytest.raises(ManifestError, match="floor"):
+        calibration.validate_phase_result(_manifest(), changed, context)
+
+
+@pytest.mark.parametrize(
+    "field,bad",
+    [
+        ("peak_rss_before_verification_bytes", 2_147_483_649),
+        ("planned_peak_bytes", 2_147_483_649),
+        ("generation_elapsed_seconds", 7_201.0),
+    ],
+)
+def test_runtime_refuses_frozen_limit_overage(
+    full_calibration: tuple[dict[str, Any], Any],
+    field: str,
+    bad: Any,
+) -> None:
+    original, context = full_calibration
+    runtime = dict(original["runtime"])
+    runtime[field] = bad
+    changed = dict(original)
+    changed["runtime"] = runtime
+    context = dataclasses.replace(context, runtime_bytes=_canonical(runtime))
+    with pytest.raises(ManifestError, match="runtime"):
+        calibration.validate_phase_result(_manifest(), changed, context)
+
+
+def test_parity_refusal_must_match_exact_event_reason(
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    original, context = full_calibration
+    changed, chunk = _replace_first_chunk(original)
+    chunk["metrics"] = list(chunk["metrics"])
+    events = dict(chunk["metrics"][0])
+    chunk["metrics"][0] = events
+    events["emitted_ids"] = list(range(1, 256))
+    events["coverage_ids"] = list(range(1, 256))
+    events["joint_success_ids"] = list(range(1, 256))
+    events["refusals"] = [{"reason": "ZERO_VARIANCE", "ids": [0]}]
+    events["parity"] = list(events["parity"])
+    record = dict(events["parity"][0])
+    events["parity"][0] = record
+    record["triggers"] = ["ordinary"]
+    for name in ("batch", "scalar", "cr1"):
+        interval: dict[str, Any] = {key: None for key in record[name]}
+        interval["status"] = "INVALID_DF"
+        record[name] = interval
+    with pytest.raises(ManifestError, match="status"):
+        calibration.validate_phase_result(_manifest(), changed, context)
+
+
+@pytest.mark.parametrize("stamp", ["2026-13-27T00:00:00.000000Z", "2026-09-27T25:00:00.000000Z"])
+def test_expected_context_refuses_invalid_utc_calendar(stamp: str) -> None:
+    result, context = _result_envelope("calibration")
+    attempt = dict(result["attempt"])
+    attempt["started_at_utc"] = stamp
+    changed = dict(result)
+    changed["attempt"] = attempt
+    context = dataclasses.replace(context, attempt_bytes=_canonical(attempt))
+    with pytest.raises(ManifestError, match="UTC"):
+        calibration.validate_phase_result(_manifest(), changed, context)
+
+
+def test_expected_context_refuses_missing_provenance_key() -> None:
+    result, context = _result_envelope("calibration")
+    provenance = dict(result["provenance"])
+    provenance.pop("manifest_sha256")
+    context = dataclasses.replace(context, provenance_bytes=_canonical(provenance))
+    with pytest.raises(ManifestError, match="provenance"):
+        calibration.validate_phase_result(_manifest(), result, context)
+
+
+def test_complete_statistical_failure_is_verified_without_a_floor(
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    original, context = full_calibration
+    changed = dict(original)
+    changed["chunks"] = list(original["chunks"])
+    for index in range(40):
+        chunk = dict(changed["chunks"][index])
+        changed["chunks"][index] = chunk
+        chunk["metrics"] = list(chunk["metrics"])
+        events = dict(chunk["metrics"][0])
+        chunk["metrics"][0] = events
+        start, stop = chunk["replicate_start"], chunk["replicate_stop_exclusive"]
+        events.update(
+            {
+                "emitted_ids": [],
+                "refusals": [{"reason": "ZERO_VARIANCE", "ids": list(range(start, stop))}],
+                "coverage_ids": [],
+                "lower_miss_ids": [],
+                "upper_miss_ids": [],
+                "joint_success_ids": [],
+                "parity": [
+                    {
+                        **record,
+                        "triggers": ["ordinary", "zero"],
+                        **{
+                            name: {
+                                key: ("ZERO_VARIANCE" if key == "status" else None)
+                                for key in record[name]
+                            }
+                            for name in ("batch", "scalar", "cr1")
+                        },
+                    }
+                    for record in events["parity"]
+                ],
+            }
+        )
+    summary = dict(original["summary"])
+    changed["summary"] = summary
+    summary["cells"] = list(summary["cells"])
+    cell = dict(summary["cells"][0])
+    summary["cells"][0] = cell
+    cell["metrics"] = list(cell["metrics"])
+    cell["metrics"][0] = calibration._recompute_metric_summary(
+        _manifest(),
+        phase="calibration",
+        counts=calibration._MetricEventCounts("raw", 10_000, 0, 10_000, 0, 0, 0, 0),
+    )
+    summary["candidate_results"] = [
+        {**candidate, "passed": False} for candidate in summary["candidate_results"]
+    ]
+    summary["selected_floor"] = None
+    summary["phase_verdict"] = "FAILED"
+    verified = calibration.validate_phase_result(_manifest(), changed, context)
+    assert verified.phase_verdict == "FAILED"
+    assert verified.selected_floor is None
+
+
+def test_parity_sample_variance_uses_squared_outcome_scale(
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    original, context = full_calibration
+    changed, chunk = _replace_first_chunk(original)
+    chunk["metrics"] = list(chunk["metrics"])
+    events = dict(chunk["metrics"][0])
+    chunk["metrics"][0] = events
+    events["parity"] = list(events["parity"])
+    record = dict(events["parity"][0])
+    events["parity"][0] = record
+    record["max_abs_outcome"] = 10_000_000.0
+    record["triggers"] = ["near_zero", "ordinary"]
+    scalar = dict(record["scalar"])
+    record["scalar"] = scalar
+    scalar["sample_variance"] = 1.5
+    calibration.validate_phase_result(_manifest(), changed, context)
+
+
+def test_parity_huge_json_integer_refuses_with_manifest_error(
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    original, context = full_calibration
+    changed, chunk = _replace_first_chunk(original)
+    chunk["metrics"] = list(chunk["metrics"])
+    events = dict(chunk["metrics"][0])
+    chunk["metrics"][0] = events
+    events["parity"] = list(events["parity"])
+    record = dict(events["parity"][0])
+    events["parity"][0] = record
+    record["max_abs_outcome"] = 10**400
+    with pytest.raises(ManifestError, match=r"finite|number"):
+        calibration.validate_phase_result(_manifest(), changed, context)
+
+
+def test_validation_huge_floor_integer_refuses_with_manifest_error() -> None:
+    _, context = _result_envelope("validation")
+    with pytest.raises(ManifestError, match="floor"):
+        dataclasses.replace(context, verified_calibration_floor=(6, 10**400))
+
+
+def test_unhashable_expected_phase_refuses_with_manifest_error() -> None:
+    _, context = _result_envelope("calibration")
+    with pytest.raises(ManifestError, match="phase"):
+        dataclasses.replace(context, phase=[])
