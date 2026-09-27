@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import math
 import os
 import stat
 import subprocess
@@ -19,6 +20,12 @@ import pytest
 import scripts.signal_calibration as calibration
 from scipy.stats import t
 from scripts.signal_calibration import ManifestError, load_manifest
+
+from icarus.engine.signalmetrics import (
+    CandidateMoments,
+    MetricRefusal,
+    _cr2_moments,
+)
 
 
 def _run_git(repo: Path, *args: str) -> str:
@@ -2660,3 +2667,399 @@ def test_counted_provider_row_copy_cannot_mutate_cached_component(
     assert np.all(source_arrays[0] == 0.0)
     assert np.all(source_arrays[1] == 0.75)
     assert np.all(source_arrays[2] == 0.0)
+
+
+def _scripted_metric_replicate(
+    values: tuple[float, ...],
+    *,
+    wins: tuple[bool, ...] | None = None,
+    excess: tuple[float, ...] | None = None,
+    blocks: tuple[int, ...] = (0, 0, 1, 1),
+) -> calibration.SyntheticReplicate:
+    count = len(values)
+    return calibration.SyntheticReplicate(
+        entry_indices=tuple(range(count)),
+        holding_sessions=(21,) * count,
+        block_ids=blocks,
+        block_length=63,
+        wins=wins if wins is not None else tuple(value > 0.0 for value in values),
+        raw=values,
+        benchmark=(0.0,) * count,
+        excess=excess if excess is not None else values,
+    )
+
+
+def _scripted_metric_chunk(
+    overrides: dict[int, calibration.SyntheticReplicate] | None = None,
+) -> calibration._CountedChunk:
+    ordinary = _scripted_metric_replicate((-1.0, -0.5, 0.5, 1.0))
+    replicates = [ordinary] * 256
+    for replicate_id, replicate in (overrides or {}).items():
+        replicates[replicate_id] = replicate
+    return calibration._CountedChunk(1, 0, 0, 256, tuple(replicates))
+
+
+def test_full_batch_moments_match_public_and_scalar_with_uncapped_effective_n() -> None:
+    values = np.array([0.0, 0.02, 0.01, -0.01, 0.03, 0.04])
+    blocks = np.array([0, 0, 1, 2, 2, 2], dtype=np.int64)
+    full = calibration._evaluate_full_batch(values, blocks, confidence=0.90)
+    public = calibration.evaluate_batch_interval(values, blocks, confidence=0.90)
+    scalar = _cr2_moments(
+        tuple(float(value) for value in values), tuple(int(block) for block in blocks)
+    )
+
+    assert isinstance(full, calibration._FullBatchMoments)
+    assert isinstance(public, calibration.BatchInterval)
+    assert full.mean == public.mean
+    assert full.cr2_variance == public.variance
+    assert full.nu == public.degrees_of_freedom
+    assert full.raw_lower == public.raw_lower
+    assert full.raw_upper == public.raw_upper
+    assert full.sample_variance == pytest.approx(7 / 20_000)
+    assert full.cr2_variance == pytest.approx(7 / 400_000)
+    assert full.effective_n == pytest.approx(20.0)
+    assert full.effective_n > len(values)
+    assert isinstance(scalar, CandidateMoments)
+    assert full.effective_n == pytest.approx(scalar.effective_n_uncapped)
+
+
+def test_full_batch_retains_finite_input_nonfinite_intermediate_failure() -> None:
+    result = calibration._evaluate_full_batch(
+        np.array([1e308, -1e308, 1e308, -1e308]),
+        np.array([0, 0, 1, 1], dtype=np.int64),
+        confidence=0.95,
+    )
+
+    assert isinstance(result, calibration._BatchFailure)
+    assert result.reason is calibration.BatchRefusal.INVALID_VARIANCE
+    assert result.non_finite_intermediate is True
+
+
+def test_metric_adapter_keeps_sibling_metrics_independent_and_refusals_ordered() -> None:
+    manifest = _manifest()
+    replicate = _scripted_metric_replicate(
+        (-1.0, -0.5, 0.5, 1.0),
+        wins=(True, True, True, True),
+        excess=(-2.0, -1.0, 1.0, 2.0),
+    )
+    chunk = _scripted_metric_chunk({index: replicate for index in range(256)})
+
+    raw = calibration._build_metric_events(manifest, "calibration", "raw", chunk)
+    win = calibration._build_metric_events(manifest, "calibration", "win", chunk)
+    excess = calibration._build_metric_events(manifest, "calibration", "synthetic_excess", chunk)
+
+    assert raw["emitted_ids"] == list(range(256))
+    assert excess["emitted_ids"] == list(range(256))
+    assert win["emitted_ids"] == []
+    assert win["refusals"] == [{"reason": "ZERO_VARIANCE", "ids": list(range(256))}]
+    assert win["coverage_ids"] == win["lower_miss_ids"] == win["upper_miss_ids"] == []
+    assert win["joint_success_ids"] == win["coverage_ids"]
+    assert all(
+        refusal["reason"] not in {"BELOW_CALIBRATED_BLOCKS", "BELOW_CALIBRATED_DF"}
+        for events in (raw, win, excess)
+        for refusal in events["refusals"]
+    )
+
+
+def test_metric_adapter_emits_fixed_and_non_audit_combined_triggers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest = _manifest()
+    near = _scripted_metric_replicate((1.0, 1.0 + 1e-7, 1.0 - 1e-7, 1.0))
+    zero = _scripted_metric_replicate(
+        (1.0, 1.0, 1.0, 1.0),
+        wins=(True, True, True, True),
+    )
+    chunk = _scripted_metric_chunk({0: near, 1: zero, 2: near})
+    scalar_calls = 0
+    original = _cr2_moments
+
+    def counted_scalar(values: tuple[float, ...], blocks: tuple[int, ...]) -> Any:
+        nonlocal scalar_calls
+        scalar_calls += 1
+        return original(values, blocks)
+
+    monkeypatch.setattr(calibration, "_scalar_cr2_moments", counted_scalar)
+    events = calibration._build_metric_events(manifest, "calibration", "raw", chunk)
+    parity = {record["replicate_id"]: record for record in events["parity"]}
+
+    assert parity[0]["triggers"] == ["near_zero", "ordinary"]
+    assert parity[1]["triggers"] == ["zero"]
+    assert parity[2]["triggers"] == ["near_zero"]
+    assert scalar_calls == len(events["parity"])
+    assert 1 not in events["emitted_ids"]
+    assert events["refusals"][0]["reason"] == "ZERO_VARIANCE"
+
+
+def test_metric_adapter_detects_exact_t_critical_boundary() -> None:
+    manifest = _manifest()
+    cell = manifest["phases"]["calibration"]["cells"][0]
+    target = float(cell["targets"]["raw_mean"])
+    base_values = np.array([-1.0, -1.0, 1.0, 1.0])
+    blocks = np.array([0, 0, 1, 1], dtype=np.int64)
+    base = calibration._evaluate_full_batch(base_values, blocks, confidence=0.95)
+    assert isinstance(base, calibration._FullBatchMoments)
+    shift = target + float(t.ppf(0.975, base.nu)) * math.sqrt(base.cr2_variance) - base.mean
+    boundary = _scripted_metric_replicate(tuple(float(value + shift) for value in base_values))
+    events = calibration._build_metric_events(
+        manifest, "calibration", "raw", _scripted_metric_chunk({2: boundary})
+    )
+    record = next(item for item in events["parity"] if item["replicate_id"] == 2)
+
+    assert record["triggers"] == ["t_critical"]
+
+
+def test_metric_adapter_cr1_matches_unequal_occupancy_hand_formula() -> None:
+    manifest = _manifest()
+    values = (0.0, 0.02, 0.01, -0.01, 0.03, 0.04)
+    replicate = _scripted_metric_replicate(values, blocks=(0, 0, 1, 2, 2, 2))
+    events = calibration._build_metric_events(
+        manifest, "calibration", "raw", _scripted_metric_chunk({0: replicate})
+    )
+    record = events["parity"][0]
+
+    assert record["cr1"]["mean"] == pytest.approx(3 / 200)
+    assert record["cr1"]["sample_variance"] == pytest.approx(7 / 20_000)
+    assert record["cr1"]["cr1_variance"] == pytest.approx(7 / 480_000)
+    assert record["cr1"]["effective_n"] == pytest.approx(24.0)
+    assert record["cr1"]["effective_n"] > len(values)
+
+
+def test_metric_adapter_cr1_refusal_is_report_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest = _manifest()
+    monkeypatch.setattr(
+        calibration,
+        "_serialize_cr1_result",
+        lambda *_args: calibration._null_parity_result("INVALID_VARIANCE", "cr1_variance"),
+    )
+
+    events = calibration._build_metric_events(
+        manifest, "calibration", "raw", _scripted_metric_chunk()
+    )
+
+    assert events["emitted_ids"] == list(range(256))
+    assert events["parity"][0]["batch"]["status"] == "EMITTED"
+    assert events["parity"][0]["cr1"]["status"] == "INVALID_VARIANCE"
+
+
+def test_cr1_can_emit_when_cr2_has_its_own_df_refusal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest = _manifest()
+    special = _scripted_metric_replicate((-2.0, -1.0, 1.0, 2.0))
+    original_batch = calibration._evaluate_full_batch
+    original_scalar = _cr2_moments
+
+    def refused_batch(values: Any, blocks: Any, *, confidence: float) -> Any:
+        if float(values[0]) == -2.0:
+            return calibration._BatchFailure(calibration.BatchRefusal.INVALID_DF)
+        return original_batch(values, blocks, confidence=confidence)
+
+    def refused_scalar(values: tuple[float, ...], blocks: tuple[int, ...]) -> Any:
+        if values[0] == -2.0:
+            return MetricRefusal.INVALID_DF
+        return original_scalar(values, blocks)
+
+    monkeypatch.setattr(calibration, "_evaluate_full_batch", refused_batch)
+    monkeypatch.setattr(calibration, "_scalar_cr2_moments", refused_scalar)
+    events = calibration._build_metric_events(
+        manifest, "calibration", "raw", _scripted_metric_chunk({0: special})
+    )
+    record = events["parity"][0]
+
+    assert record["batch"]["status"] == "INVALID_DF"
+    assert record["scalar"]["status"] == "INVALID_DF"
+    assert record["cr1"]["status"] == "EMITTED"
+
+
+def test_full_batch_finite_underflow_is_not_labeled_nonfinite() -> None:
+    result = calibration._evaluate_full_batch(
+        np.array([0.0, 5e-324, 0.0, 5e-324]),
+        np.array([0, 0, 1, 1], dtype=np.int64),
+        confidence=0.95,
+    )
+
+    assert result == calibration._BatchFailure(
+        calibration.BatchRefusal.INVALID_VARIANCE,
+        non_finite_intermediate=False,
+    )
+
+
+def test_metric_adapter_retains_nonfinite_intermediate_and_halts_nonfinite_input() -> None:
+    manifest = _manifest()
+    overflow = _scripted_metric_replicate((1e308, -1e308, 1e308, -1e308))
+    events = calibration._build_metric_events(
+        manifest, "calibration", "raw", _scripted_metric_chunk({1: overflow})
+    )
+    record = next(item for item in events["parity"] if item["replicate_id"] == 1)
+
+    assert record["triggers"] == ["non_finite"]
+    assert record["batch"]["status"] == "INVALID_VARIANCE"
+
+    nonfinite = _scripted_metric_replicate((math.inf, -1.0, 0.5, 1.0))
+    with pytest.raises(ManifestError, match="metric input"):
+        calibration._build_metric_events(
+            manifest, "calibration", "raw", _scripted_metric_chunk({1: nonfinite})
+        )
+
+
+def test_metric_adapter_does_not_hide_wrong_scalar_refusal_on_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    empty = _scripted_metric_replicate((), blocks=())
+    monkeypatch.setattr(
+        calibration,
+        "_scalar_cr2_moments",
+        lambda *_args: MetricRefusal.ZERO_VARIANCE,
+    )
+
+    with pytest.raises(ManifestError, match="parity"):
+        calibration._build_metric_events(
+            _manifest(), "calibration", "raw", _scripted_metric_chunk({0: empty})
+        )
+
+
+@pytest.mark.parametrize(
+    ("mutate", "message"),
+    [
+        (
+            lambda chunk: dataclasses.replace(chunk, chunk_id=cast(Any, False)),
+            "strict integers",
+        ),
+        (
+            lambda chunk: dataclasses.replace(
+                chunk,
+                replicates=(
+                    dataclasses.replace(
+                        chunk.replicates[0],
+                        block_ids=cast(Any, (0.0, 0.0, 1.0, 1.0)),
+                    ),
+                    *chunk.replicates[1:],
+                ),
+            ),
+            "block IDs",
+        ),
+        (
+            lambda chunk: dataclasses.replace(
+                chunk,
+                replicates=(
+                    dataclasses.replace(
+                        chunk.replicates[0],
+                        wins=cast(Any, (1, 0, 1, 0)),
+                    ),
+                    *chunk.replicates[1:],
+                ),
+            ),
+            "wins",
+        ),
+    ],
+)
+def test_metric_adapter_refuses_noncanonical_integer_and_boolean_types(
+    mutate: Any, message: str
+) -> None:
+    with pytest.raises(ManifestError, match=message):
+        calibration._build_metric_events(
+            _manifest(), "calibration", "raw", mutate(_scripted_metric_chunk())
+        )
+
+
+@pytest.mark.parametrize(
+    ("metric", "field", "values"),
+    [
+        ("raw", "raw", ("1.0", -0.5, 0.5, 1.0)),
+        ("raw", "raw", (True, -0.5, 0.5, 1.0)),
+        ("synthetic_excess", "excess", ("1.0", -0.5, 0.5, 1.0)),
+        ("synthetic_excess", "excess", (True, -0.5, 0.5, 1.0)),
+    ],
+)
+def test_metric_adapter_refuses_coercible_nonfloat_metric_values(
+    metric: str, field: str, values: tuple[Any, ...]
+) -> None:
+    chunk = _scripted_metric_chunk()
+    replicate = dataclasses.replace(chunk.replicates[0], **{field: cast(Any, values)})
+    malformed = dataclasses.replace(chunk, replicates=(replicate, *chunk.replicates[1:]))
+
+    with pytest.raises(ManifestError, match="exact floats"):
+        calibration._build_metric_events(_manifest(), "calibration", metric, malformed)
+
+
+def test_metric_adapter_near_zero_uses_verifier_exact_boundary_formula(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest = _manifest()
+    cell = manifest["phases"]["calibration"]["cells"][0]
+    target = float(cell["targets"]["raw_mean"])
+    special = _scripted_metric_replicate((1.5, -1.5, 0.5, -0.5))
+    verifier_threshold = 1e-12 * 1.5**2
+    chained_threshold = math.nextafter(verifier_threshold, math.inf)
+    assert chained_threshold == 1e-12 * 1.5 * 1.5
+    original = calibration._evaluate_full_batch
+
+    def boundary_batch(values: Any, blocks: Any, *, confidence: float) -> Any:
+        if float(values[0]) == 1.5:
+            return calibration._FullBatchMoments(
+                mean=target,
+                sample_variance=1.0,
+                cr2_variance=chained_threshold,
+                nu=2.0,
+                design_effect=chained_threshold * 4.0,
+                effective_n=1.0 / chained_threshold,
+                raw_lower=target - 1e-5,
+                raw_upper=target + 1e-5,
+            )
+        return original(values, blocks, confidence=confidence)
+
+    monkeypatch.setattr(calibration, "_evaluate_full_batch", boundary_batch)
+    events = calibration._build_metric_events(
+        manifest, "calibration", "raw", _scripted_metric_chunk({1: special})
+    )
+
+    assert all(record["replicate_id"] != 1 for record in events["parity"])
+
+
+@pytest.mark.parametrize(
+    ("chunk", "metric", "message"),
+    [
+        (
+            calibration._CountedChunk(999, 0, 0, 256, _scripted_metric_chunk().replicates),
+            "raw",
+            "cell",
+        ),
+        (
+            calibration._CountedChunk(1, 1, 0, 256, _scripted_metric_chunk().replicates),
+            "raw",
+            "range",
+        ),
+        (_scripted_metric_chunk(), "foreign", "metric"),
+    ],
+)
+def test_metric_adapter_refuses_foreign_chunk_identity_or_metric(
+    chunk: calibration._CountedChunk, metric: str, message: str
+) -> None:
+    with pytest.raises(ManifestError, match=message):
+        calibration._build_metric_events(_manifest(), "calibration", metric, chunk)
+
+
+def test_metric_adapter_invokes_internal_validators_before_return(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest = _manifest()
+    calls: list[str] = []
+    partition = calibration._validate_metric_event_partition
+    parity = calibration._verify_parity
+
+    def checked_partition(*args: Any, **kwargs: Any) -> Any:
+        calls.append("partition")
+        return partition(*args, **kwargs)
+
+    def checked_parity(*args: Any, **kwargs: Any) -> Any:
+        calls.append("parity")
+        return parity(*args, **kwargs)
+
+    monkeypatch.setattr(calibration, "_validate_metric_event_partition", checked_partition)
+    monkeypatch.setattr(calibration, "_verify_parity", checked_parity)
+    calibration._build_metric_events(manifest, "calibration", "raw", _scripted_metric_chunk())
+
+    assert calls == ["partition", "parity"]

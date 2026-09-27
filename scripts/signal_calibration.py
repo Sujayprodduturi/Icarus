@@ -31,6 +31,14 @@ import numpy as np
 from numpy.typing import NDArray
 from scipy.stats import beta, binom, norm, t
 
+from icarus.engine.signalmetrics import (
+    CandidateMoments,
+    MetricRefusal,
+)
+from icarus.engine.signalmetrics import (
+    _cr2_moments as _scalar_cr2_moments,
+)
+
 PROTOCOL_VERSION: Final = "step6a2-synthetic-calibration-v1"
 SELECTION_SCHEMA: Final = "step6a2-calibration-selection-v1"
 METHOD_VERSION: Final = "entry-session-cr2-satterthwaite-v1"
@@ -134,6 +142,24 @@ class BatchInterval:
     raw_upper: float
     lower: float
     upper: float
+
+
+@dataclass(frozen=True, slots=True)
+class _FullBatchMoments:
+    mean: float
+    sample_variance: float
+    cr2_variance: float
+    nu: float
+    design_effect: float
+    effective_n: float
+    raw_lower: float
+    raw_upper: float
+
+
+@dataclass(frozen=True, slots=True)
+class _BatchFailure:
+    reason: BatchRefusal
+    non_finite_intermediate: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -482,20 +508,19 @@ def parity_audit_ids(replicates: int) -> tuple[int, ...]:
     return tuple(index * (replicates - 1) // 127 for index in range(128))
 
 
-def evaluate_batch_interval(
+def _evaluate_full_batch(
     values: NDArray[np.float64],
     block_ids: NDArray[np.int64],
     *,
-    confidence: float = 0.95,
-    is_win_rate: bool = False,
-) -> BatchInterval | BatchRefusal:
-    """Evaluate the frozen intercept-only CR2/t candidate on one offline vector."""
+    confidence: float,
+) -> _FullBatchMoments | _BatchFailure:
+    """Evaluate full frozen CR2/t moments while retaining non-finite failure provenance."""
     if values.ndim != 1 or block_ids.ndim != 1 or values.size != block_ids.size:
         raise ValueError("values and block_ids must be equal-length one-dimensional arrays")
     if not 0.0 < confidence < 1.0:
         raise ValueError("confidence must lie strictly between zero and one")
     if values.size == 0:
-        return BatchRefusal.EMPTY_SAMPLE
+        return _BatchFailure(BatchRefusal.EMPTY_SAMPLE)
     values = values.astype(float, copy=False)
     if not np.isfinite(values).all():
         raise ValueError("batch values must be finite floats")
@@ -506,26 +531,28 @@ def evaluate_batch_interval(
     unique_blocks, inverse, counts = np.unique(block_ids, return_inverse=True, return_counts=True)
     count = values.size
     if count < 2 or unique_blocks.size < 2:
-        return BatchRefusal.TOO_FEW_BLOCKS
+        return _BatchFailure(BatchRefusal.TOO_FEW_BLOCKS)
     try:
         mean = math.fsum(float(value) for value in values) / count
         residuals = values - mean
-        sample_variance = math.fsum(float(residual * residual) for residual in residuals) / (
+        sample_variance = math.fsum(float(residual) * float(residual) for residual in residuals) / (
             count - 1
         )
-    except OverflowError:
-        return BatchRefusal.INVALID_VARIANCE
-    if not math.isfinite(sample_variance) or sample_variance < 0.0:
-        return BatchRefusal.INVALID_VARIANCE
+    except (OverflowError, ValueError):
+        return _BatchFailure(BatchRefusal.INVALID_VARIANCE, True)
+    if not math.isfinite(mean) or not math.isfinite(sample_variance):
+        return _BatchFailure(BatchRefusal.INVALID_VARIANCE, True)
+    if sample_variance < 0.0:
+        return _BatchFailure(BatchRefusal.INVALID_VARIANCE)
     if sample_variance == 0.0:
-        return (
+        return _BatchFailure(
             BatchRefusal.ZERO_VARIANCE
             if np.all(values == values[0])
             else BatchRefusal.INVALID_VARIANCE
         )
     leverage = counts / count
     if np.any(leverage >= 1.0):
-        return BatchRefusal.TOO_FEW_BLOCKS
+        return _BatchFailure(BatchRefusal.TOO_FEW_BLOCKS)
     try:
         scores = np.array(
             [
@@ -537,12 +564,14 @@ def evaluate_batch_interval(
             float(score * score / (1.0 - item_leverage))
             for score, item_leverage in zip(scores, leverage, strict=True)
         ) / (count * count)
-    except OverflowError:
-        return BatchRefusal.INVALID_VARIANCE
-    if not math.isfinite(variance) or variance < 0.0:
-        return BatchRefusal.INVALID_VARIANCE
+    except (OverflowError, ValueError):
+        return _BatchFailure(BatchRefusal.INVALID_VARIANCE, True)
+    if not math.isfinite(variance):
+        return _BatchFailure(BatchRefusal.INVALID_VARIANCE, True)
+    if variance < 0.0:
+        return _BatchFailure(BatchRefusal.INVALID_VARIANCE)
     if variance == 0.0:
-        return (
+        return _BatchFailure(
             BatchRefusal.ZERO_VARIANCE if np.all(scores == 0.0) else BatchRefusal.INVALID_VARIANCE
         )
     occupancy = tuple(
@@ -556,39 +585,64 @@ def evaluate_batch_interval(
         kernel = numerator / denominator
         trace = float(np.trace(kernel))
         trace_squared = float(np.sum(kernel * kernel))
-        if not math.isfinite(trace_squared) or trace_squared <= 0.0:
-            return BatchRefusal.INVALID_DF
+        if not math.isfinite(trace_squared):
+            return _BatchFailure(BatchRefusal.INVALID_DF, True)
+        if trace_squared <= 0.0:
+            return _BatchFailure(BatchRefusal.INVALID_DF)
         degrees_of_freedom = trace * trace / trace_squared
-        if not math.isfinite(degrees_of_freedom) or degrees_of_freedom <= 0.0:
-            return BatchRefusal.INVALID_DF
+        if not math.isfinite(degrees_of_freedom):
+            return _BatchFailure(BatchRefusal.INVALID_DF, True)
+        if degrees_of_freedom <= 0.0:
+            return _BatchFailure(BatchRefusal.INVALID_DF)
         _NU_CACHE[cache_key] = degrees_of_freedom
     iid_variance = sample_variance / count
-    if not math.isfinite(iid_variance) or iid_variance <= 0.0:
-        return BatchRefusal.INVALID_VARIANCE
+    if not math.isfinite(iid_variance):
+        return _BatchFailure(BatchRefusal.INVALID_VARIANCE, True)
+    if iid_variance <= 0.0:
+        return _BatchFailure(BatchRefusal.INVALID_VARIANCE)
     design_effect = variance / iid_variance
     effective_n = sample_variance / variance
-    if (
-        not math.isfinite(design_effect)
-        or design_effect <= 0.0
-        or not math.isfinite(effective_n)
-        or effective_n <= 0.0
-    ):
-        return BatchRefusal.INVALID_VARIANCE
+    if not math.isfinite(design_effect) or not math.isfinite(effective_n):
+        return _BatchFailure(BatchRefusal.INVALID_VARIANCE, True)
+    if design_effect <= 0.0 or effective_n <= 0.0:
+        return _BatchFailure(BatchRefusal.INVALID_VARIANCE)
     critical = float(t.ppf(1.0 - (1.0 - confidence) / 2.0, degrees_of_freedom))
     margin = critical * math.sqrt(variance)
     if not math.isfinite(critical) or not math.isfinite(margin):
-        return BatchRefusal.INVALID_DF
-    raw_lower = mean - margin
-    raw_upper = mean + margin
-    lower, upper = raw_lower, raw_upper
+        return _BatchFailure(BatchRefusal.INVALID_DF, True)
+    return _FullBatchMoments(
+        mean=mean,
+        sample_variance=sample_variance,
+        cr2_variance=variance,
+        nu=degrees_of_freedom,
+        design_effect=design_effect,
+        effective_n=effective_n,
+        raw_lower=mean - margin,
+        raw_upper=mean + margin,
+    )
+
+
+def evaluate_batch_interval(
+    values: NDArray[np.float64],
+    block_ids: NDArray[np.int64],
+    *,
+    confidence: float = 0.95,
+    is_win_rate: bool = False,
+) -> BatchInterval | BatchRefusal:
+    """Evaluate the frozen intercept-only CR2/t candidate on one offline vector."""
+
+    result = _evaluate_full_batch(values, block_ids, confidence=confidence)
+    if isinstance(result, _BatchFailure):
+        return result.reason
+    lower, upper = result.raw_lower, result.raw_upper
     if is_win_rate:
         lower, upper = max(0.0, lower), min(1.0, upper)
     return BatchInterval(
-        mean=mean,
-        variance=variance,
-        degrees_of_freedom=degrees_of_freedom,
-        raw_lower=raw_lower,
-        raw_upper=raw_upper,
+        mean=result.mean,
+        variance=result.cr2_variance,
+        degrees_of_freedom=result.nu,
+        raw_lower=result.raw_lower,
+        raw_upper=result.raw_upper,
         lower=lower,
         upper=upper,
     )
@@ -1212,6 +1266,363 @@ class _CountedChunkProvider:
         except ManifestError as close_exc:
             raise close_exc from exc
         raise exc
+
+
+def _null_parity_result(status: str, variance_name: str) -> dict[str, Any]:
+    return {
+        "status": status,
+        "mean": None,
+        variance_name: None,
+        "nu": None,
+        "sample_variance": None,
+        "design_effect": None,
+        "effective_n": None,
+        "raw_lower": None,
+        "raw_upper": None,
+        "coverage": None,
+        "lower_miss": None,
+        "upper_miss": None,
+    }
+
+
+def _emitted_parity_result(
+    *,
+    mean: float,
+    variance: float,
+    nu: float,
+    sample_variance: float,
+    design_effect: float,
+    effective_n: float,
+    raw_lower: float,
+    raw_upper: float,
+    target: float,
+    variance_name: str,
+) -> dict[str, Any]:
+    return {
+        "status": "EMITTED",
+        "mean": mean,
+        variance_name: variance,
+        "nu": nu,
+        "sample_variance": sample_variance,
+        "design_effect": design_effect,
+        "effective_n": effective_n,
+        "raw_lower": raw_lower,
+        "raw_upper": raw_upper,
+        "coverage": raw_lower <= target <= raw_upper,
+        "lower_miss": target < raw_lower,
+        "upper_miss": target > raw_upper,
+    }
+
+
+def _serialized_refusal(
+    reason: BatchRefusal | MetricRefusal,
+    values: NDArray[np.float64],
+    block_ids: NDArray[np.int64],
+    manifest: Mapping[str, Any],
+) -> str:
+    if reason in {BatchRefusal.EMPTY_SAMPLE, MetricRefusal.EMPTY_SAMPLE}:
+        if values.size != 0:
+            raise ManifestError("unexpected empty-sample status for a nonempty vector")
+        status = "EMPTY_SAMPLE"
+    elif reason in {BatchRefusal.TOO_FEW_BLOCKS, MetricRefusal.TOO_FEW_BLOCKS}:
+        if values.size == 0 or np.unique(block_ids).size != 1:
+            raise ManifestError("unexpected too-few-blocks status outside one occupied block")
+        status = "ONE_OCCUPIED_BLOCK"
+    else:
+        status = str(reason.value).upper()
+    if status.startswith("BELOW_") or status not in _sequence(manifest["refusals"], "refusals"):
+        raise ManifestError("internal metric status has no frozen refusal mapping")
+    return status
+
+
+def _serialize_scalar_result(
+    result: CandidateMoments | MetricRefusal,
+    values: NDArray[np.float64],
+    block_ids: NDArray[np.int64],
+    target: float,
+    manifest: Mapping[str, Any],
+) -> dict[str, Any]:
+    if isinstance(result, MetricRefusal):
+        return _null_parity_result(
+            _serialized_refusal(result, values, block_ids, manifest), "cr2_variance"
+        )
+    critical = float(t.ppf(0.975, result.degrees_of_freedom))
+    margin = critical * math.sqrt(result.cr2_variance)
+    return _emitted_parity_result(
+        mean=result.mean,
+        variance=result.cr2_variance,
+        nu=result.degrees_of_freedom,
+        sample_variance=result.sample_variance,
+        design_effect=result.design_effect,
+        effective_n=result.effective_n_uncapped,
+        raw_lower=result.mean - margin,
+        raw_upper=result.mean + margin,
+        target=target,
+        variance_name="cr2_variance",
+    )
+
+
+def _serialize_cr1_result(
+    values: NDArray[np.float64],
+    block_ids: NDArray[np.int64],
+    target: float,
+    manifest: Mapping[str, Any],
+) -> dict[str, Any]:
+    def refuse(reason: BatchRefusal) -> dict[str, Any]:
+        return _null_parity_result(
+            _serialized_refusal(reason, values, block_ids, manifest), "cr1_variance"
+        )
+
+    count = values.size
+    if count == 0:
+        return refuse(BatchRefusal.EMPTY_SAMPLE)
+    unique_blocks = np.unique(block_ids)
+    if count < 2 or unique_blocks.size < 2:
+        return refuse(BatchRefusal.TOO_FEW_BLOCKS)
+    try:
+        mean = math.fsum(float(value) for value in values) / count
+        sample_variance = math.fsum((float(value) - mean) ** 2 for value in values) / (count - 1)
+    except (OverflowError, ValueError):
+        return refuse(BatchRefusal.INVALID_VARIANCE)
+    if not math.isfinite(mean) or not math.isfinite(sample_variance) or sample_variance < 0.0:
+        return refuse(BatchRefusal.INVALID_VARIANCE)
+    if sample_variance == 0.0:
+        return refuse(
+            BatchRefusal.ZERO_VARIANCE
+            if np.all(values == values[0])
+            else BatchRefusal.INVALID_VARIANCE
+        )
+    try:
+        grouped_scores = tuple(
+            math.fsum(float(value) - mean for value in values[block_ids == block])
+            for block in unique_blocks
+        )
+        groups = len(grouped_scores)
+        variance = (
+            groups
+            / (groups - 1)
+            * math.fsum(score * score for score in grouped_scores)
+            / (count * count)
+        )
+    except (OverflowError, ValueError, ZeroDivisionError):
+        return refuse(BatchRefusal.INVALID_VARIANCE)
+    if not math.isfinite(variance) or variance < 0.0:
+        return refuse(BatchRefusal.INVALID_VARIANCE)
+    if variance == 0.0:
+        return refuse(
+            BatchRefusal.ZERO_VARIANCE
+            if all(score == 0.0 for score in grouped_scores)
+            else BatchRefusal.INVALID_VARIANCE
+        )
+    nu = float(groups - 1)
+    iid_variance = sample_variance / count
+    if not math.isfinite(iid_variance) or iid_variance <= 0.0:
+        return refuse(BatchRefusal.INVALID_VARIANCE)
+    design_effect = variance / iid_variance
+    effective_n = sample_variance / variance
+    if (
+        not math.isfinite(design_effect)
+        or design_effect <= 0.0
+        or not math.isfinite(effective_n)
+        or effective_n <= 0.0
+    ):
+        return refuse(BatchRefusal.INVALID_VARIANCE)
+    critical = float(t.ppf(0.975, nu))
+    if not math.isfinite(critical) or critical <= 0.0:
+        return refuse(BatchRefusal.INVALID_DF)
+    margin = critical * math.sqrt(variance)
+    if not math.isfinite(margin):
+        return refuse(BatchRefusal.INVALID_VARIANCE)
+    return _emitted_parity_result(
+        mean=mean,
+        variance=variance,
+        nu=nu,
+        sample_variance=sample_variance,
+        design_effect=design_effect,
+        effective_n=effective_n,
+        raw_lower=mean - margin,
+        raw_upper=mean + margin,
+        target=target,
+        variance_name="cr1_variance",
+    )
+
+
+def _build_metric_events(
+    manifest: dict[str, Any],
+    phase: str,
+    metric: str,
+    chunk: _CountedChunk,
+) -> dict[str, Any]:
+    """Build and immediately self-validate one frozen metric's compact chunk evidence."""
+
+    _validate_manifest(manifest)
+    if not isinstance(chunk, _CountedChunk) or any(
+        type(value) is not int
+        for value in (
+            chunk.cell_id,
+            chunk.chunk_id,
+            chunk.replicate_start,
+            chunk.replicate_stop_exclusive,
+        )
+    ):
+        raise ManifestError("metric chunk identity and range must use strict integers")
+    metrics = _sequence(
+        _mapping(manifest["acceptance"], "acceptance")["metrics"], "acceptance.metrics"
+    )
+    if metric not in metrics:
+        raise ManifestError("metric is not frozen in the manifest")
+    phases = _mapping(manifest["phases"], "phases")
+    if phase not in phases:
+        raise ManifestError("metric phase is not frozen in the manifest")
+    phase_payload = _mapping(phases[phase], f"phases.{phase}")
+    cells = _sequence(phase_payload["cells"], f"phases.{phase}.cells")
+    cell = next(
+        (
+            _mapping(item, f"phases.{phase}.cell")
+            for item in cells
+            if isinstance(item, dict) and item.get("id") == chunk.cell_id
+        ),
+        None,
+    )
+    if cell is None:
+        raise ManifestError("metric chunk cell is not frozen in the phase")
+    replicates = int(phase_payload["replicates"])
+    expected_start = chunk.chunk_id * 256
+    expected_stop = min(replicates, expected_start + 256)
+    if (
+        chunk.chunk_id < 0
+        or chunk.replicate_start != expected_start
+        or chunk.replicate_stop_exclusive != expected_stop
+        or len(chunk.replicates) != expected_stop - expected_start
+    ):
+        raise ManifestError("metric chunk range differs from frozen topology")
+    target_key = {
+        "raw": "raw_mean",
+        "win": "win_probability",
+        "synthetic_excess": "excess_mean",
+    }[metric]
+    target = float(_mapping(cell["targets"], "cell targets")[target_key])
+    fixed = set(parity_audit_ids(replicates))
+    emitted: list[int] = []
+    refusals: dict[str, list[int]] = {
+        reason: [] for reason in _sequence(manifest["refusals"], "refusals")
+    }
+    coverage: list[int] = []
+    lower_misses: list[int] = []
+    upper_misses: list[int] = []
+    parity: list[dict[str, Any]] = []
+    for offset, replicate in enumerate(chunk.replicates):
+        if not isinstance(replicate, SyntheticReplicate):
+            raise ManifestError("metric chunk contains a foreign replicate")
+        if type(replicate.block_ids) is not tuple or any(
+            type(block_id) is not int for block_id in replicate.block_ids
+        ):
+            raise ManifestError("metric replicate block IDs must be strict integers")
+        if type(replicate.wins) is not tuple or any(
+            type(win) is not bool for win in replicate.wins
+        ):
+            raise ManifestError("metric replicate wins must be strict booleans")
+        replicate_id = chunk.replicate_start + offset
+        raw_values: tuple[float, ...]
+        if metric == "raw":
+            raw_values = replicate.raw
+        elif metric == "win":
+            raw_values = tuple(float(value) for value in replicate.wins)
+        else:
+            raw_values = replicate.excess
+        if type(raw_values) is not tuple or any(type(value) is not float for value in raw_values):
+            raise ManifestError("selected metric values must be exact floats")
+        values = np.asarray(raw_values, dtype=np.float64)
+        block_ids = np.asarray(replicate.block_ids, dtype=np.int64)
+        try:
+            batch = _evaluate_full_batch(values, block_ids, confidence=0.95)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ManifestError(f"metric input is invalid: {exc}") from exc
+        scale = max((abs(float(value)) for value in values), default=0.0)
+        triggers: set[str] = set()
+        if replicate_id in fixed:
+            triggers.add("ordinary")
+        if isinstance(batch, _BatchFailure):
+            status = _serialized_refusal(batch.reason, values, block_ids, manifest)
+            refusals[status].append(replicate_id)
+            if batch.non_finite_intermediate:
+                triggers.add("non_finite")
+            if batch.reason is BatchRefusal.ZERO_VARIANCE:
+                triggers.add("zero")
+            batch_record = _null_parity_result(status, "cr2_variance")
+        else:
+            emitted.append(replicate_id)
+            decisions = (
+                batch.raw_lower <= target <= batch.raw_upper,
+                target < batch.raw_lower,
+                target > batch.raw_upper,
+            )
+            destination = (coverage, lower_misses, upper_misses)[decisions.index(True)]
+            destination.append(replicate_id)
+            batch_record = _emitted_parity_result(
+                mean=batch.mean,
+                variance=batch.cr2_variance,
+                nu=batch.nu,
+                sample_variance=batch.sample_variance,
+                design_effect=batch.design_effect,
+                effective_n=batch.effective_n,
+                raw_lower=batch.raw_lower,
+                raw_upper=batch.raw_upper,
+                target=target,
+                variance_name="cr2_variance",
+            )
+            if (
+                0.0 < batch.cr2_variance <= 1e-12 * scale**2
+                or 0.0 < batch.sample_variance <= 1e-12 * scale**2
+            ):
+                triggers.add("near_zero")
+            t_distance = abs((batch.mean - target) / math.sqrt(batch.cr2_variance))
+            critical = float(t.ppf(0.975, batch.nu))
+            if abs(t_distance - critical) <= 1e-8:
+                triggers.add("t_critical")
+        if triggers:
+            scalar = _scalar_cr2_moments(
+                tuple(float(value) for value in values),
+                tuple(int(value) for value in block_ids),
+            )
+            parity.append(
+                {
+                    "replicate_id": replicate_id,
+                    "triggers": sorted(triggers),
+                    "max_abs_outcome": scale,
+                    "batch": batch_record,
+                    "scalar": _serialize_scalar_result(scalar, values, block_ids, target, manifest),
+                    "cr1": _serialize_cr1_result(values, block_ids, target, manifest),
+                }
+            )
+    events = {
+        "metric": metric,
+        "emitted_ids": emitted,
+        "refusals": [{"reason": reason, "ids": ids} for reason, ids in refusals.items() if ids],
+        "coverage_ids": coverage,
+        "lower_miss_ids": lower_misses,
+        "upper_miss_ids": upper_misses,
+        "joint_success_ids": list(coverage),
+        "parity": parity,
+    }
+    base_events = {key: value for key, value in events.items() if key != "parity"}
+    _validate_metric_event_partition(
+        manifest,
+        base_events,
+        replicate_start=chunk.replicate_start,
+        replicate_stop_exclusive=chunk.replicate_stop_exclusive,
+        declared_metric=metric,
+    )
+    _verify_parity(
+        manifest,
+        events,
+        cell,
+        metric,
+        replicates,
+        chunk.replicate_start,
+        chunk.replicate_stop_exclusive,
+    )
+    return events
 
 
 def _canonical_bytes(payload: Mapping[str, Any]) -> bytes:
