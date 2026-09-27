@@ -1,12 +1,22 @@
 # STATE.md — where Icarus actually is, today
 
-**Last updated: 2026-09-26.** This file is the **session entry point**. It is deliberately short:
+**Last updated: 2026-09-27.** This file is the **session entry point**. It is deliberately short:
 it tells a new agent (or the operator after a break) what is true right now, what happens next,
 and which file to open for the detail. It holds no reasoning of its own — everything here points
 somewhere durable.
 
 **Keep it current.** If a session ends and this file still describes the session's starting state,
 the session left the repo worse than it found it.
+
+---
+
+## 0. Resume here — 2026-09-27
+
+- **Start point:** `dev` at `dc1a6ba` before this handover-document commit (local commits ahead of `origin/dev`; verify the new HEAD and divergence); the only untracked path is user-owned `AGENTS.md`. Preserve it. Confirm status again before editing.
+- **Finished:** Step 6a.2 Task 1's frozen manifest/preflight (`eb90def`) and Task 2's test-only synthetic generator/interval evaluator (`13ccece`) are committed and independently/Astra reviewed. Last verified on 2026-09-26: 1,307 unit tests, Ruff check/format, mypy and deterministic preflight passed. This is historical evidence, not a fresh 2026-09-27 test run.
+- **First action:** obtain GPT-6 Astra Medium's review of the [revised Task 3 counted-gate plan](plans/2026-09-26-step6a2-task3-counted-gate.md) against its [adversarial audit](reviews/2026-09-26-step6a2-task3-plan-audit.md) and the [approved parent plan](plans/2026-09-26-step6a2-calibration-implementation.md). Decide whether the stable phase claim and completion-seal sidecars fit the parent's one-result-artifact rule; scrutinise the OS memory cap, result-byte verifier and reviewed-code versus invocation-commit binding. Record Astra's verdict before Task 3 implementation. The previous session could not dispatch this final review because the agent service reported its thread limit; that is a tool limit, not operator input.
+- **After approval:** implement Task 3 test-first in bounded slices, then run fresh checks and independent statistical/safety review of the exact committed runner. Do not draw either frozen phase stream before that review explicitly approves the first counted calibration invocation. Validation separately requires verified complete calibration-result bytes.
+- **Still locked:** `goal.yaml` has `signal_test.inference_enabled: false`; no calibration/validation result artifact, accepted floor, new real-data rerun, lockbox evaluation, Task 3 broker integration, new historical-data subscription or live order path exists. No operator decision is currently requested for this in-scope handoff; ask only if Astra finds a substantive protocol/safety choice beyond the approved boundary.
 
 ---
 

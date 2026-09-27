@@ -1,6 +1,6 @@
 # Icarus documentation map
 
-Start with [STATE.md](STATE.md): it is the current build position and the source of truth for what is complete, in progress, or blocked. Then read [OPERATOR.md](../OPERATOR.md) for working decisions and [TASKS.md](../TASKS.md) for the ordered build and acceptance criteria. [PRD.md](../PRD.md) is the full product and safety specification; [AGENTS.md](../AGENTS.md) is the short safety contract.
+Start with [STATE.md](STATE.md), especially its **Resume here** section for a new session: it is the current build position and the source of truth for what is complete, in progress, or blocked. Then read [OPERATOR.md](../OPERATOR.md) for working decisions and [TASKS.md](../TASKS.md) for the ordered build and acceptance criteria. [PRD.md](../PRD.md) is the full product and safety specification; [AGENTS.md](../AGENTS.md) is the short safety contract.
 
 ## Current work
 
