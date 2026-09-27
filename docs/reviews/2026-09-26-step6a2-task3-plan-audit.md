@@ -24,6 +24,7 @@ These IDs are local to this historical plan audit. `DECIDED` means the approved 
 | F8 | Code-review commit circularity | DECIDED: reviewed versus invocation commit ancestry | Bind review to executed code |
 | F9 | Calibration path-swap risk | DECIDED: retained handles and identity checks | Validate the bytes actually opened |
 | F10 | Overbroad clean-tree allowance | DECIDED: exact verified artifact paths only | Prevent unrelated evidence allowances |
+| F11 | CI can succeed while database integration tests skip | OPEN (found 2026-09-27): run `36305873021` passed 1,397 tests with four skips; integration fixtures allow missing database/migrations and CI has no migration step | Do not equate CI success with integration proof; separately require migrated services and fail on missing integration prerequisites in CI |
 
 ## 7. Current implementation tracking
 
