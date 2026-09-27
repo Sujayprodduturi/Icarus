@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, Final, cast
+from typing import Any, Final, NoReturn, cast
 
 import numpy as np
 from numpy.typing import NDArray
@@ -400,6 +400,7 @@ class _PhaseContext:
     bound_identity_bytes: bytes
     issuer: object
     closed: bool = False
+    provider_issued: bool = False
 
     def __post_init__(self) -> None:
         if self.issuer is not _PHASE_CONTEXT_ISSUER:
@@ -687,20 +688,21 @@ def _fixed_entry_indices(
     return entries, block_length
 
 
-def generate_test_fixture_replicate(
+def _generate_replicate_core(
     manifest: Mapping[str, Any],
     *,
     phase: str,
     cell_id: int,
     replicate_id: int,
+    draw_normal: Callable[[int, int, int, int], NDArray[np.float64]],
+    draw_uniform: Callable[[int, int, int, int], NDArray[np.float64]],
     scripted_latents: NDArray[np.float64] | None = None,
     scripted_amplitudes: NDArray[np.float64] | None = None,
     scripted_factors: NDArray[np.float64] | None = None,
     scripted_wins: NDArray[np.bool_] | None = None,
     scripted_daily_innovations: NDArray[np.float64] | None = None,
 ) -> SyntheticReplicate:
-    """Generate one artificial paired vector with the fixed Task 2 fixture seed."""
-    master_seed = _TEST_FIXTURE_SEED
+    """Apply the frozen equations to one replicate supplied by an authorized draw boundary."""
     cell = _cell_for_phase(manifest, phase, cell_id)
     phase_payload = _mapping(manifest["phases"][phase], f"phases.{phase}")
     phase_replicates = int(phase_payload["replicates"])
@@ -726,11 +728,11 @@ def generate_test_fixture_replicate(
     source_blocks = np.array([entry // nominal_length for entry in entries], dtype=np.int64)
     block_count = int(source_blocks.max()) + 1
     raw_latents = (
-        _test_or_rng(master_seed, cell_id, 0, replicate_id, count, chunk_rows)
+        draw_normal(0, replicate_id, count, chunk_rows)
         if family != "overlapping_holds"
         else np.zeros(count)
     )
-    amplitudes = _uniform_component_draw(master_seed, cell_id, 2, replicate_id, count, chunk_rows)
+    amplitudes = draw_uniform(2, replicate_id, count, chunk_rows)
     if family in {
         "bounded_rare_magnitude",
         "cross_block_serial_factor",
@@ -740,13 +742,11 @@ def generate_test_fixture_replicate(
         "two_regime_shift",
         "unequal_occupancy",
     }:
-        factors = _test_or_rng(master_seed, cell_id, 1, replicate_id, block_count, chunk_rows)
+        factors = draw_normal(1, replicate_id, block_count, chunk_rows)
     else:
         factors = np.zeros(block_count)
     if family == "independent":
-        benchmark_factors = _test_or_rng(
-            master_seed, cell_id, 3, replicate_id, block_count, chunk_rows
-        )
+        benchmark_factors = draw_normal(3, replicate_id, block_count, chunk_rows)
     else:
         benchmark_factors = np.zeros(block_count)
     if scripted_latents is not None:
@@ -773,9 +773,7 @@ def generate_test_fixture_replicate(
         latent = math.sqrt(0.75) * factor + 0.5 * raw_latents
     elif family == "overlapping_holds":
         holding = int(parameters["h"])
-        daily = _test_or_rng(
-            master_seed, cell_id, 4, replicate_id, max(entries) + holding, chunk_rows
-        )
+        daily = draw_normal(4, replicate_id, max(entries) + holding, chunk_rows)
         if scripted_daily_innovations is not None:
             daily[: min(daily.size, scripted_daily_innovations.size)] = scripted_daily_innovations[
                 : daily.size
@@ -836,6 +834,59 @@ def generate_test_fixture_replicate(
     )
 
 
+def generate_test_fixture_replicate(
+    manifest: Mapping[str, Any],
+    *,
+    phase: str,
+    cell_id: int,
+    replicate_id: int,
+    scripted_latents: NDArray[np.float64] | None = None,
+    scripted_amplitudes: NDArray[np.float64] | None = None,
+    scripted_factors: NDArray[np.float64] | None = None,
+    scripted_wins: NDArray[np.bool_] | None = None,
+    scripted_daily_innovations: NDArray[np.float64] | None = None,
+) -> SyntheticReplicate:
+    """Generate one artificial paired vector with the fixed Task 2 fixture seed."""
+
+    def draw_normal(
+        component_id: int, addressed_replicate: int, size: int, rows: int
+    ) -> NDArray[np.float64]:
+        return _test_or_rng(
+            _TEST_FIXTURE_SEED,
+            cell_id,
+            component_id,
+            addressed_replicate,
+            size,
+            rows,
+        )
+
+    def draw_uniform(
+        component_id: int, addressed_replicate: int, size: int, rows: int
+    ) -> NDArray[np.float64]:
+        return _uniform_component_draw(
+            _TEST_FIXTURE_SEED,
+            cell_id,
+            component_id,
+            addressed_replicate,
+            size,
+            rows,
+        )
+
+    return _generate_replicate_core(
+        manifest,
+        phase=phase,
+        cell_id=cell_id,
+        replicate_id=replicate_id,
+        draw_normal=draw_normal,
+        draw_uniform=draw_uniform,
+        scripted_latents=scripted_latents,
+        scripted_amplitudes=scripted_amplitudes,
+        scripted_factors=scripted_factors,
+        scripted_wins=scripted_wins,
+        scripted_daily_innovations=scripted_daily_innovations,
+    )
+
+
 def generate_test_fixture_chunk(
     manifest: Mapping[str, Any],
     *,
@@ -862,6 +913,305 @@ def generate_test_fixture_chunk(
         )
         for offset in range(rows)
     )
+
+
+@dataclass(frozen=True, slots=True)
+class _CountedChunk:
+    cell_id: int
+    chunk_id: int
+    replicate_start: int
+    replicate_stop_exclusive: int
+    replicates: tuple[SyntheticReplicate, ...]
+
+
+def _counted_component_shapes(
+    manifest: Mapping[str, Any], cell: Mapping[str, Any]
+) -> tuple[tuple[str, int, int], ...]:
+    """Derive the exact frozen distribution, component, and row width before a draw."""
+
+    family = str(cell["family"])
+    parameters = _mapping(cell["parameters"], "cell parameters")
+    if family == "dynamic_h_block_factor":
+        nominal_length = int(parameters["nominal_l"])
+        block_count = int(parameters["source_span"]) // nominal_length
+        count = block_count * int(parameters["trades_per_nominal_block"])
+        daily_size = 0
+    else:
+        entries, nominal_length = _fixed_entry_indices(manifest, cell)
+        count = len(entries)
+        block_count = max(entry // nominal_length for entry in entries) + 1
+        daily_size = max(entries) + int(parameters.get("h", 0))
+    if family == "overlapping_holds":
+        return (("uniform", 2, count), ("normal", 4, daily_size))
+    if family == "independent":
+        return (("normal", 0, count), ("uniform", 2, count), ("normal", 3, block_count))
+    return (("normal", 0, count), ("uniform", 2, count), ("normal", 1, block_count))
+
+
+def _counted_chunk_memory_bound(
+    manifest: Mapping[str, Any], cell: Mapping[str, Any], rows: int
+) -> int:
+    """Conservatively bound cached arrays, transforms, and Python result objects."""
+
+    family = str(cell["family"])
+    parameters = _mapping(cell["parameters"], "cell parameters")
+    if family == "dynamic_h_block_factor":
+        nominal_length = int(parameters["nominal_l"])
+        nominal_blocks = int(parameters["source_span"]) // nominal_length
+        count = nominal_blocks * int(parameters["trades_per_nominal_block"])
+        source_span = int(parameters["source_span"])
+        block_count = nominal_blocks
+        maximum_h = max(int(parameters["h_loss"]), int(parameters["h_win"]))
+    else:
+        geometry = _mapping(manifest["geometries"][cell["geometry_id"]], "geometry")
+        entry_counts = _sequence(geometry["entry_counts"], "geometry.entry_counts")
+        count = sum(int(value) for value in entry_counts)
+        source_span = len(entry_counts) * int(geometry["l"])
+        block_count = len(entry_counts)
+        maximum_h = int(parameters.get("h", 21))
+    component_elements = count  # amplitudes
+    if family != "overlapping_holds":
+        component_elements += count
+    if family in {
+        "bounded_rare_magnitude",
+        "cross_block_serial_factor",
+        "dynamic_h_block_factor",
+        "independent_block_factor",
+        "same_session_burst",
+        "two_regime_shift",
+        "unequal_occupancy",
+    }:
+        component_elements += block_count
+    if family == "independent":
+        component_elements += block_count
+    if family == "overlapping_holds":
+        component_elements += source_span + maximum_h
+    cached_arrays = rows * component_elements * 8
+    # Eight output/source tuples can hold Python scalar objects and pointers. 512 bytes per
+    # observation plus 4 KiB per replicate also covers temporary NumPy transforms.
+    retained_replicates = rows * (count * 512 + 4096)
+    return cached_arrays + retained_replicates
+
+
+class _CountedChunkProvider:
+    """One-shot authenticated iterator over the frozen phase topology."""
+
+    def __init__(self, context: _PhaseContext, manifest: dict[str, Any]) -> None:
+        self._component_cache: dict[
+            tuple[str, str, int, int, int, int, int, int], NDArray[np.float64]
+        ] = {}
+        self._failed = False
+        self._exhausted = False
+        self._cell_index = 0
+        self._chunk_id = 0
+        self._planned_chunk_bytes = 0
+        self._active_replicate: int | None = None
+        self._active_cell_id: int | None = None
+        self._active_rows = 0
+        self._active_components: tuple[tuple[str, int, int], ...] = ()
+        self._active_component_index = 0
+        if type(context) is not _PhaseContext or context.issuer is not _PHASE_CONTEXT_ISSUER:
+            raise ManifestError("counted provider context was not issued by the counted controller")
+        self._context = context
+        try:
+            context.require_active(context.phase)
+            if context.provider_issued:
+                raise ManifestError("phase context already issued its counted provider")
+            object.__setattr__(context, "provider_issued", True)
+            if context.phase not in {"calibration", "validation"}:
+                raise ManifestError("counted provider context has an invalid phase")
+            _validate_manifest(manifest)
+            self._manifest_bytes = _canonical_bytes(_mapping(manifest, "manifest"))
+            manifest_sha = hashlib.sha256(self._manifest_bytes).hexdigest()
+            snapshot = _parse_canonical_json_bytes(
+                self._manifest_bytes, label="counted provider manifest"
+            )
+            manifest_path = str(
+                _mapping(
+                    _mapping(snapshot["integrity"], "integrity")["protected_paths"],
+                    "integrity.protected_paths",
+                )["manifest"]
+            )
+            claim = _parse_canonical_json_bytes(context.claim_bytes, label="phase claim")
+            if (
+                claim.get("manifest_sha256") != manifest_sha
+                or claim.get("phase") != context.phase
+                or claim.get("protocol_version") != PROTOCOL_VERSION
+                or context.proof.protected_blobs.get(manifest_path) != manifest_sha
+                or context.review.protected_blobs.get(manifest_path) != manifest_sha
+            ):
+                raise ManifestError("counted provider manifest differs from authenticated context")
+            self._phase = context.phase
+            self._snapshot = snapshot
+            phase_payload = _mapping(
+                _mapping(snapshot["phases"], "phases")[self._phase],
+                f"phases.{self._phase}",
+            )
+            self._phase_seed = int(phase_payload["master_seed"])
+            self._replicate_count = int(phase_payload["replicates"])
+            self._cells = _sequence(phase_payload["cells"], f"phases.{self._phase}.cells")
+            self._cell_count = len(self._cells)
+        except BaseException as exc:
+            self._fail(exc)
+
+    def __iter__(self) -> _CountedChunkProvider:
+        return self
+
+    def __next__(self) -> _CountedChunk:
+        if self._failed:
+            raise ManifestError("counted provider is permanently closed after failure")
+        if self._exhausted:
+            raise StopIteration
+        if self._cell_index == self._cell_count:
+            self._component_cache.clear()
+            self._exhausted = True
+            raise StopIteration
+        try:
+            self._authenticate()
+            cell = _mapping(self._cells[self._cell_index], "counted provider cell")
+            start = self._chunk_id * 256
+            rows = min(256, self._replicate_count - start)
+            if rows <= 0:
+                raise ManifestError("counted provider topology exceeded the frozen phase")
+            self._planned_chunk_bytes = _counted_chunk_memory_bound(self._snapshot, cell, rows)
+            self._context.resources.check_planned_allocation(self._planned_chunk_bytes)
+            generated: list[SyntheticReplicate] = []
+            cell_id = int(cell["id"])
+            components = _counted_component_shapes(self._snapshot, cell)
+            self._active_cell_id = cell_id
+            self._active_rows = rows
+            self._active_components = components
+            for replicate_id in range(start, start + rows):
+                self._authenticate()
+                self._active_replicate = replicate_id
+                self._active_component_index = 0
+                generated.append(
+                    _generate_replicate_core(
+                        self._snapshot,
+                        phase=self._phase,
+                        cell_id=cell_id,
+                        replicate_id=replicate_id,
+                        draw_normal=self._draw_normal,
+                        draw_uniform=self._draw_uniform,
+                    )
+                )
+                if self._active_component_index != len(self._active_components):
+                    raise ManifestError("counted equation core omitted a frozen component draw")
+            self._active_replicate = None
+            self._authenticate()
+            self._context.resources.sample_peak_rss()
+            chunk = _CountedChunk(
+                cell_id,
+                self._chunk_id,
+                start,
+                start + rows,
+                tuple(generated),
+            )
+            self._component_cache.clear()
+            self._active_cell_id = None
+            self._active_rows = 0
+            self._active_components = ()
+            if start + rows == self._replicate_count:
+                self._cell_index += 1
+                self._chunk_id = 0
+            else:
+                self._chunk_id += 1
+            return chunk
+        except BaseException as exc:
+            self._fail(exc)
+
+    def _authenticate(self) -> None:
+        self._context.require_active(self._phase)
+
+    def _draw_normal(
+        self, component_id: int, replicate_id: int, size: int, rows: int
+    ) -> NDArray[np.float64]:
+        return self._draw_component("normal", component_id, replicate_id, size, rows)
+
+    def _draw_uniform(
+        self, component_id: int, replicate_id: int, size: int, rows: int
+    ) -> NDArray[np.float64]:
+        return self._draw_component("uniform", component_id, replicate_id, size, rows)
+
+    def _draw_component(
+        self, distribution: str, component_id: int, replicate_id: int, size: int, rows: int
+    ) -> NDArray[np.float64]:
+        if self._failed:
+            raise ManifestError("counted provider is permanently closed after failure")
+        if self._active_replicate is None or self._active_cell_id is None:
+            self._fail(ManifestError("counted draw used outside active generation"))
+        cell_id = self._active_cell_id
+        self._authenticate()
+        chunk_id, offset = divmod(replicate_id, 256)
+        expected = (
+            self._active_components[self._active_component_index]
+            if self._active_component_index < len(self._active_components)
+            else None
+        )
+        if (
+            replicate_id != self._active_replicate
+            or chunk_id != self._chunk_id
+            or not 0 <= offset < rows
+            or rows != self._active_rows
+            or size < 1
+            or expected != (distribution, component_id, size)
+        ):
+            raise ManifestError("counted component address or order differs from frozen equations")
+        seed = self._phase_seed
+        key = (
+            METHOD_VERSION,
+            distribution,
+            seed,
+            cell_id,
+            component_id,
+            chunk_id,
+            rows,
+            size,
+        )
+        draws = self._component_cache.get(key)
+        if draws is None:
+            self._authenticate()
+            self._context.resources.check_planned_allocation(self._planned_chunk_bytes)
+            sequence = np.random.SeedSequence(seed, spawn_key=(cell_id, component_id, chunk_id))
+            generator = np.random.Generator(np.random.PCG64(sequence))
+            self._authenticate()
+            if distribution == "normal":
+                candidate = generator.standard_normal((rows, size))
+            elif distribution == "uniform":
+                candidate = generator.uniform(0.0, 1.0, (rows, size))
+            else:
+                raise ManifestError("counted component distribution is invalid")
+            if (
+                type(candidate) is not np.ndarray
+                or candidate.dtype != np.float64
+                or candidate.shape != (rows, size)
+                or not np.isfinite(candidate).all()
+            ):
+                raise ManifestError("counted RNG returned an invalid component array")
+            draws = cast(NDArray[np.float64], candidate)
+            self._component_cache[key] = draws
+            self._context.resources.sample_peak_rss()
+        self._authenticate()
+        self._context.resources.check_planned_allocation(self._planned_chunk_bytes)
+        row = cast(NDArray[np.float64], draws[offset].copy())
+        self._context.resources.sample_peak_rss()
+        self._active_component_index += 1
+        return row
+
+    def _fail(self, exc: BaseException) -> NoReturn:
+        if isinstance(exc, StopIteration):
+            exc = ManifestError("counted equation core stopped before completing its chunk")
+        self._component_cache.clear()
+        self._active_replicate = None
+        self._active_cell_id = None
+        self._active_rows = 0
+        self._active_components = ()
+        self._failed = True
+        try:
+            self._context.close()
+        except ManifestError as close_exc:
+            raise close_exc from exc
+        raise exc
 
 
 def _canonical_bytes(payload: Mapping[str, Any]) -> bytes:

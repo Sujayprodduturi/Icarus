@@ -12,8 +12,9 @@ import sys
 import time
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
+import numpy as np
 import pytest
 import scripts.signal_calibration as calibration
 from scipy.stats import t
@@ -2146,3 +2147,516 @@ def test_phase_context_mutated_bound_evidence_fails_closed(
     with pytest.raises(ManifestError, match=r"binding|claim bytes"):
         context.require_active("calibration")
     assert context.closed is True
+
+
+@pytest.fixture(autouse=True)
+def _forbid_accidental_reserved_rng(monkeypatch: pytest.MonkeyPatch) -> None:
+    original = np.random.SeedSequence
+
+    def guarded(seed: Any = None, *args: Any, **kwargs: Any) -> Any:
+        if seed in calibration._RESERVED_PHASE_SEEDS:
+            pytest.fail("reserved RNG constructed outside an explicit provider spy")
+        return original(seed, *args, **kwargs)
+
+    monkeypatch.setattr(np.random, "SeedSequence", guarded)
+
+
+class _ProviderResources:
+    def __init__(self, fail: str | None = None) -> None:
+        self.fail = fail
+        self.planned: list[int] = []
+        self.samples = 0
+        self.active_calls: list[str] = []
+        self.active_call_count = 0
+
+    def check_planned_allocation(self, planned_bytes: int) -> None:
+        self.planned.append(planned_bytes)
+        if self.fail == "allocation":
+            raise ManifestError("planned allocation refused")
+
+    def sample_peak_rss(self) -> int:
+        self.samples += 1
+        if self.fail == "rss":
+            raise ManifestError("peak RSS refused")
+        return 1
+
+
+def _provider_context(
+    monkeypatch: pytest.MonkeyPatch,
+    manifest: dict[str, Any],
+    *,
+    phase: str = "calibration",
+    resources: _ProviderResources | None = None,
+    active_failure: str | None = None,
+) -> calibration._PhaseContext:
+    context = object.__new__(calibration._PhaseContext)
+    manifest_raw = calibration._canonical_bytes(manifest)
+    manifest_sha = hashlib.sha256(manifest_raw).hexdigest()
+    manifest_path = manifest["integrity"]["protected_paths"]["manifest"]
+    object.__setattr__(context, "phase", phase)
+    object.__setattr__(context, "issuer", calibration._PHASE_CONTEXT_ISSUER)
+    object.__setattr__(context, "provider_issued", False)
+    actual_resources = resources or _ProviderResources()
+    object.__setattr__(context, "resources", actual_resources)
+    object.__setattr__(
+        context, "proof", SimpleNamespace(protected_blobs={manifest_path: manifest_sha})
+    )
+    object.__setattr__(
+        context, "review", SimpleNamespace(protected_blobs={manifest_path: manifest_sha})
+    )
+    object.__setattr__(
+        context,
+        "claim_bytes",
+        calibration._canonical_bytes(
+            {
+                "manifest_sha256": manifest_sha,
+                "phase": phase,
+                "protocol_version": calibration.PROTOCOL_VERSION,
+            }
+        ),
+    )
+    object.__setattr__(context, "closed", False)
+
+    def require_active(self: calibration._PhaseContext, requested: str) -> None:
+        actual_resources.active_call_count += 1
+        if len(actual_resources.active_calls) < 100:
+            actual_resources.active_calls.append(requested)
+        if self.closed:
+            raise ManifestError("phase context is closed")
+        if active_failure is not None:
+            object.__setattr__(self, "closed", True)
+            raise ManifestError(active_failure)
+        if requested != self.phase:
+            object.__setattr__(self, "closed", True)
+            raise ManifestError("phase context has the wrong phase")
+
+    def close(self: calibration._PhaseContext) -> None:
+        object.__setattr__(self, "closed", True)
+
+    monkeypatch.setattr(calibration._PhaseContext, "require_active", require_active)
+    monkeypatch.setattr(calibration._PhaseContext, "close", close)
+    return context
+
+
+class _ScriptedCountedGenerator:
+    def __init__(self, address: tuple[int, int, int, int], calls: list[tuple[Any, ...]]) -> None:
+        self.address = address
+        self.calls = calls
+
+    def standard_normal(self, shape: tuple[int, int]) -> np.ndarray[Any, Any]:
+        self.calls.append((*self.address, "normal", shape))
+        return np.zeros(shape, dtype=np.float64)
+
+    def uniform(self, low: float, high: float, shape: tuple[int, int]) -> np.ndarray[Any, Any]:
+        self.calls.append((*self.address, "uniform", low, high, shape))
+        return np.full(shape, 0.75, dtype=np.float64)
+
+
+def test_counted_provider_uses_authenticated_reserved_addresses_and_chunk_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest = _manifest()
+    context = _provider_context(monkeypatch, manifest)
+    constructions: list[tuple[int, int, int, int]] = []
+    draws: list[tuple[Any, ...]] = []
+
+    def seed_sequence(seed: int, *, spawn_key: tuple[int, int, int]) -> Any:
+        address = (seed, *spawn_key)
+        constructions.append(address)
+        return address
+
+    monkeypatch.setattr(np.random, "SeedSequence", seed_sequence)
+    monkeypatch.setattr(np.random, "PCG64", lambda address: address)
+    monkeypatch.setattr(
+        np.random,
+        "Generator",
+        lambda address: _ScriptedCountedGenerator(address, draws),
+    )
+    provider = calibration._CountedChunkProvider(context, manifest)
+    chunk = next(provider)
+
+    assert (
+        chunk.cell_id,
+        chunk.chunk_id,
+        chunk.replicate_start,
+        chunk.replicate_stop_exclusive,
+    ) == (
+        1,
+        0,
+        0,
+        256,
+    )
+    assert len(chunk.replicates) == 256
+    assert constructions == [
+        (2026092602, 1, 0, 0),
+        (2026092602, 1, 2, 0),
+        (2026092602, 1, 3, 0),
+    ]
+    assert [call[-1] for call in draws] == [(256, 192), (256, 192), (256, 24)]
+    assert provider._component_cache == {}
+    active_calls = cast(Any, context.resources).active_calls
+    assert active_calls[0] == "calibration"
+    assert cast(Any, context.resources).active_call_count > len(draws)
+
+
+def test_counted_provider_preserves_dynamic_grouping_through_shared_core() -> None:
+    manifest = _manifest()
+
+    def draw(_component: int, _replicate: int, size: int, _rows: int) -> np.ndarray[Any, Any]:
+        return np.zeros(size, dtype=np.float64)
+
+    replicate = calibration._generate_replicate_core(
+        manifest,
+        phase="calibration",
+        cell_id=44,
+        replicate_id=0,
+        draw_normal=draw,
+        draw_uniform=lambda _component, _replicate, size, _rows: np.full(
+            size, 0.75, dtype=np.float64
+        ),
+        scripted_wins=np.array([True, False] * 96),
+    )
+
+    assert replicate.block_length == 126
+    assert set(replicate.holding_sessions) == {21, 42}
+    assert len(set(replicate.block_ids)) == 24
+
+
+def test_counted_provider_topology_reaches_declared_remainder_without_rng(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest = _manifest()
+    context = _provider_context(monkeypatch, manifest)
+    seen_count = 0
+    endpoints: list[tuple[int, int, int]] = []
+
+    def lightweight(
+        _manifest: Any,
+        *,
+        phase: str,
+        cell_id: int,
+        replicate_id: int,
+        draw_normal: Any,
+        draw_uniform: Any,
+        **_scripted: Any,
+    ) -> calibration.SyntheticReplicate:
+        nonlocal seen_count
+        del _manifest, phase, draw_uniform, _scripted
+        provider = cast(Any, draw_normal).__self__
+        provider._active_component_index = len(provider._active_components)
+        address = (cell_id, replicate_id // 256, replicate_id)
+        if seen_count == 0 or (cell_id == 45 and replicate_id == 9_999):
+            endpoints.append(address)
+        seen_count += 1
+        return calibration.SyntheticReplicate((), (), (), 63, (), (), (), ())
+
+    monkeypatch.setattr(calibration, "_generate_replicate_core", lightweight)
+    provider = calibration._CountedChunkProvider(context, manifest)
+    topology: list[tuple[int, int, int]] = []
+    while True:
+        try:
+            chunk = next(provider)
+        except StopIteration:
+            break
+        topology.append((chunk.cell_id, chunk.chunk_id, len(chunk.replicates)))
+
+    assert len(topology) == 45 * 40
+    assert topology[:2] == [(1, 0, 256), (1, 1, 256)]
+    assert topology[-2:] == [(45, 38, 256), (45, 39, 16)]
+    assert endpoints == [(1, 0, 0), (45, 39, 9_999)]
+    assert seen_count == 45 * 10_000
+    assert provider._component_cache == {}
+    assert context.closed is False
+
+
+@pytest.mark.parametrize("failure", ["allocation", "rss", "deadline"])
+def test_counted_provider_resource_failure_clears_cache_and_closes_context(
+    monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    manifest = _manifest()
+    resources = _ProviderResources(fail=None if failure == "deadline" else failure)
+    context = _provider_context(
+        monkeypatch,
+        manifest,
+        resources=resources,
+        active_failure="counted phase deadline expired" if failure == "deadline" else None,
+    )
+    monkeypatch.setattr(
+        np.random,
+        "SeedSequence",
+        lambda seed, *, spawn_key: (seed, *spawn_key),
+    )
+    monkeypatch.setattr(np.random, "PCG64", lambda address: address)
+    monkeypatch.setattr(
+        np.random,
+        "Generator",
+        lambda address: _ScriptedCountedGenerator(address, []),
+    )
+    if failure == "deadline":
+        with pytest.raises(ManifestError, match="deadline"):
+            calibration._CountedChunkProvider(context, manifest)
+    else:
+        provider = calibration._CountedChunkProvider(context, manifest)
+        with pytest.raises(ManifestError):
+            next(provider)
+        assert provider._component_cache == {}
+
+    assert context.closed is True
+
+
+def test_counted_provider_refuses_unissued_closed_wrong_phase_and_tampered_manifest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest = _manifest()
+    unissued = object.__new__(calibration._PhaseContext)
+    object.__setattr__(unissued, "issuer", object())
+    with pytest.raises(ManifestError, match="issued"):
+        calibration._CountedChunkProvider(unissued, manifest)
+
+    closed = _provider_context(monkeypatch, manifest)
+    object.__setattr__(closed, "closed", True)
+    with pytest.raises(ManifestError, match="closed"):
+        calibration._CountedChunkProvider(closed, manifest)
+
+    wrong = _provider_context(monkeypatch, manifest, phase="wrong")
+    with pytest.raises(ManifestError, match="phase"):
+        calibration._CountedChunkProvider(wrong, manifest)
+    assert wrong.closed is True
+
+    tampered_context = _provider_context(monkeypatch, manifest)
+    tampered = json.loads(json.dumps(manifest))
+    tampered["phases"]["calibration"]["master_seed"] = 7
+    with pytest.raises(ManifestError, match=r"seed|manifest"):
+        calibration._CountedChunkProvider(tampered_context, tampered)
+    assert tampered_context.closed is True
+
+
+def test_counted_provider_uses_local_manifest_snapshot_and_row_copies(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest = _manifest()
+    context = _provider_context(monkeypatch, manifest)
+    arrays: list[np.ndarray[Any, Any]] = []
+
+    class MutableGenerator(_ScriptedCountedGenerator):
+        def standard_normal(self, shape: tuple[int, int]) -> np.ndarray[Any, Any]:
+            array = np.zeros(shape, dtype=np.float64)
+            arrays.append(array)
+            return array
+
+        def uniform(self, low: float, high: float, shape: tuple[int, int]) -> np.ndarray[Any, Any]:
+            del low, high
+            array = np.full(shape, 0.75, dtype=np.float64)
+            arrays.append(array)
+            return array
+
+    monkeypatch.setattr(
+        np.random,
+        "SeedSequence",
+        lambda seed, *, spawn_key: (seed, *spawn_key),
+    )
+    monkeypatch.setattr(np.random, "PCG64", lambda address: address)
+    monkeypatch.setattr(
+        np.random,
+        "Generator",
+        lambda address: MutableGenerator(address, []),
+    )
+    provider = calibration._CountedChunkProvider(context, manifest)
+    manifest["phases"]["calibration"]["cells"][0]["parameters"]["p"] = 0.99
+    chunk = next(provider)
+
+    assert chunk.replicates[0].wins == chunk.replicates[1].wins
+    assert all(np.all(array == (0.75 if index == 1 else 0.0)) for index, array in enumerate(arrays))
+    assert provider._manifest_bytes != calibration._canonical_bytes(manifest)
+
+
+def test_counted_context_issues_only_one_provider_even_after_exhaustion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest = _manifest()
+    active_context = _provider_context(monkeypatch, manifest)
+    calibration._CountedChunkProvider(active_context, manifest)
+    with pytest.raises(ManifestError, match="already issued"):
+        calibration._CountedChunkProvider(active_context, manifest)
+    assert active_context.closed is True
+
+    exhausted_context = _provider_context(monkeypatch, manifest)
+    provider = calibration._CountedChunkProvider(exhausted_context, manifest)
+    provider._cell_index = len(manifest["phases"]["calibration"]["cells"])
+    with pytest.raises(StopIteration):
+        next(provider)
+    assert exhausted_context.closed is False
+    with pytest.raises(ManifestError, match="already issued"):
+        calibration._CountedChunkProvider(exhausted_context, manifest)
+    assert exhausted_context.closed is True
+
+
+def test_counted_provider_direct_draw_and_unexpected_stop_are_fail_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest = _manifest()
+    direct_context = _provider_context(monkeypatch, manifest)
+    direct = calibration._CountedChunkProvider(direct_context, manifest)
+    with pytest.raises(ManifestError, match="outside active generation"):
+        direct._draw_normal(0, 0, 192, 256)
+    assert direct_context.closed is True
+
+    stopped_context = _provider_context(monkeypatch, manifest)
+    stopped = calibration._CountedChunkProvider(stopped_context, manifest)
+
+    def stop_early(*_args: Any, **_kwargs: Any) -> calibration.SyntheticReplicate:
+        raise StopIteration
+
+    monkeypatch.setattr(calibration, "_generate_replicate_core", stop_early)
+    with pytest.raises(ManifestError, match="stopped before completing"):
+        next(stopped)
+    assert stopped_context.closed is True
+    assert stopped._cell_index == 0
+    with pytest.raises(ManifestError, match="permanently closed"):
+        next(stopped)
+
+
+@pytest.mark.parametrize("wrong_size", [191, 193])
+def test_counted_provider_rejects_component_size_before_rng(
+    monkeypatch: pytest.MonkeyPatch, wrong_size: int
+) -> None:
+    manifest = _manifest()
+    context = _provider_context(monkeypatch, manifest)
+
+    def wrong_core(
+        _manifest: Any,
+        *,
+        phase: str,
+        cell_id: int,
+        replicate_id: int,
+        draw_normal: Any,
+        draw_uniform: Any,
+        **_scripted: Any,
+    ) -> calibration.SyntheticReplicate:
+        del _manifest, phase, cell_id, draw_uniform, _scripted
+        draw_normal(0, replicate_id, wrong_size, 256)
+        pytest.fail("wrong component size reached the equation body")
+
+    monkeypatch.setattr(calibration, "_generate_replicate_core", wrong_core)
+    provider = calibration._CountedChunkProvider(context, manifest)
+    with pytest.raises(ManifestError, match="address or order"):
+        next(provider)
+    assert context.closed is True
+
+
+@pytest.mark.parametrize(
+    ("cell_id", "chunk_id"),
+    [(1, 39), (7, 0), (12, 0), (18, 0), (24, 0), (30, 0), (33, 0), (41, 0), (44, 0)],
+)
+def test_counted_provider_all_family_traces_match_safe_fixture_stream(
+    monkeypatch: pytest.MonkeyPatch, cell_id: int, chunk_id: int
+) -> None:
+    manifest = _manifest()
+    context = _provider_context(monkeypatch, manifest)
+    safe_seed_sequence = np.random.SeedSequence
+    real_generator = np.random.Generator
+    requested_addresses: list[tuple[int, int, int, int]] = []
+    draw_trace: list[tuple[str, tuple[int, int]]] = []
+
+    def substitute_seed(seed: int, *, spawn_key: tuple[int, int, int]) -> Any:
+        if seed in calibration._RESERVED_PHASE_SEEDS:
+            requested_addresses.append((seed, *spawn_key))
+            seed = calibration._TEST_FIXTURE_SEED
+        return safe_seed_sequence(seed, spawn_key=spawn_key)
+
+    class RecordingGenerator:
+        def __init__(self, bit_generator: Any) -> None:
+            self._generator = real_generator(bit_generator)
+
+        def standard_normal(self, shape: tuple[int, int]) -> np.ndarray[Any, Any]:
+            draw_trace.append(("normal", shape))
+            return self._generator.standard_normal(shape)
+
+        def uniform(self, low: float, high: float, shape: tuple[int, int]) -> np.ndarray[Any, Any]:
+            draw_trace.append(("uniform", shape))
+            return self._generator.uniform(low, high, shape)
+
+    monkeypatch.setattr(np.random, "SeedSequence", substitute_seed)
+    monkeypatch.setattr(np.random, "Generator", RecordingGenerator)
+    provider = calibration._CountedChunkProvider(context, manifest)
+    provider._cell_index = cell_id - 1
+    provider._chunk_id = chunk_id
+    chunk = next(provider)
+    rows = 16 if chunk_id == 39 else 256
+    cell = manifest["phases"]["calibration"]["cells"][cell_id - 1]
+    shapes = calibration._counted_component_shapes(manifest, cell)
+
+    assert requested_addresses == [
+        (2026092602, cell_id, component_id, chunk_id)
+        for _distribution, component_id, _size in shapes
+    ]
+    assert draw_trace == [
+        (distribution, (rows, size)) for distribution, _component_id, size in shapes
+    ]
+    for offset in (0, rows - 1):
+        replicate_id = chunk_id * 256 + offset
+        assert chunk.replicates[offset] == calibration.generate_test_fixture_replicate(
+            manifest,
+            phase="calibration",
+            cell_id=cell_id,
+            replicate_id=replicate_id,
+        )
+    assert provider._component_cache == {}
+
+
+def test_counted_provider_row_copy_cannot_mutate_cached_component(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest = _manifest()
+    context = _provider_context(monkeypatch, manifest)
+    source_arrays: list[np.ndarray[Any, Any]] = []
+
+    class SourceGenerator(_ScriptedCountedGenerator):
+        def standard_normal(self, shape: tuple[int, int]) -> np.ndarray[Any, Any]:
+            array = np.zeros(shape, dtype=np.float64)
+            source_arrays.append(array)
+            return array
+
+        def uniform(self, low: float, high: float, shape: tuple[int, int]) -> np.ndarray[Any, Any]:
+            del low, high
+            array = np.full(shape, 0.75, dtype=np.float64)
+            source_arrays.append(array)
+            return array
+
+    def mutate_rows(
+        _manifest: Any,
+        *,
+        phase: str,
+        cell_id: int,
+        replicate_id: int,
+        draw_normal: Any,
+        draw_uniform: Any,
+        **_scripted: Any,
+    ) -> calibration.SyntheticReplicate:
+        del _manifest, phase, cell_id, _scripted
+        normal = draw_normal(0, replicate_id, 192, 256)
+        amplitude = draw_uniform(2, replicate_id, 192, 256)
+        benchmark = draw_normal(3, replicate_id, 24, 256)
+        normal[0] = 99.0
+        amplitude[0] = 99.0
+        benchmark[0] = 99.0
+        return calibration.SyntheticReplicate((), (), (), 63, (), (), (), ())
+
+    monkeypatch.setattr(calibration, "_generate_replicate_core", mutate_rows)
+    monkeypatch.setattr(
+        np.random,
+        "SeedSequence",
+        lambda seed, *, spawn_key: (seed, *spawn_key),
+    )
+    monkeypatch.setattr(np.random, "PCG64", lambda address: address)
+    monkeypatch.setattr(
+        np.random,
+        "Generator",
+        lambda address: SourceGenerator(address, []),
+    )
+    provider = calibration._CountedChunkProvider(context, manifest)
+    next(provider)
+
+    assert np.all(source_arrays[0] == 0.0)
+    assert np.all(source_arrays[1] == 0.75)
+    assert np.all(source_arrays[2] == 0.0)
