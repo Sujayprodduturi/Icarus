@@ -47,6 +47,10 @@ Astra Medium approved the clarified Task-3 plan/contracts for bounded implementa
 - Global Ruff check/format and mypy passed for 137 files; tracked numstat matches ignore-CR numstat. Final frozen-diff unit run: 1,350 passed in 85.32 seconds, exit 0. Post-commit mutation results are recorded below.
 - The initial unrestricted pytest invocation produced no output for more than three minutes and was stopped; no all-tests/integration pass is claimed. A unit run overlapping red-test edits is superseded by the final frozen-diff run.
 
+## Accepted commit and post-commit probes
+
+Slice 1A is committed at `5a6e721`. After commit, three isolated subprocesses replaced exception handlers in the imported module's in-memory source only: Unicode encoding, oversized-integer decoding and recursion decoding. Each mutation produced exactly 1 failed / 39 passed tests, exit 1. The probe harness asserted the mutation anchor existed and all source bytes remained unchanged; harness SHA256 stayed `505bdf752a62c776bc25bec2db5da91655295936069713710d44e59950296481`. No working-tree restoration or git checkout was used. These are parser regression checks, not evidence of the unbuilt full verifier.
+
 ## Next: Slice 1B pure complete-result verifier
 
 Sol High scouted the next bounded increment: strict envelope/provenance, all-cell chunk topology, base-event wrapper, parity validation, recomputed summaries and first-passing floor. No I/O, Git ancestry, resource enforcement, CLI or RNG. The wrapper must require parity and forbid BELOW_CALIBRATED_BLOCKS / BELOW_CALIBRATED_DF in base event partitions.
