@@ -144,6 +144,20 @@ class SyntheticReplicate:
     excess: tuple[float, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class _MetricEventCounts:
+    """Counts derived only from one exact metric event-ID partition."""
+
+    metric: str
+    generated: int
+    emitted: int
+    refusal_total: int
+    coverage_successes: int
+    lower_tail_misses: int
+    upper_tail_misses: int
+    joint_successes: int
+
+
 def parity_audit_ids(replicates: int) -> tuple[int, ...]:
     """Return the 128 fixed parity addresses without consuming any random stream."""
     if type(replicates) is not int or replicates < 2:
@@ -540,6 +554,59 @@ def _canonical_bytes(payload: Mapping[str, Any]) -> bytes:
     ).encode("utf-8")
 
 
+def _parse_canonical_json_bytes(raw: bytes, *, label: str) -> dict[str, Any]:
+    """Parse one canonical UTF-8 JSON object without accepting ambiguous encodings."""
+
+    if type(raw) is not bytes:
+        raise ManifestError(f"{label} must be UTF-8 JSON bytes")
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ManifestError(f"{label} is not valid UTF-8 JSON") from exc
+
+    def object_without_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ManifestError(f"{label} has a duplicate JSON key: {key}")
+            result[key] = value
+        return result
+
+    def finite_float(value: str) -> float:
+        parsed = float(value)
+        if not math.isfinite(parsed):
+            raise ManifestError(f"{label} contains a non-finite JSON number")
+        return parsed
+
+    def reject_constant(value: str) -> None:
+        raise ManifestError(f"{label} contains a non-finite JSON constant: {value}")
+
+    try:
+        payload = json.loads(
+            text,
+            object_pairs_hook=object_without_duplicates,
+            parse_float=finite_float,
+            parse_constant=reject_constant,
+        )
+    except ManifestError:
+        raise
+    except RecursionError as exc:
+        raise ManifestError(f"{label} JSON nesting is too deep") from exc
+    except ValueError as exc:
+        raise ManifestError(f"{label} is not valid JSON") from exc
+    if not isinstance(payload, dict):
+        raise ManifestError(f"{label} must be a JSON object")
+    try:
+        canonical = _canonical_bytes(payload)
+    except UnicodeEncodeError as exc:
+        raise ManifestError(f"{label} contains invalid Unicode in JSON") from exc
+    except RecursionError as exc:
+        raise ManifestError(f"{label} JSON nesting is too deep") from exc
+    if raw != canonical:
+        raise ManifestError(f"{label} is not canonical sorted UTF-8 JSON plus LF")
+    return payload
+
+
 def _mapping(value: object, label: str) -> dict[str, Any]:
     if not isinstance(value, dict) or any(not isinstance(key, str) for key in value):
         raise ManifestError(f"{label} must be an object with string keys")
@@ -558,6 +625,147 @@ def _exact_keys(value: Mapping[str, Any], expected: set[str], label: str) -> Non
         missing = sorted(expected - actual)
         extra = sorted(actual - expected)
         raise ManifestError(f"{label} keys differ: missing={missing}, extra={extra}")
+
+
+def _event_ids(
+    value: object,
+    *,
+    label: str,
+    replicate_start: int,
+    replicate_stop_exclusive: int,
+) -> tuple[int, ...]:
+    raw_ids = _sequence(value, label)
+    if any(type(replicate_id) is not int for replicate_id in raw_ids):
+        raise ManifestError(f"{label} must contain integers excluding booleans")
+    ids = cast(list[int], raw_ids)
+    if any(
+        replicate_id < replicate_start or replicate_id >= replicate_stop_exclusive
+        for replicate_id in ids
+    ):
+        raise ManifestError(f"{label} contains an ID outside the replicate range")
+    if any(ids[index] >= ids[index + 1] for index in range(len(ids) - 1)):
+        raise ManifestError(f"{label} must be strictly increasing")
+    return tuple(ids)
+
+
+def _validate_metric_event_partition(
+    manifest: Mapping[str, Any],
+    value: object,
+    *,
+    replicate_start: int,
+    replicate_stop_exclusive: int,
+    declared_metric: str,
+) -> _MetricEventCounts:
+    """Validate only the non-parity fields of one metric event-ID partition."""
+
+    if (
+        type(replicate_start) is not int
+        or type(replicate_stop_exclusive) is not int
+        or replicate_start < 0
+        or replicate_stop_exclusive <= replicate_start
+    ):
+        raise ManifestError("metric event replicate range must be nonempty non-negative integers")
+    acceptance = _mapping(manifest["acceptance"], "acceptance")
+    metrics = _sequence(acceptance["metrics"], "acceptance.metrics")
+    if declared_metric not in metrics:
+        raise ManifestError("declared metric is not frozen in the manifest")
+
+    events = _mapping(value, "metric events")
+    _exact_keys(
+        events,
+        {
+            "metric",
+            "emitted_ids",
+            "refusals",
+            "coverage_ids",
+            "lower_miss_ids",
+            "upper_miss_ids",
+            "joint_success_ids",
+        },
+        "metric events",
+    )
+    if events["metric"] != declared_metric:
+        raise ManifestError("metric events do not match the declared metric")
+
+    emitted = _event_ids(
+        events["emitted_ids"],
+        label="emitted_ids",
+        replicate_start=replicate_start,
+        replicate_stop_exclusive=replicate_stop_exclusive,
+    )
+    frozen_reasons = _sequence(manifest["refusals"], "refusals")
+    if any(not isinstance(reason, str) for reason in frozen_reasons) or len(
+        set(frozen_reasons)
+    ) != len(frozen_reasons):
+        raise ManifestError("manifest refusal reasons must be unique strings")
+    reason_order = {reason: index for index, reason in enumerate(frozen_reasons)}
+    refusal_items = _sequence(events["refusals"], "metric events refusals")
+    refusal_reasons: list[str] = []
+    refused: list[int] = []
+    for index, item in enumerate(refusal_items):
+        refusal = _mapping(item, f"metric events refusals[{index}]")
+        _exact_keys(refusal, {"reason", "ids"}, f"metric events refusals[{index}]")
+        reason = refusal["reason"]
+        if not isinstance(reason, str) or reason not in reason_order:
+            raise ManifestError("metric events contain an unknown refusal reason")
+        ids = _event_ids(
+            refusal["ids"],
+            label=f"metric events refusal {reason} ids",
+            replicate_start=replicate_start,
+            replicate_stop_exclusive=replicate_stop_exclusive,
+        )
+        if not ids:
+            raise ManifestError("metric events refusal ID lists must not be empty")
+        refusal_reasons.append(reason)
+        refused.extend(ids)
+    if len(set(refusal_reasons)) != len(refusal_reasons):
+        raise ManifestError("metric events contain a duplicate refusal reason")
+    if refusal_reasons != sorted(refusal_reasons, key=reason_order.__getitem__):
+        raise ManifestError("metric events refusal reasons differ from manifest order")
+
+    emitted_set = set(emitted)
+    refused_set = set(refused)
+    if len(refused_set) != len(refused) or emitted_set & refused_set:
+        raise ManifestError("emitted and refusal ID lists must be disjoint")
+    expected_ids = set(range(replicate_start, replicate_stop_exclusive))
+    if emitted_set | refused_set != expected_ids:
+        raise ManifestError("emitted and refusal ID lists must partition the replicate range")
+
+    outcomes = {
+        name: _event_ids(
+            events[name],
+            label=name,
+            replicate_start=replicate_start,
+            replicate_stop_exclusive=replicate_stop_exclusive,
+        )
+        for name in ("coverage_ids", "lower_miss_ids", "upper_miss_ids")
+    }
+    outcome_sets = [set(ids) for ids in outcomes.values()]
+    if any(not outcome <= emitted_set for outcome in outcome_sets):
+        raise ManifestError("outcome IDs must belong to emitted IDs")
+    if sum(len(outcome) for outcome in outcome_sets) != len(set().union(*outcome_sets)):
+        raise ManifestError("outcome ID lists must be disjoint")
+    if set().union(*outcome_sets) != emitted_set:
+        raise ManifestError("outcome ID lists must partition emitted IDs")
+
+    joint = _event_ids(
+        events["joint_success_ids"],
+        label="joint_success_ids",
+        replicate_start=replicate_start,
+        replicate_stop_exclusive=replicate_stop_exclusive,
+    )
+    if joint != outcomes["coverage_ids"]:
+        raise ManifestError("joint success IDs must exactly equal coverage IDs")
+    return _MetricEventCounts(
+        metric=declared_metric,
+        generated=replicate_stop_exclusive - replicate_start,
+        emitted=len(emitted),
+        refusal_total=len(refused),
+        coverage_successes=len(outcomes["coverage_ids"]),
+        lower_tail_misses=len(outcomes["lower_miss_ids"]),
+        upper_tail_misses=len(outcomes["upper_miss_ids"]),
+        joint_successes=len(joint),
+    )
 
 
 def _floor_pairs(manifest: Mapping[str, Any]) -> tuple[tuple[int, float], ...]:
@@ -1050,6 +1258,143 @@ def clopper_pearson_upper(successes: int, trials: int, alpha: float) -> float:
     if successes == trials:
         return 1.0
     return float(beta.ppf(1.0 - alpha, successes + 1, trials - successes))
+
+
+def _recompute_metric_summary(
+    manifest: Mapping[str, Any],
+    *,
+    phase: str,
+    counts: _MetricEventCounts,
+) -> dict[str, Any]:
+    """Recompute one exact metric summary from event-derived counts."""
+
+    phases = _mapping(manifest["phases"], "phases")
+    if phase not in {"calibration", "validation"} or phase not in phases:
+        raise ManifestError("metric summary phase is not frozen in the manifest")
+    if not isinstance(counts, _MetricEventCounts):
+        raise ManifestError("metric summary counts have the wrong type")
+    integer_counts = (
+        counts.generated,
+        counts.emitted,
+        counts.refusal_total,
+        counts.coverage_successes,
+        counts.lower_tail_misses,
+        counts.upper_tail_misses,
+        counts.joint_successes,
+    )
+    if any(type(value) is not int for value in integer_counts):
+        raise ManifestError("metric summary counts must be integers excluding booleans")
+    phase_contract = _mapping(phases[phase], f"phases.{phase}")
+    if counts.generated != phase_contract["replicates"]:
+        raise ManifestError("generated count differs from the frozen phase replicate count")
+
+    acceptance = _mapping(manifest["acceptance"], "acceptance")
+    metrics = _sequence(acceptance["metrics"], "acceptance.metrics")
+    if counts.metric not in metrics:
+        raise ManifestError("metric summary names an unknown metric")
+    if any(value < 0 for value in integer_counts):
+        raise ManifestError("metric summary counts must be non-negative")
+    if counts.emitted + counts.refusal_total != counts.generated:
+        raise ManifestError("emitted and refusal counts do not equal the generated total")
+    if (
+        counts.coverage_successes + counts.lower_tail_misses + counts.upper_tail_misses
+        != counts.emitted
+    ):
+        raise ManifestError("metric outcome counts do not partition emitted trials")
+    if counts.joint_successes != counts.coverage_successes:
+        raise ManifestError("joint successes must equal coverage successes")
+    if (
+        counts.coverage_successes > counts.emitted
+        or counts.lower_tail_misses > counts.emitted
+        or counts.upper_tail_misses > counts.emitted
+        or counts.joint_successes > counts.generated
+    ):
+        raise ManifestError("metric summary successes exceed their trial counts")
+
+    family_sizes = _mapping(acceptance["family_sizes"], "acceptance.family_sizes")
+    family_size = family_sizes[phase]
+    if type(family_size) is not int or family_size <= 0:
+        raise ManifestError("phase family size must be a positive integer")
+    alpha = float(acceptance["alpha_family"]) / family_size
+    thresholds = _mapping(acceptance["thresholds"], "acceptance.thresholds")
+    coverage_threshold = float(thresholds["coverage_lower"])
+    tail_threshold = float(thresholds["tail_upper"])
+    emission_threshold = float(thresholds["emission_lower"])
+    emission_rate_threshold = float(thresholds["emission_rate"])
+    joint_threshold = float(thresholds["joint_lower"])
+    absolute_emission = thresholds[f"emission_absolute_{phase}"]
+    if type(absolute_emission) is not int:
+        raise ManifestError("absolute emission threshold must be an integer")
+
+    emitted = counts.emitted
+    generated = counts.generated
+    coverage_bound = (
+        clopper_pearson_lower(counts.coverage_successes, emitted, alpha) if emitted else 0.0
+    )
+    lower_tail_bound = (
+        clopper_pearson_upper(counts.lower_tail_misses, emitted, alpha) if emitted else 1.0
+    )
+    upper_tail_bound = (
+        clopper_pearson_upper(counts.upper_tail_misses, emitted, alpha) if emitted else 1.0
+    )
+    emission_bound = clopper_pearson_lower(emitted, generated, alpha)
+    joint_bound = clopper_pearson_lower(counts.joint_successes, generated, alpha)
+    emission_rate = emitted / generated
+
+    return {
+        "metric": counts.metric,
+        "counts": {
+            "emitted": emitted,
+            "refusal_total": counts.refusal_total,
+            "coverage_successes": counts.coverage_successes,
+            "lower_tail_misses": counts.lower_tail_misses,
+            "upper_tail_misses": counts.upper_tail_misses,
+            "joint_successes": counts.joint_successes,
+        },
+        "checks": {
+            "coverage_lower": {
+                "successes": counts.coverage_successes,
+                "trials": emitted,
+                "bound": coverage_bound,
+                "threshold": coverage_threshold,
+                "passed": emitted > 0 and coverage_bound >= coverage_threshold,
+            },
+            "lower_tail_upper": {
+                "successes": counts.lower_tail_misses,
+                "trials": emitted,
+                "bound": lower_tail_bound,
+                "threshold": tail_threshold,
+                "passed": emitted > 0 and lower_tail_bound <= tail_threshold,
+            },
+            "upper_tail_upper": {
+                "successes": counts.upper_tail_misses,
+                "trials": emitted,
+                "bound": upper_tail_bound,
+                "threshold": tail_threshold,
+                "passed": emitted > 0 and upper_tail_bound <= tail_threshold,
+            },
+            "emission_lower": {
+                "successes": emitted,
+                "trials": generated,
+                "bound": emission_bound,
+                "rate": emission_rate,
+                "absolute_minimum": absolute_emission,
+                "threshold": emission_threshold,
+                "passed": (
+                    emitted >= absolute_emission
+                    and emission_rate >= emission_rate_threshold
+                    and emission_bound >= emission_threshold
+                ),
+            },
+            "joint_lower": {
+                "successes": counts.joint_successes,
+                "trials": generated,
+                "bound": joint_bound,
+                "threshold": joint_threshold,
+                "passed": joint_bound >= joint_threshold,
+            },
+        },
+    }
 
 
 def _minimum_lower_successes(trials: int, alpha: float, threshold: float) -> int:

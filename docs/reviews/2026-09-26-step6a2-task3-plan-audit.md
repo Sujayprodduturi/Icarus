@@ -7,3 +7,24 @@ The first [Task 3 counted-gate draft](../plans/2026-09-26-step6a2-task3-counted-
 The draft was revised to add a stable full-manifest-hash phase claim, one immutable result JSON plus a separate completion seal after byte verification, exact event partitions and numeric CP recomputation, predeclared eligibility, preallocation/OS memory and monotonic deadline checks, reviewed protected-code versus invocation-commit identity, secure result-handle validation, and exact artifact-path allowances.
 
 **Handover status (2026-09-27):** revised plan is **not yet Astra-approved** and does not authorize Task 3 code or calibration. The 2026-09-26 Astra re-review attempt hit the agent service's thread limit; retry it first in the new session. Specifically ask whether the stable phase claim and completion-seal sidecars preserve the parent plan's single immutable result, whether the hard 2 GiB cap is implementable on the target platform, and whether the reviewed-code/invocation-commit separation is sound. Record the verdict and any required plan change before implementation. The parent Step 6a.2 plan and frozen values remain unchanged. The first protected calibration/validation draw remains prohibited until the completed runner receives exact-commit independent statistical/safety approval.
+
+## 6. Ranked fix list
+
+These IDs are local to this historical plan audit. `DECIDED` means the approved contract resolves the design question; implementation and exact-runner verification remain pending. See the current execution ledger for built slices.
+
+| ID | Finding | Status | Why it ranks here |
+|---|---|---|---|
+| F1 | One-file completion durability | DECIDED: independent completion seal after reread | Partial bytes must never authorize validation |
+| F2 | Cross-commit retry race | DECIDED: stable per-phase exclusive claim | Prevent a second counted attempt |
+| F3 | Truncated-attempt discovery | DECIDED: retain claim even after abrupt failure | Incomplete attempts remain consumed |
+| F4 | Dynamic-H outcome-dependent eligibility | DECIDED: frozen deterministic eligibility | Prevent selection using observed outcomes |
+| F5 | Incomplete event evidence | DECIDED: exact event partitions and parity records | Evidence must support recomputation |
+| F6 | Aggregate-forgery risk | DECIDED: recompute counts and CP checks | Supplied summaries have no authority |
+| F7 | Resource-limit gaps | DECIDED: Linux capability proof; Windows refusal | Enforce limits before counted draws |
+| F8 | Code-review commit circularity | DECIDED: reviewed versus invocation commit ancestry | Bind review to executed code |
+| F9 | Calibration path-swap risk | DECIDED: retained handles and identity checks | Validate the bytes actually opened |
+| F10 | Overbroad clean-tree allowance | DECIDED: exact verified artifact paths only | Prevent unrelated evidence allowances |
+
+## 7. Current implementation tracking
+
+The [2026-09-27 execution ledger](2026-09-27-step6a2-task3-progress.md) tracks implementation and fresh verification. Plan approval is not completed-runner approval.
