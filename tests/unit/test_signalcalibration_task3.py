@@ -13,7 +13,7 @@ import sys
 import time
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any, ClassVar, cast
 
 import numpy as np
 import pytest
@@ -1250,6 +1250,7 @@ class _EvidenceOps:
             root: {"kind": "dir", "dev": 1, "ino": 1, "nlink": 1, "data": bytearray()}
         }
         self.fds: dict[int, Path] = {}
+        self.offsets: dict[int, int] = {}
         self.next_fd = 10
         self.next_ino = 2
         self.calls: list[tuple[Any, ...]] = []
@@ -1265,13 +1266,18 @@ class _EvidenceOps:
         fd = self.next_fd
         self.next_fd += 1
         self.fds[fd] = path
+        self.offsets[fd] = 0
         return fd
 
     def _stat(self, path: Path) -> Any:
         node = self.nodes[path]
         mode = stat.S_IFDIR | 0o700 if node["kind"] == "dir" else stat.S_IFREG | 0o600
         return SimpleNamespace(
-            st_mode=mode, st_dev=node["dev"], st_ino=node["ino"], st_nlink=node["nlink"]
+            st_mode=mode,
+            st_dev=node["dev"],
+            st_ino=node["ino"],
+            st_nlink=node["nlink"],
+            st_size=len(node["data"]),
         )
 
     def open_root(self, path: Path) -> int:
@@ -1323,6 +1329,7 @@ class _EvidenceOps:
         self._fail("close")
         self.calls.append(("close", self.fds[fd]))
         del self.fds[fd]
+        del self.offsets[fd]
 
     def open_exclusive_file(self, directory_fd: int, name: str, mode: int) -> int:
         self._fail("open")
@@ -1351,9 +1358,18 @@ class _EvidenceOps:
     def write(self, fd: int, data: bytes) -> int:
         self._fail("write")
         amount = min(self.short_write, len(data))
-        self.nodes[self.fds[fd]]["data"].extend(data[:amount])
+        node = self.nodes[self.fds[fd]]
+        offset = self.offsets[fd]
+        end = offset + amount
+        if end > len(node["data"]):
+            node["data"].extend(b"\0" * (end - len(node["data"])))
+        node["data"][offset:end] = data[:amount]
+        self.offsets[fd] = end
         self.calls.append(("write", self.fds[fd], amount))
         return amount
+
+    def tell(self, fd: int) -> int:
+        return self.offsets[fd]
 
     def read_all(self, fd: int) -> bytes:
         return bytes(self.nodes[self.fds[fd]]["data"])
@@ -3068,3 +3084,767 @@ def test_metric_adapter_invokes_internal_validators_before_return(
     calibration._build_metric_events(manifest, "calibration", "raw", _scripted_metric_chunk())
 
     assert calls == ["partition", "parity"]
+
+
+class _ScriptedChunkProvider:
+    chunks: ClassVar[list[dict[str, Any]]] = []
+    fail_after: int | None = None
+
+    def __init__(self, context: Any, manifest: dict[str, Any]) -> None:
+        self.context = context
+        self.index = 0
+
+    def __iter__(self) -> _ScriptedChunkProvider:
+        return self
+
+    def __next__(self) -> calibration._CountedChunk:
+        if self.fail_after is not None and self.index == self.fail_after:
+            self.context.close()
+            raise ManifestError("injected provider failure")
+        if self.index >= len(self.chunks):
+            raise StopIteration
+        item = self.chunks[self.index]
+        self.index += 1
+        rows = item["replicate_stop_exclusive"] - item["replicate_start"]
+        return calibration._CountedChunk(
+            item["cell_id"],
+            item["chunk_id"],
+            item["replicate_start"],
+            item["replicate_stop_exclusive"],
+            cast(Any, (None,) * rows),
+        )
+
+
+def _writer_fixture(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    complete_result: dict[str, Any],
+) -> tuple[dict[str, Any], calibration._PhaseContext, _ControllerOps]:
+    repo, manifest, _ = _reviewed_repo(tmp_path)
+    ops = _ControllerOps(repo)
+    ops.short_write = 10_000_000
+    monkeypatch.setattr(calibration, "_ROOT", repo)
+    context = calibration._begin_linux_phase(
+        "calibration",
+        manifest,
+        ops,
+        calibration._Deadline(0.0, 60.0, lambda: 1.0),
+    )
+    _ScriptedChunkProvider.chunks = list(complete_result["chunks"])
+    _ScriptedChunkProvider.fail_after = None
+    by_key = {
+        (chunk["cell_id"], chunk["chunk_id"], event["metric"]): event
+        for chunk in complete_result["chunks"]
+        for event in chunk["metrics"]
+    }
+
+    def scripted_events(
+        _manifest: dict[str, Any],
+        _phase: str,
+        metric: str,
+        chunk: calibration._CountedChunk,
+    ) -> dict[str, Any]:
+        return cast(dict[str, Any], by_key[(chunk.cell_id, chunk.chunk_id, metric)])
+
+    monkeypatch.setattr(calibration, "_CountedChunkProvider", _ScriptedChunkProvider)
+    monkeypatch.setattr(calibration, "_build_metric_events", scripted_events)
+    return manifest, context, ops
+
+
+def _independent_writer_expected(
+    context: calibration._PhaseContext,
+    manifest: dict[str, Any],
+    chunks: list[dict[str, Any]],
+) -> calibration._ExpectedPhaseContext:
+    phase = context.phase
+    phase_data = manifest["phases"][phase]
+    by_cell = {cell["id"]: cell for cell in phase_data["cells"]}
+    planned = calibration._WRITER_CHUNK_ALLOCATION_BYTES
+    for index, chunk in enumerate(chunks):
+        rows = chunk["replicate_stop_exclusive"] - chunk["replicate_start"]
+        provider = calibration._counted_chunk_memory_bound(
+            manifest, by_cell[chunk["cell_id"]], rows
+        )
+        encoded = (b"" if index == 0 else b",") + calibration._json_fragment(chunk)
+        planned = max(
+            planned,
+            provider + calibration._WRITER_CHUNK_ALLOCATION_BYTES + len(encoded) * 4,
+        )
+    planned = max(planned, calibration._WRITER_SUMMARY_ALLOCATION_BYTES)
+    provenance = {
+        "manifest_sha256": hashlib.sha256(calibration._canonical_bytes(manifest)).hexdigest(),
+        "method_version": manifest["method_version"],
+        "selection_artifact_schema": manifest["selection_artifact_schema"],
+        "reviewed_commit": context.review.reviewed_commit,
+        "invocation_commit": context.proof.invocation_commit,
+        "protected_blobs": dict(context.proof.protected_blobs),
+        "review_attestation_sha256": context.review.raw_sha256,
+        "claim_sha256": context.claim_sha256,
+        "dependencies": manifest["versions"],
+    }
+    attempt = {
+        "attempt_id": f"{context.review.reviewed_commit}-{phase}",
+        "started_at_utc": context.started_at_utc,
+    }
+    limit = context.resources.address_space_limit_bytes
+    runtime = {
+        "platform": "linux",
+        "resource_backend": "linux-rlimit-as",
+        "address_space_limit_bytes": limit,
+        "peak_rss_before_verification_bytes": 64 * 1024 * 1024,
+        "peak_rss_source": "getrusage-ru_maxrss-kib",
+        "planned_peak_bytes": planned,
+        "maximum_result_bytes": (limit - 128 * 1024 * 1024 - 64 * 1024**2) // 32,
+        "generation_elapsed_seconds": 1.0,
+        "deadline_seconds": 7_200,
+        "resource_state": "WITHIN_LIMIT",
+    }
+    return calibration._ExpectedPhaseContext(
+        phase,
+        calibration._canonical_bytes(provenance),
+        calibration._canonical_bytes(attempt),
+        calibration._canonical_bytes(runtime),
+        None,
+    )
+
+
+def test_phase_writer_streams_canonical_complete_result_and_hands_off_reader(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    expected_result, _ = full_calibration
+    manifest, context, ops = _writer_fixture(tmp_path, monkeypatch, expected_result)
+    writer_fd = context.result_file.fd
+    independent = _independent_writer_expected(context, manifest, expected_result["chunks"])
+    prior_calls = len(ops.calls)
+
+    returned = calibration._write_phase_result(context, manifest)
+
+    raw = bytes(ops.nodes[context.store.path / context.paths.result_name]["data"])
+    parsed = calibration._parse_canonical_json_bytes(raw, label="written result")
+    assert returned == independent
+    verified = calibration.validate_phase_result(manifest, parsed, independent)
+    assert verified.phase_verdict == "PASSED"
+    assert parsed["chunks"] == expected_result["chunks"]
+    assert parsed["summary"] == expected_result["summary"]
+    assert raw.endswith(b"\n") and raw.count(b"\n") == 1
+    assert context.closed is False
+    assert context.writing_finished is True
+    assert writer_fd not in ops.fds
+    assert context.result_file.fd in ops.fds
+    result_path = context.store.path / context.paths.result_name
+    fsyncs = [call[1] for call in ops.calls[prior_calls:] if call[0] == "fsync"]
+    assert fsyncs.count(result_path) == len(expected_result["chunks"]) + 2
+    assert fsyncs.count(context.store.path) == len(expected_result["chunks"]) + 2
+    assert context.store.path / context.paths.seal_name not in ops.nodes
+    context.require_active("calibration")
+    with pytest.raises(ManifestError, match="already finished"):
+        calibration._write_phase_result(context, manifest)
+    assert context.closed is True
+
+
+def test_phase_writer_complete_statistical_failure_remains_unverified(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    source, _ = full_calibration
+    failed = json.loads(json.dumps(source))
+    critical = float(t.ppf(0.975, 10.0))
+    for chunk in failed["chunks"]:
+        raw = chunk["metrics"][0]
+        raw["coverage_ids"] = []
+        raw["lower_miss_ids"] = list(raw["emitted_ids"])
+        raw["joint_success_ids"] = []
+        for record in raw["parity"]:
+            record["max_abs_outcome"] = 1_000_000.0
+            for comparator in ("batch", "scalar", "cr1"):
+                result = record[comparator]
+                result["mean"] = 1_000_000.0
+                variance_name = "cr1_variance" if comparator == "cr1" else "cr2_variance"
+                result[variance_name] = 100.0
+                result["sample_variance"] = 100.0
+                result["raw_lower"] = 1_000_000.0 - critical * 10.0
+                result["raw_upper"] = 1_000_000.0 + critical * 10.0
+                result["coverage"] = False
+                result["lower_miss"] = True
+                result["upper_miss"] = False
+    manifest, context, ops = _writer_fixture(tmp_path, monkeypatch, failed)
+
+    expected = calibration._write_phase_result(context, manifest)
+    raw = bytes(ops.nodes[context.store.path / context.paths.result_name]["data"])
+    parsed = calibration._parse_canonical_json_bytes(raw, label="failed complete result")
+
+    assert parsed["terminal"]["state"] == "UNVERIFIED"
+    assert parsed["summary"]["phase_verdict"] == "FAILED"
+    assert calibration.validate_phase_result(manifest, parsed, expected).phase_verdict == "FAILED"
+
+
+@pytest.mark.parametrize("mutation", ["missing", "reordered"])
+def test_phase_writer_closes_canonical_incomplete_on_safe_topology_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+    mutation: str,
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, ops = _writer_fixture(tmp_path, monkeypatch, complete)
+    independent = _independent_writer_expected(context, manifest, complete["chunks"])
+    if mutation == "missing":
+        _ScriptedChunkProvider.chunks = []
+    else:
+        chunks = list(_ScriptedChunkProvider.chunks)
+        chunks[0], chunks[1] = chunks[1], chunks[0]
+        _ScriptedChunkProvider.chunks = chunks
+
+    with pytest.raises(ManifestError, match=r"topology|order"):
+        calibration._write_phase_result(context, manifest)
+
+    raw = bytes(ops.nodes[context.store.path / context.paths.result_name]["data"])
+    parsed = calibration._parse_canonical_json_bytes(raw, label="incomplete result")
+    assert parsed["chunks"] == []
+    assert parsed["summary"] == {
+        "candidate_results": [],
+        "cells": [],
+        "parity_complete": False,
+        "phase_verdict": "INCOMPLETE",
+        "selected_floor": None,
+    }
+    assert parsed["terminal"]["state"] == "INCOMPLETE"
+    assert context.closed is True
+    incomplete_expected = dataclasses.replace(
+        independent,
+        runtime_bytes=calibration._canonical_bytes(parsed["runtime"]),
+    )
+    with pytest.raises(ManifestError, match="complete unverified"):
+        calibration.validate_phase_result(manifest, parsed, incomplete_expected)
+
+
+def test_phase_writer_bounds_failure_message_and_preserves_committed_chunks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, ops = _writer_fixture(tmp_path, monkeypatch, complete)
+    original = calibration._build_metric_events
+    calls = 0
+
+    def fail_after_first_chunk(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        nonlocal calls
+        calls += 1
+        if calls > 3:
+            raise ManifestError("x" * 100_000)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(calibration, "_build_metric_events", fail_after_first_chunk)
+    with pytest.raises(ManifestError, match=r"x+"):
+        calibration._write_phase_result(context, manifest)
+
+    raw = bytes(ops.nodes[context.store.path / context.paths.result_name]["data"])
+    parsed = calibration._parse_canonical_json_bytes(raw, label="bounded incomplete")
+    assert len(parsed["chunks"]) == 1
+    assert parsed["chunks"][0] == complete["chunks"][0]
+    assert len(parsed["terminal"]["failure"]["message"].encode()) <= 1024
+    assert parsed["summary"]["cells"] == []
+    assert context.closed is True
+
+
+def test_phase_writer_incomplete_allocation_refusal_precedes_suffix_build(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, ops = _writer_fixture(tmp_path, monkeypatch, complete)
+    scripted = calibration._build_metric_events
+    original_guard = calibration._ResourceBoundary.check_planned_allocation
+    calls = 0
+    adapter_failed = False
+
+    def fail_during_second_chunk(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        nonlocal adapter_failed, calls
+        calls += 1
+        if calls > 3:
+            adapter_failed = True
+            raise ManifestError("injected adapter failure")
+        return scripted(*args, **kwargs)
+
+    def refuse_incomplete_allocation(
+        resources: calibration._ResourceBoundary, planned_bytes: int
+    ) -> None:
+        if adapter_failed:
+            raise ManifestError("incomplete allocation refused")
+        original_guard(resources, planned_bytes)
+
+    monkeypatch.setattr(calibration, "_build_metric_events", fail_during_second_chunk)
+    monkeypatch.setattr(
+        calibration._ResourceBoundary,
+        "check_planned_allocation",
+        refuse_incomplete_allocation,
+    )
+    monkeypatch.setattr(
+        calibration,
+        "_result_suffix",
+        lambda *_args, **_kwargs: pytest.fail("incomplete suffix built before allocation refusal"),
+    )
+
+    with pytest.raises(ManifestError, match="incomplete allocation refused"):
+        calibration._write_phase_result(context, manifest)
+
+    raw = bytes(ops.nodes[context.store.path / context.paths.result_name]["data"])
+    assert raw and b"INCOMPLETE" not in raw
+    assert context.closed is True
+
+
+def test_phase_writer_provider_closed_failure_never_fabricates_incomplete(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, ops = _writer_fixture(tmp_path, monkeypatch, complete)
+    _ScriptedChunkProvider.fail_after = 0
+
+    with pytest.raises(ManifestError, match="provider failure"):
+        calibration._write_phase_result(context, manifest)
+
+    raw = bytes(ops.nodes[context.store.path / context.paths.result_name]["data"])
+    with pytest.raises(ManifestError):
+        calibration._parse_canonical_json_bytes(raw, label="provider partial")
+    assert b"INCOMPLETE" not in raw
+    assert context.closed is True
+
+
+@pytest.mark.parametrize("operation", ["write", "fsync"])
+def test_phase_writer_durability_failure_preserves_partial_bytes_and_closes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+    operation: str,
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, ops = _writer_fixture(tmp_path, monkeypatch, complete)
+    ops.fail_on = operation
+
+    with pytest.raises(ManifestError, match=operation):
+        calibration._write_phase_result(context, manifest)
+
+    raw = bytes(ops.nodes[context.store.path / context.paths.result_name]["data"])
+    with pytest.raises(ManifestError):
+        calibration._parse_canonical_json_bytes(raw, label="durability partial")
+    assert b"INCOMPLETE" not in raw
+    assert context.closed is True
+
+
+def test_phase_writer_directory_fsync_failure_after_committed_chunk_halts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, ops = _writer_fixture(tmp_path, monkeypatch, complete)
+    original = ops.fsync
+    prior_calls = len(ops.calls)
+    directory_fsyncs = 0
+
+    def fail_third_directory_fsync(fd: int) -> None:
+        nonlocal directory_fsyncs
+        if ops.fds[fd] == context.store.path:
+            directory_fsyncs += 1
+            if directory_fsyncs == 3:
+                raise OSError("injected directory fsync failure")
+        original(fd)
+
+    ops.fsync = fail_third_directory_fsync  # type: ignore[method-assign]
+    with pytest.raises(ManifestError, match="fsync"):
+        calibration._write_phase_result(context, manifest)
+
+    raw = bytes(ops.nodes[context.store.path / context.paths.result_name]["data"])
+    first_chunk = calibration._json_fragment(complete["chunks"][0])
+    assert first_chunk in raw
+    assert sum(call == ("fsync", context.store.path) for call in ops.calls[prior_calls:]) == 2
+    with pytest.raises(ManifestError):
+        calibration._parse_canonical_json_bytes(raw, label="directory-fsync partial")
+    assert b"INCOMPLETE" not in raw
+    assert context.closed is True
+
+
+def test_phase_writer_invalid_short_write_preserves_partial_bytes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, ops = _writer_fixture(tmp_path, monkeypatch, complete)
+    original = ops.write
+    writes = 0
+
+    def zero_after_prefix(fd: int, data: bytes) -> int:
+        nonlocal writes
+        writes += 1
+        if writes == 2:
+            return 0
+        ops.short_write = 7
+        return original(fd, data)
+
+    ops.write = zero_after_prefix  # type: ignore[method-assign]
+    with pytest.raises(ManifestError, match="short-write"):
+        calibration._write_phase_result(context, manifest)
+
+    raw = bytes(ops.nodes[context.store.path / context.paths.result_name]["data"])
+    assert raw and b"INCOMPLETE" not in raw
+    assert context.closed is True
+
+
+def test_phase_writer_rejects_same_inode_prepopulation_before_provider(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, ops = _writer_fixture(tmp_path, monkeypatch, complete)
+    result_path = context.store.path / context.paths.result_name
+    ops.nodes[result_path]["data"].extend(b"preexisting")
+    monkeypatch.setattr(
+        _ScriptedChunkProvider,
+        "__next__",
+        lambda _self: pytest.fail("provider advanced before extent check"),
+    )
+
+    with pytest.raises(ManifestError, match="size or write offset"):
+        calibration._write_phase_result(context, manifest)
+
+    assert bytes(ops.nodes[result_path]["data"]) == b"preexisting"
+    assert context.closed is True
+
+
+def test_phase_writer_rejects_rewound_writer_before_next_append(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, ops = _writer_fixture(tmp_path, monkeypatch, complete)
+    scripted = calibration._build_metric_events
+    calls = 0
+
+    def rewind_after_first(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        nonlocal calls
+        calls += 1
+        if calls == 4:
+            ops.offsets[context.result_file.fd] = 0
+        return scripted(*args, **kwargs)
+
+    monkeypatch.setattr(calibration, "_build_metric_events", rewind_after_first)
+    with pytest.raises(ManifestError, match="write offset"):
+        calibration._write_phase_result(context, manifest)
+
+    raw = bytes(ops.nodes[context.store.path / context.paths.result_name]["data"])
+    assert b"INCOMPLETE" not in raw
+    assert context.closed is True
+
+
+def test_result_handoff_identity_failure_closes_reader_writer_and_context(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    complete, _ = full_calibration
+    _, context, ops = _writer_fixture(tmp_path, monkeypatch, complete)
+    original_open = ops.open_existing_file
+    original_fstat = ops.fstat
+    reader_fd: int | None = None
+
+    def track_reader(directory_fd: int, name: str) -> int:
+        nonlocal reader_fd
+        reader_fd = original_open(directory_fd, name)
+        return reader_fd
+
+    def changed_reader(fd: int) -> Any:
+        value = original_fstat(fd)
+        if fd == reader_fd:
+            return SimpleNamespace(
+                st_mode=value.st_mode,
+                st_dev=value.st_dev,
+                st_ino=value.st_ino + 1,
+                st_nlink=value.st_nlink,
+                st_size=value.st_size,
+            )
+        return value
+
+    ops.open_existing_file = track_reader  # type: ignore[method-assign]
+    ops.fstat = changed_reader  # type: ignore[method-assign]
+    with pytest.raises(ManifestError, match="identity"):
+        calibration._handoff_result_reader(context)
+
+    assert reader_fd is not None
+    assert reader_fd not in ops.fds
+    assert context.closed is True
+    assert ops.fds == {}
+
+
+def test_result_handoff_close_error_never_retries_reused_writer_fd(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    complete, _ = full_calibration
+    _, context, ops = _writer_fixture(tmp_path, monkeypatch, complete)
+    writer_fd = context.result_file.fd
+    original = ops.close
+    sentinel = tmp_path / "sentinel"
+    ops.nodes[sentinel] = {
+        "kind": "file",
+        "dev": 1,
+        "ino": 99_999,
+        "nlink": 1,
+        "data": bytearray(),
+    }
+    writer_closes = 0
+
+    def release_reuse_then_fail(fd: int) -> None:
+        nonlocal writer_closes
+        if fd == writer_fd:
+            writer_closes += 1
+            del ops.fds[fd]
+            del ops.offsets[fd]
+            ops.fds[fd] = sentinel
+            ops.offsets[fd] = 0
+            raise OSError("close reported failure after release")
+        original(fd)
+
+    ops.close = release_reuse_then_fail  # type: ignore[method-assign]
+    with pytest.raises(ManifestError, match="handoff"):
+        calibration._handoff_result_reader(context)
+
+    assert writer_closes == 1
+    assert ops.fds[writer_fd] == sentinel
+    assert context.closed is True
+
+
+def test_result_handoff_close_error_before_release_is_not_retried(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    complete, _ = full_calibration
+    _, context, ops = _writer_fixture(tmp_path, monkeypatch, complete)
+    writer_fd = context.result_file.fd
+    original = ops.close
+    writer_closes = 0
+
+    def fail_before_release(fd: int) -> None:
+        nonlocal writer_closes
+        if fd == writer_fd:
+            writer_closes += 1
+            raise OSError("close failed before release")
+        original(fd)
+
+    ops.close = fail_before_release  # type: ignore[method-assign]
+    with pytest.raises(ManifestError, match="handoff"):
+        calibration._handoff_result_reader(context)
+
+    assert writer_closes == 1
+    assert writer_fd in ops.fds
+    assert context.closed is True
+
+
+def test_result_handoff_deadline_expiry_and_duplicate_are_fail_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    complete, _ = full_calibration
+    _, context, ops = _writer_fixture(tmp_path, monkeypatch, complete)
+    expired = False
+
+    def clock() -> float:
+        return 61.0 if expired else 1.0
+
+    deadline = calibration._Deadline(0.0, 60.0, clock)
+    object.__setattr__(context.resources.policy, "deadline", deadline)
+    context.store.deadline = deadline
+    original_open = ops.open_existing_file
+
+    def expire_after_open(directory_fd: int, name: str) -> int:
+        nonlocal expired
+        fd = original_open(directory_fd, name)
+        expired = True
+        return fd
+
+    ops.open_existing_file = expire_after_open  # type: ignore[method-assign]
+    with pytest.raises(ManifestError, match="deadline"):
+        calibration._handoff_result_reader(context)
+    assert context.closed is True
+
+    second_root = tmp_path / "second"
+    second_root.mkdir()
+    _, second, _ = _writer_fixture(second_root, monkeypatch, complete)
+    object.__setattr__(second, "writing_finished", True)
+    with pytest.raises(ManifestError, match="already finished"):
+        calibration._handoff_result_reader(second)
+    assert second.closed is True
+
+
+@pytest.mark.parametrize("guard", ["allocation", "projection"])
+def test_phase_writer_resource_guard_fails_before_provider_advance(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+    guard: str,
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, _ = _writer_fixture(tmp_path, monkeypatch, complete)
+    monkeypatch.setattr(
+        _ScriptedChunkProvider,
+        "__next__",
+        lambda _self: pytest.fail("provider advanced after resource refusal"),
+    )
+    if guard == "allocation":
+        monkeypatch.setattr(
+            calibration._ResourceBoundary,
+            "check_planned_allocation",
+            lambda _self, _amount: (_ for _ in ()).throw(
+                ManifestError("planned allocation injected")
+            ),
+        )
+    else:
+        monkeypatch.setattr(
+            calibration._ResourceBoundary,
+            "check_result_write",
+            lambda _self, _amount: (_ for _ in ()).throw(ManifestError("result write injected")),
+        )
+
+    with pytest.raises(ManifestError, match="injected"):
+        calibration._write_phase_result(context, manifest)
+    assert context.closed is True
+
+
+def test_phase_writer_manifest_startup_failure_invalidates_context(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, _ = _writer_fixture(tmp_path, monkeypatch, complete)
+    malformed = json.loads(json.dumps(manifest))
+    malformed["protocol_version"] = "wrong"
+
+    with pytest.raises(ManifestError, match="protocol"):
+        calibration._write_phase_result(context, malformed)
+
+    assert context.closed is True
+
+
+def test_phase_writer_invalid_failure_timestamp_cannot_close_incomplete_json(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, ops = _writer_fixture(tmp_path, monkeypatch, complete)
+    monkeypatch.setattr(
+        calibration,
+        "_build_metric_events",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(ManifestError("adapter")),
+    )
+    ops.utc_now = lambda: "invalid"  # type: ignore[method-assign]
+
+    with pytest.raises(ManifestError, match="UTC"):
+        calibration._write_phase_result(context, manifest)
+
+    raw = bytes(ops.nodes[context.store.path / context.paths.result_name]["data"])
+    with pytest.raises(ManifestError):
+        calibration._parse_canonical_json_bytes(raw, label="bad timestamp partial")
+    assert context.closed is True
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="requires native Linux descriptor modes")
+def test_native_result_handoff_retains_actually_read_only_descriptor(
+    tmp_path: Path,
+) -> None:
+    ops = calibration._NativeLinuxOps()
+    deadline = calibration._Deadline(time.monotonic(), 30.0, time.monotonic)
+    store = calibration._open_or_create_evidence_directory(
+        tmp_path, Path("evidence/result"), ops, deadline
+    )
+    claim_raw = b"{}\n"
+    claim = calibration._write_immutable_claim(store, "calibration.claim", claim_raw)
+    result = calibration._reserve_result_file(store, "calibration-result.json")
+    review = calibration._ReviewAttestation(
+        "a" * 40,
+        "b" * 40,
+        {},
+        "docs/reviews/review.md",
+        "docs/reviews/attestation.json",
+        (),
+        "2026-09-27T00:00:00.000000Z",
+        "c" * 64,
+    )
+    proof = calibration._InvocationProof("a" * 40, "d" * 40, {})
+    resources = calibration._ResourceBoundary(
+        calibration._ResourcePolicy(2 * 1024**3, ops, deadline),
+        ops.current_vms_bytes(),
+        ops.current_rss_bytes(),
+        ops.peak_rss_bytes(),
+    )
+    paths = calibration._ArtifactPaths(
+        "evidence/result",
+        claim.name,
+        result.name,
+        "calibration.seal",
+    )
+    started = "2026-09-27T00:00:00.000000Z"
+    claim_sha = hashlib.sha256(claim_raw).hexdigest()
+    binding = calibration._phase_context_binding_bytes(
+        "calibration", paths, review, proof, resources, claim_sha, started
+    )
+    context = calibration._PhaseContext(
+        "calibration",
+        paths,
+        review,
+        proof,
+        resources,
+        store,
+        claim,
+        result,
+        claim_sha,
+        claim_raw,
+        started,
+        binding,
+        calibration._PHASE_CONTEXT_ISSUER,
+    )
+    calibration._write_all_evidence(result, b"{}\n", store)
+    ops.fsync(result.fd)
+
+    calibration._handoff_result_reader(context)
+
+    with pytest.raises(OSError):
+        os.write(context.result_file.fd, b"x")
+    context.require_active("calibration")
+    context.close()
+
+
+def test_phase_writer_rejects_extra_chunk_after_complete_topology(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, ops = _writer_fixture(tmp_path, monkeypatch, complete)
+    _ScriptedChunkProvider.chunks = [
+        *_ScriptedChunkProvider.chunks,
+        _ScriptedChunkProvider.chunks[-1],
+    ]
+
+    with pytest.raises(ManifestError, match="extra"):
+        calibration._write_phase_result(context, manifest)
+
+    raw = bytes(ops.nodes[context.store.path / context.paths.result_name]["data"])
+    parsed = calibration._parse_canonical_json_bytes(raw, label="extra incomplete")
+    assert parsed["chunks"] == complete["chunks"]
+    assert parsed["terminal"]["state"] == "INCOMPLETE"
+    assert parsed["summary"]["phase_verdict"] == "INCOMPLETE"
+    assert context.closed is True

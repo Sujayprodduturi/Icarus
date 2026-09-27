@@ -427,6 +427,7 @@ class _PhaseContext:
     issuer: object
     closed: bool = False
     provider_issued: bool = False
+    writing_finished: bool = False
 
     def __post_init__(self) -> None:
         if self.issuer is not _PHASE_CONTEXT_ISSUER:
@@ -2989,6 +2990,9 @@ class _NativeLinuxOps:
     def write(self, fd: int, data: bytes) -> int:
         return os.write(fd, data)
 
+    def tell(self, fd: int) -> int:
+        return os.lseek(fd, 0, os.SEEK_CUR)
+
     def read_all(self, fd: int) -> bytes:
         size = os.fstat(fd).st_size
         pread = cast(Callable[[int, int, int], bytes], os.__dict__["pread"])
@@ -4476,6 +4480,470 @@ def validate_phase_result(
         cell_summaries,
         expected_provenance.verified_calibration_floor,
     )
+
+
+# A 256-row chunk has at most 256 parity records per metric. 64 MiB covers the
+# three event trees, canonical encoding and JSON temporaries in addition to the
+# separately derived provider bound. Forty-five compact cell summaries fit in
+# 16 MiB; the fixed closing envelope is asserted below to fit within 4 MiB.
+_WRITER_CHUNK_ALLOCATION_BYTES: Final = 64 * 1024**2
+_WRITER_SUMMARY_ALLOCATION_BYTES: Final = 16 * 1024**2
+_WRITER_CLOSING_RESERVE_BYTES: Final = 4 * 1024**2
+_WRITER_FAILURE_MESSAGE_BYTES: Final = 1024
+
+
+def _json_fragment(value: object) -> bytes:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode(
+        "utf-8"
+    )
+
+
+def _phase_result_identity(
+    context: _PhaseContext, manifest: dict[str, Any]
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    phase_data = _mapping(
+        _mapping(manifest["phases"], "phases")[context.phase],
+        f"phases.{context.phase}",
+    )
+    attempt = {
+        "attempt_id": f"{context.review.reviewed_commit}-{context.phase}",
+        "started_at_utc": context.started_at_utc,
+    }
+    provenance = {
+        "manifest_sha256": hashlib.sha256(_canonical_bytes(manifest)).hexdigest(),
+        "method_version": manifest["method_version"],
+        "selection_artifact_schema": manifest["selection_artifact_schema"],
+        "reviewed_commit": context.review.reviewed_commit,
+        "invocation_commit": context.proof.invocation_commit,
+        "protected_blobs": dict(context.proof.protected_blobs),
+        "review_attestation_sha256": context.review.raw_sha256,
+        "claim_sha256": context.claim_sha256,
+        "dependencies": manifest["versions"],
+    }
+    contract = {
+        "master_seed": phase_data["master_seed"],
+        "replicates_per_cell": phase_data["replicates"],
+        "cell_definitions": phase_data["cells"],
+        "candidate_floors": manifest["candidate_floors"],
+        "metrics": manifest["acceptance"]["metrics"],
+        "checks": manifest["acceptance"]["checks"],
+        "family_size": manifest["acceptance"]["family_sizes"][context.phase],
+    }
+    return attempt, provenance, contract
+
+
+def _check_result_write_extent(context: _PhaseContext, expected_size: int) -> None:
+    try:
+        result_stat = context.store.ops.fstat(context.result_file.fd)
+        offset = context.store.ops.tell(context.result_file.fd)
+    except OSError as exc:
+        raise ManifestError(f"result write extent check failed: {exc}") from exc
+    if (
+        type(result_stat.st_size) is not int
+        or type(offset) is not int
+        or result_stat.st_size != expected_size
+        or offset != expected_size
+    ):
+        raise ManifestError("result size or write offset differs from streamed boundary")
+
+
+def _append_phase_bytes(
+    context: _PhaseContext,
+    data: bytes,
+    written: int,
+    *,
+    closing_reserve: int,
+) -> int:
+    context.require_active(context.phase)
+    _check_result_write_extent(context, written)
+    planned = len(data) * 4 + _WRITER_CHUNK_ALLOCATION_BYTES
+    context.resources.check_planned_allocation(planned)
+    projected = written + len(data) + closing_reserve
+    context.resources.check_result_write(projected)
+    context.resources.check_verifier_projection(projected)
+    _write_all_evidence(context.result_file, data, context.store)
+    _check_result_write_extent(context, written + len(data))
+    try:
+        context.store.ops.fsync(context.result_file.fd)
+        context.store.ops.fsync(context.store.fd)
+    except OSError as exc:
+        raise ManifestError(f"result fsync failed: {exc}") from exc
+    context.resources.deadline.remaining()
+    context.store.recheck()
+    context.resources.sample_peak_rss()
+    return written + len(data)
+
+
+def _runtime_snapshot(
+    context: _PhaseContext, manifest: Mapping[str, Any], planned_peak_bytes: int
+) -> dict[str, Any]:
+    context.resources.deadline.remaining()
+    elapsed = context.resources.deadline.clock() - context.resources.deadline.started_at
+    if not math.isfinite(elapsed) or elapsed < 0.0:
+        raise ManifestError("generation elapsed time is invalid")
+    peak = context.resources.sample_peak_rss()
+    maximum_result = context.resources.maximum_result_bytes()
+    limits = _mapping(manifest["runtime_limits"], "runtime_limits")
+    return {
+        "platform": "linux",
+        "resource_backend": context.resources.resource_backend,
+        "address_space_limit_bytes": context.resources.address_space_limit_bytes,
+        "peak_rss_before_verification_bytes": peak,
+        "peak_rss_source": context.resources.peak_rss_source,
+        "planned_peak_bytes": planned_peak_bytes,
+        "maximum_result_bytes": maximum_result,
+        "generation_elapsed_seconds": elapsed,
+        "deadline_seconds": limits["max_elapsed_seconds"],
+        "resource_state": "WITHIN_LIMIT",
+    }
+
+
+def _complete_phase_summary(
+    manifest: dict[str, Any], phase: str, cell_summaries: list[dict[str, Any]]
+) -> dict[str, Any]:
+    if phase != "calibration":
+        raise ManifestError("validation result writing remains locked until Slice 4")
+    floors = _sequence(manifest["candidate_floors"], "candidate_floors")
+    by_id = {cell["cell_id"]: cell for cell in cell_summaries}
+    candidate_results: list[dict[str, Any]] = []
+    block_witness = False
+    df_witness = False
+    for floor in floors:
+        eligible: list[int] = []
+        for cell in manifest["phases"][phase]["cells"]:
+            supported, block_fail, df_only_fail = _candidate_support(manifest, phase, cell, floor)
+            block_witness |= block_fail
+            df_witness |= df_only_fail
+            if supported:
+                eligible.append(cell["id"])
+        passed = all(
+            check["passed"]
+            for cell_id in eligible
+            for metric in by_id[cell_id]["metrics"]
+            for check in metric["checks"].values()
+        )
+        candidate_results.append(
+            {"floor": floor, "fixed_refusal_controls_passed": True, "passed": passed}
+        )
+    if not block_witness or not df_witness:
+        raise ManifestError("candidate refusal controls lack actual block and df-only witnesses")
+    selected = next((item["floor"] for item in candidate_results if item["passed"]), None)
+    return {
+        "cells": cell_summaries,
+        "candidate_results": candidate_results,
+        "selected_floor": selected,
+        "parity_complete": True,
+        "phase_verdict": "PASSED" if selected is not None else "FAILED",
+    }
+
+
+def _bounded_failure_message(exc: BaseException) -> str:
+    text = str(exc)[:_WRITER_FAILURE_MESSAGE_BYTES]
+    message: str = text.encode("utf-8", errors="replace")[:_WRITER_FAILURE_MESSAGE_BYTES].decode(
+        "utf-8", errors="ignore"
+    )
+    return message
+
+
+def _checked_terminal_time(context: _PhaseContext) -> str:
+    ended: str = context.store.ops.utc_now()
+    _check_utc(ended, "terminal end")
+    if ended < context.started_at_utc:
+        raise ManifestError("terminal precedes attempt")
+    return ended
+
+
+def _result_suffix(
+    context: _PhaseContext,
+    manifest: dict[str, Any],
+    contract: dict[str, Any],
+    provenance: dict[str, Any],
+    summary: dict[str, Any],
+    runtime: dict[str, Any],
+    terminal: dict[str, Any],
+) -> bytes:
+    return b"".join(
+        (
+            b'],"phase":',
+            _json_fragment(context.phase),
+            b',"phase_contract":',
+            _json_fragment(contract),
+            b',"protocol_version":',
+            _json_fragment(PROTOCOL_VERSION),
+            b',"provenance":',
+            _json_fragment(provenance),
+            b',"runtime":',
+            _json_fragment(runtime),
+            b',"schema":"step6a2-calibration-result-v1","summary":',
+            _json_fragment(summary),
+            b',"terminal":',
+            _json_fragment(terminal),
+            b"}\n",
+        )
+    )
+
+
+def _write_phase_result(context: _PhaseContext, manifest: dict[str, Any]) -> _ExpectedPhaseContext:
+    """Stream one counted calibration result and retain its read-only descriptor."""
+    if type(context) is not _PhaseContext or context.issuer is not _PHASE_CONTEXT_ISSUER:
+        raise ManifestError("phase writer context was not issued by the counted controller")
+    try:
+        return _write_active_phase_result(context, manifest)
+    except BaseException as exc:
+        if not context.closed:
+            try:
+                context.close()
+            except ManifestError as close_exc:
+                raise close_exc from exc
+        raise
+
+
+def _write_active_phase_result(
+    context: _PhaseContext, manifest: dict[str, Any]
+) -> _ExpectedPhaseContext:
+    context.require_active(context.phase)
+    if context.writing_finished:
+        context.close()
+        raise ManifestError("phase result writing is already finished")
+    _validate_manifest(manifest)
+    if context.phase != "calibration":
+        context.close()
+        raise ManifestError("validation result writing remains locked until Slice 4")
+    context.resources.check_planned_allocation(_WRITER_CHUNK_ALLOCATION_BYTES)
+    attempt, provenance, contract = _phase_result_identity(context, manifest)
+    provider = _CountedChunkProvider(context, manifest)
+    metrics = tuple(manifest["acceptance"]["metrics"])
+    phase_data = manifest["phases"][context.phase]
+    replicates = int(phase_data["replicates"])
+    header = b'{"attempt":' + _json_fragment(attempt) + b',"chunks":['
+    written = 0
+    safe_boundary = False
+    planned_peak = _WRITER_CHUNK_ALLOCATION_BYTES
+    current_cell: int | None = None
+    current_chunk: int | None = None
+    current_ids: list[int] = []
+    totals: dict[int, dict[str, list[int]]] = {}
+    cell_summaries: list[dict[str, Any]] = []
+    try:
+        written = _append_phase_bytes(
+            context,
+            header,
+            written,
+            closing_reserve=_WRITER_CLOSING_RESERVE_BYTES,
+        )
+        safe_boundary = True
+        first_chunk = True
+        for cell in phase_data["cells"]:
+            cell_id = int(cell["id"])
+            totals[cell_id] = {metric: [0] * 6 for metric in metrics}
+            for chunk_id, start in enumerate(range(0, replicates, 256)):
+                stop = min(replicates, start + 256)
+                current_cell, current_chunk = cell_id, chunk_id
+                current_ids = list(range(start, stop))
+                provider_bytes = _counted_chunk_memory_bound(manifest, cell, stop - start)
+                live_bytes = provider_bytes + _WRITER_CHUNK_ALLOCATION_BYTES
+                context.resources.check_planned_allocation(live_bytes)
+                planned_peak = max(planned_peak, live_bytes)
+                try:
+                    chunk = next(provider)
+                except StopIteration as exc:
+                    raise ManifestError("counted provider ended before frozen topology") from exc
+                if (
+                    chunk.cell_id,
+                    chunk.chunk_id,
+                    chunk.replicate_start,
+                    chunk.replicate_stop_exclusive,
+                    len(chunk.replicates),
+                ) != (cell_id, chunk_id, start, stop, stop - start):
+                    raise ManifestError("counted provider chunk order or range differs")
+                events: list[dict[str, Any]] = []
+                for metric in metrics:
+                    event = _build_metric_events(manifest, context.phase, metric, chunk)
+                    counts = _validate_metric_event_partition(
+                        manifest,
+                        {key: value for key, value in event.items() if key != "parity"},
+                        replicate_start=start,
+                        replicate_stop_exclusive=stop,
+                        declared_metric=metric,
+                    )
+                    _verify_parity(manifest, event, cell, metric, replicates, start, stop)
+                    for index, amount in enumerate(
+                        (
+                            counts.emitted,
+                            counts.refusal_total,
+                            counts.coverage_successes,
+                            counts.lower_tail_misses,
+                            counts.upper_tail_misses,
+                            counts.joint_successes,
+                        )
+                    ):
+                        totals[cell_id][metric][index] += amount
+                    events.append(event)
+                record = {
+                    "cell_id": cell_id,
+                    "chunk_id": chunk_id,
+                    "replicate_start": start,
+                    "replicate_stop_exclusive": stop,
+                    "metrics": events,
+                }
+                encoded = (b"" if first_chunk else b",") + _json_fragment(record)
+                live_encoded_bytes = live_bytes + len(encoded) * 4
+                context.resources.check_planned_allocation(live_encoded_bytes)
+                planned_peak = max(planned_peak, live_encoded_bytes)
+                safe_boundary = False
+                written = _append_phase_bytes(
+                    context,
+                    encoded,
+                    written,
+                    closing_reserve=_WRITER_CLOSING_RESERVE_BYTES,
+                )
+                safe_boundary = True
+                first_chunk = False
+                del (
+                    chunk,
+                    events,
+                    event,
+                    counts,
+                    record,
+                    encoded,
+                    provider_bytes,
+                    live_bytes,
+                    live_encoded_bytes,
+                )
+            cell_summaries.append(
+                {
+                    "cell_id": cell_id,
+                    "generated": replicates,
+                    "metrics": [
+                        _recompute_metric_summary(
+                            manifest,
+                            phase=context.phase,
+                            counts=_MetricEventCounts(metric, replicates, *totals[cell_id][metric]),
+                        )
+                        for metric in metrics
+                    ],
+                }
+            )
+            del totals[cell_id]
+        try:
+            next(provider)
+        except StopIteration:
+            pass
+        else:
+            raise ManifestError("counted provider yielded extra frozen topology")
+        context.resources.check_planned_allocation(_WRITER_SUMMARY_ALLOCATION_BYTES)
+        planned_peak = max(planned_peak, _WRITER_SUMMARY_ALLOCATION_BYTES)
+        summary = _complete_phase_summary(manifest, context.phase, cell_summaries)
+        runtime = _runtime_snapshot(context, manifest, planned_peak)
+        terminal = {
+            "state": "UNVERIFIED",
+            "ended_at_utc": _checked_terminal_time(context),
+            "failure": None,
+        }
+        suffix = _result_suffix(context, manifest, contract, provenance, summary, runtime, terminal)
+        if len(suffix) > _WRITER_CLOSING_RESERVE_BYTES:
+            raise ManifestError("complete result suffix exceeds reserved write budget")
+        safe_boundary = False
+        written = _append_phase_bytes(context, suffix, written, closing_reserve=0)
+        context.resources.check_verifier_projection(written)
+        _handoff_result_reader(context)
+        return _ExpectedPhaseContext(
+            phase=context.phase,
+            provenance_bytes=_canonical_bytes(provenance),
+            attempt_bytes=_canonical_bytes(attempt),
+            runtime_bytes=_canonical_bytes(runtime),
+            verified_calibration_floor=None,
+        )
+    except BaseException as exc:
+        if safe_boundary and not context.closed:
+            try:
+                context.resources.check_planned_allocation(_WRITER_SUMMARY_ALLOCATION_BYTES)
+                runtime = _runtime_snapshot(context, manifest, planned_peak)
+                incomplete: dict[str, Any] = {
+                    "cells": [],
+                    "candidate_results": [],
+                    "selected_floor": None,
+                    "parity_complete": False,
+                    "phase_verdict": "INCOMPLETE",
+                }
+                suffix = _result_suffix(
+                    context,
+                    manifest,
+                    contract,
+                    provenance,
+                    incomplete,
+                    runtime,
+                    {
+                        "state": "INCOMPLETE",
+                        "ended_at_utc": _checked_terminal_time(context),
+                        "failure": {
+                            "kind": type(exc).__name__[:128],
+                            "message": _bounded_failure_message(exc),
+                            "cell_id": current_cell,
+                            "chunk_id": current_chunk,
+                            "replicate_ids": current_ids,
+                        },
+                    },
+                )
+                if len(suffix) > _WRITER_CLOSING_RESERVE_BYTES:
+                    raise ManifestError("incomplete result suffix exceeds reserved write budget")
+                safe_boundary = False
+                _append_phase_bytes(context, suffix, written, closing_reserve=0)
+            except BaseException as incomplete_exc:
+                try:
+                    context.close()
+                except ManifestError as close_exc:
+                    raise close_exc from incomplete_exc
+                raise incomplete_exc from exc
+        if not context.closed:
+            try:
+                context.close()
+            except ManifestError as close_exc:
+                raise close_exc from exc
+        raise
+
+
+def _handoff_result_reader(context: _PhaseContext) -> None:
+    if context.writing_finished:
+        context.close()
+        raise ManifestError("result writer-to-reader handoff is already finished")
+    writer = context.result_file
+    reader_fd: int | None = None
+    reader_owned = False
+    try:
+        context.require_active(context.phase)
+        reader_fd = context.store.ops.open_existing_file(context.store.fd, writer.name)
+        reader_owned = True
+        if type(reader_fd) is not int:
+            raise ManifestError("result retained handle is invalid")
+        retained = _check_evidence_file(context.store, writer.name, reader_fd)
+        if (retained.device, retained.inode) != (writer.device, writer.inode):
+            raise ManifestError("result identity changed while reopening")
+        context.resources.deadline.remaining()
+        object.__setattr__(context, "result_file", retained)
+        object.__setattr__(context, "writing_finished", True)
+        reader_owned = False
+        context.store.ops.close(writer.fd)
+        context.resources.deadline.remaining()
+        context.require_active(context.phase)
+    except BaseException as exc:
+        close_failure: BaseException | None = None
+        if reader_owned and reader_fd is not None:
+            try:
+                context.store.ops.close(reader_fd)
+            except (OSError, KeyError) as close_exc:
+                close_failure = close_exc
+        try:
+            context.close()
+        except ManifestError as close_exc:
+            close_failure = close_exc
+        if close_failure is not None:
+            raise ManifestError(f"result handoff close failed: {close_failure}") from exc
+        if isinstance(exc, ManifestError):
+            raise
+        if isinstance(exc, OSError):
+            raise ManifestError(f"result reader handoff failed: {exc}") from exc
+        raise
 
 
 def _manifest_protected_paths(manifest: Mapping[str, Any]) -> tuple[str, ...]:
