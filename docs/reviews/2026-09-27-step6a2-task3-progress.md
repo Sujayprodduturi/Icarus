@@ -183,3 +183,26 @@ Deterministic size scout (Astra Medium, reserved-seed guard, no draws): existing
 
 
 Slice 3B accepted: exact test follow-up `261e11a` passed Ubuntu CI (1,507 passed/four existing integration skips, 144.72s), Ruff lint/format and mypy. Root independently fetched the completion logs. Both code and test correction are pushed. 3C is in progress; no completed runner or official experiment exists.
+
+
+Root independently reproduced the scripted validation size (49,329,321 bytes), absolute zero-VMS result ceiling (65,011,712 bytes), and remaining current-VMS budget (501,836,512 bytes) in an isolated process with all SeedSequence construction forbidden. Astra's follow-up found no counted metric that deterministically requires an always-zero audit on every replicate; additional zero triggers depend on outcomes. An extreme all-zero-audited win stream exceeds the budget and must refuse. This is capacity-risk evidence, not actual-run feasibility or permission to draw. The completed native Linux runner still needs a deterministic realistic serialization/resource envelope check before first invocation.
+
+
+3C draft review is ongoing, not acceptance. Root flagged cleanup for failures before the main try block, duplicate handoff, pre-serialization allocation guards and reserve derivation, lingering chunk-event references and bounded diagnostic encoding. Astra's simplicity pass found no broad architectural cut; its correctness pass additionally requires initial empty/zero-offset result state and size/offset checks before every append (including same-inode changes), plus valid non-regressing UTC on incomplete termination. Builder is repairing these with focused failure tests before final review.
+
+
+Root raised the close-then-error descriptor-reuse case; Astra agreed ownership must transfer to the authenticated reader before one close attempt on the old writer. Cleanup must never retry an uncertain old descriptor number, which could now refer to an unrelated file. Close-error tests will distinguish confirmed known-owned cleanup from unconfirmed old-writer state and require permanent failure, not claim successful closure or completion.
+
+
+3C first frozen candidate passed 21 focused tests/one Linux-only skip, Ruff and explicit mypy. Root's old-code comparison again reproduced all 2,952 interval outputs exactly and global static checks passed. Final Astra review found one additional required guard: the safe-boundary INCOMPLETE path must reserve allocation headroom before constructing failure metadata/serialized suffix, particularly after an allocation failure with a live traceback. Builder is making only that guard and a regression proving serialization is not called on refusal. First candidate hashes are superseded; final acceptance waits for the new frozen review and checks.
+
+
+3C final bytes independently approved by Astra Medium: script `cef45f9360d49fc3cc9ae4c4150c7f77a2b89ff74a459073d414c7638f2ddb15`, tests `6410e7363fba05ceaebd9463553bb2b8bf3722d0c59be51cc8bb13278c21c26f`. Commit `12e1a8a50d42e81b6673146db4bf78c6a4016861` is pushed to origin/dev; root proved both committed blobs equal the approved working bytes. Builder final focused coverage: 22 passed/one Linux skip. Root global static checks passed, last allocation regression passed independently, and all 7/7 post-commit in-memory faults were caught with unchanged source. Final full unit suite and exact Linux CI remain pending; the streaming review records bounded acceptance criteria. No Slice 4 or official draw is authorized by this milestone.
+
+
+Final root verification for `12e1a8a`: 1,526 unit passes/four Windows platform skips (230.91s), clean global/static checks, final 2,952-case numeric baseline unchanged, exact committed blob equality, and 7/7 fault probes. Linux CI lint/format/mypy passed and its unit/integration stage is running. No further code changes are planned for Slice 3C unless that gate reveals a failure.
+
+
+### Slice 3 accepted milestone
+
+Exact Slice 3C code `12e1a8a` passed GitHub Ubuntu CI: 1,530 passed/four existing integration skips (194.21s), Ruff lint/format and mypy clean, including actual read-only descriptor behavior. Root independently fetched completion logs: https://github.com/Sujayprodduturi/Icarus/actions/runs/36313816437. Combined with 1,526 local unit passes/four Windows skips, seven caught fault probes, exact numerical preservation and independent Astra Medium approval, this accepts 3A generation, 3B event/parity recording and 3C durable streaming. Task 3 remains incomplete. Next is Slice 4 independent reopen/verification/sealing, validation unlock and counted CLI, followed by whole-runner exact-commit review and native Linux resource-envelope proof before any reserved draw. Inference remains disabled; F11 remains open. No new operator approval is requested at this implementation milestone.

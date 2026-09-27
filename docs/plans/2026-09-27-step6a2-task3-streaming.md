@@ -1,6 +1,6 @@
 # Step 6a.2 Task 3C — streaming orchestration boundary
 
-Design follows the approved counted-gate plan and exact Task 3 contracts. Astra Medium reviewed the architecture and the corrected descriptor-ownership transition; see the execution ledger. Implementation has not started. No reserved draw, seal, validation unlock or counted CLI is authorized.
+Design follows the approved counted-gate plan and exact Task 3 contracts. Astra Medium reviewed the architecture and the corrected descriptor-ownership transition; see the execution ledger. Implementation is accepted at `12e1a8a` after independent review, root local checks, seven post-commit fault probes and exact-commit Linux CI. See the streaming review for final evidence. No reserved draw, seal, validation unlock or counted CLI is authorized.
 
 ## Interface and complete path
 
@@ -13,7 +13,7 @@ Design follows the approved counted-gate plan and exact Task 3 contracts. Astra 
 
 ## Descriptor ownership
 
-Success does not close the full context. Open the finished result read-only relative to the retained directory with no-follow flags; verify original device/inode; close the writer and transfer descriptor ownership through one private one-way transition. Mark writing permanently finished. Retain claim/directory handles, original identity and resource deadline. Slice 4 independently reopens and verifies through those retained handles; the enclosing orchestration closes the context after verification/sealing or failure.
+Success does not close the full context. Open the finished result read-only relative to the retained directory with no-follow flags; verify original device/inode; transfer reader ownership through one private one-way transition before making the old writer's single close attempt. Mark writing permanently finished. Retain claim/directory handles, original identity and resource deadline. Slice 4 independently reopens and verifies through those retained handles; the enclosing orchestration closes the context after verification/sealing or failure.
 
 Any failed transition closes every owned descriptor and invalidates the context. No pathname-based recovery, retry, truncation or replacement is introduced.
 
@@ -30,3 +30,6 @@ Astra's final test clarifications: a newly opened reader must close even if fsta
 
 
 Incomplete-summary ruling (Astra Medium and root): use exactly empty cells/candidates, null selected floor, parity false and INCOMPLETE verdict. Committed chunk partitions retain all observed durable counts/ranges. Do not compute partial CP bounds or invent missing outcomes. The exact-contract document now states this explicitly. Test canonical parsing, preservation of committed chunks and rejection by the complete verifier; no seal exists in this slice.
+
+
+Close-error ownership clarification: after authenticating the reader, transfer it into the context before attempting the old writer's single close. A reported close error makes the old descriptor's status uncertain; never retry it, because its number may already identify another file. Close the remaining known-owned reader/claim/directory handles and surface failure. Tests must cover close-then-error with descriptor reuse and error-before-close; the latter must not claim confirmed old-writer closure. No successful result or seal follows either error.
