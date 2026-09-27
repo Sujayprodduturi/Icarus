@@ -36,3 +36,18 @@ After the clarified plan passes re-review, implementation must demonstrate resou
 The first counted calibration draw requires independent statistical/safety approval of the exact completed, committed runner and protected hashes. Validation additionally requires complete accepted calibration bytes and the verified claim/result/seal. No cells, seeds, thresholds, estimator, family sizes or first-passing rules change. Inference remains disabled.
 
 No code was changed, tests or calibration streams were run, backtests were evaluated, broker tools were accessed, or commits were made during this review. This file is the only review-owned write; other session documentation is owned by the parent orchestrator.
+
+## 2026-09-27 addendum - clarified plan approved for implementation
+
+**Updated verdict: APPROVED FOR BOUNDED TASK 3 IMPLEMENTATION**, governed by the revised [Task 3 plan](../plans/2026-09-26-step6a2-task3-counted-gate.md) and [exact contracts](../plans/2026-09-27-step6a2-task3-contracts.md). The earlier NOT IMPLEMENTATION-READY verdict remains above as history; the reviewed clarifications close its three blockers.
+
+- Contracts section 7 explicitly permits only the verified calibration trio plus the exact validation paths, without requiring an impermissible intervening result commit.
+- Sections 2-6 pin strict claim/result/seal/review schemas, reviewed versus invocation commits and per-commit review-only ancestry. All other tracked imports remain unchanged. One statistical result plus control sidecars preserves the parent architecture.
+- Section 8 refuses native Windows counted mode before claim or RNG. Native Linux requires supported local storage, secure handles, file/directory fsync, a hard 2 GiB address-space cap and separate peak-RSS accounting. The address-space cap is conservatively stricter, not falsely equated with RSS. Actual capability and failure behavior still require implementation proof.
+- Section 5 preserves the parent's result schema, base-estimator event counts without floor filtering, selected-floor-only validation, append-only timestamp ordering, and post-verification seal measurements. Saved outcome scale permits the frozen parity tolerances. Reviewed orchestration/tests establish exhaustive trigger emission; stored event IDs alone cannot establish that unsaved triggers were not omitted.
+
+Slice 1A was separately approved before this full-plan verdict: private strict canonical parsing, metric event partitions and CP/count/check recomputation against the frozen manifest, using scripted test inputs only. It did not approve a full phase validator or any context, I/O, CLI, RNG or validation unlock.
+
+Proceed test-first in the stated independently reviewed slices. This approval does not assert that the implementation exists, fits the resource budget or passes tests. Resource-incomplete attempts remain possible; no guarantee that a frozen phase fits the budget is made.
+
+**No first draw is approved.** The completed committed runner still needs exact-commit independent statistical/safety approval before calibration; validation additionally requires accepted verified calibration evidence. Inference remains disabled. This addendum changed only this review file; no code, stream, broker access or commit was performed by this reviewer.

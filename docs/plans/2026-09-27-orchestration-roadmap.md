@@ -19,7 +19,7 @@ Read the [Astra re-review](../reviews/2026-09-27-step6a2-task3-rereview.md) alon
 - [ ] Specify the target-platform memory enforcement and durable-file contract; distinguish enforced committed-memory limits from observed resident-memory peaks. Define test-only failure probes and refuse unsupported guarantees.
 - [ ] Obtain Astra's explicit approval of those bounded clarifications. Preserve all frozen cells, seeds, thresholds, candidate ordering and inference-off state.
 
-These are agent-owned engineering clarifications under operator decision D23, not new operator policy questions. Do not ask the operator to resolve artifact schemas or routine document stages. This session records the blockers; it does not claim the revised plan is approved.
+These are agent-owned engineering clarifications under operator decision D23, not new operator policy questions. The continuation resolved them in the [exact contracts](2026-09-27-step6a2-task3-contracts.md), and Astra's dated approval addendum now authorizes bounded implementation. The checklist above records the original planning work; code progress lives in the [execution ledger](../reviews/2026-09-27-step6a2-task3-progress.md). No frozen draw is approved.
 
 ## Milestones toward autonomous trading
 
@@ -49,7 +49,7 @@ Milestone 3 follows the existing Task-3a Step-6 ordering. The time-resolved benc
 
 For each task: explain the concrete outcome, use one bounded implementer, parallel independent reviewer angles where useful, independently verify load-bearing findings, integrate serially, run required checks, commit, and update STATE. A reviewer can reject a deliverable independently of its builder. Do not multiply abstractions or agents without a distinct purpose. Documentation-only updates are exempt from code-review skills under OPERATOR section 5b.
 
-Operator update: the current PC is the intended host (D24); the operator requests our authentication recommendation and has not consulted a CA. These answers do not block offline plan clarification. No broker tooling was used. Recommendations below are not recorded as accepted operator policy.
+Operator update: the current PC is the intended host (D24); the operator requests our authentication recommendation and has not consulted a CA. In the continuation, the operator confirmed continuous PC/router power with UPS backup can be arranged; ISP identity is unknown. Feasibility is not proof UPS is installed or static IP is available. These answers do not block offline plan clarification. No broker tooling was used. Recommendations below are not recorded as accepted operator policy.
 
 The historical September 30 code-complete target is not substantiated by today's remaining work. Re-estimate after the counted-gate milestone and host readiness; the required live simulation has a minimum three-week calendar duration. No first-trade date or profitable outcome is promised.
 

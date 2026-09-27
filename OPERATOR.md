@@ -309,6 +309,12 @@ Dated decisions that are not code and not in `goal.yaml`, so they have nowhere e
 |---|---|---|
 | D24 | **Use the current PC as the intended Icarus host.** The operator said "We can have it this pc." Hardware selection does not certify deployment readiness or authorize an OS migration. The current machine is Windows 11; the Linux deployment arrangement, static public IP/CGNAT, continuous uptime and UPS remain to be verified. The operator requested an authentication recommendation and confirmed the CA has not yet been consulted; neither authentication policy nor tax classification was newly approved. Recommendations and evidence are in `docs/plans/2026-09-27-orchestration-roadmap.md`. | operator, 2026-09-27 |
 
+### 2026-09-27 — continuation authorization and host follow-up
+
+| id | decision | owner |
+|---|---|---|
+| D25 | **Continue planning, implementation, scouting and independent review with task-appropriate models and effort.** The operator confirmed continuous PC/router power with UPS backup can be arranged, but does not know the ISP. This records feasibility, not installed UPS or static-IP readiness. Existing safety boundaries, exact-runner review before frozen synthetic draws, and separate approval for real-data/broker/live work remain unchanged. | operator, 2026-09-27 |
+
 ## 7c. Deferred by decision — not forgotten
 
 Things consciously postponed. **Each names the condition that reopens it.** A deferral without a
