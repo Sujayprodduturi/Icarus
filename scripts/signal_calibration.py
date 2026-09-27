@@ -10,12 +10,17 @@ from __future__ import annotations
 import argparse
 import hashlib
 import hmac
+import importlib
 import json
 import math
+import os
 import re
+import stat
 import subprocess
+import sys
+import time
 from collections import OrderedDict
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
@@ -157,6 +162,316 @@ class _MetricEventCounts:
     lower_tail_misses: int
     upper_tail_misses: int
     joint_successes: int
+
+
+@dataclass(frozen=True, slots=True)
+class _Deadline:
+    """One monotonic budget shared by preflight, generation, verification and sealing."""
+
+    started_at: float
+    duration_seconds: float
+    clock: Callable[[], float]
+
+    def remaining(self) -> float:
+        remaining = self.duration_seconds - (self.clock() - self.started_at)
+        if not math.isfinite(remaining) or remaining <= 0.0:
+            raise ManifestError("counted phase deadline expired")
+        return remaining
+
+
+@dataclass(frozen=True, slots=True)
+class _ReviewAttestation:
+    reviewed_commit: str
+    reviewed_tree: str
+    protected_blobs: dict[str, str]
+    review_record_path: str
+    attestation_path: str
+    allowed_intervening_paths: tuple[str, ...]
+    reviewed_at_utc: str
+    raw_sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class _InvocationProof:
+    reviewed_commit: str
+    invocation_commit: str
+    protected_blobs: dict[str, str]
+
+
+@dataclass(frozen=True, slots=True)
+class _ResourcePolicy:
+    address_space_limit_bytes: int
+    ops: Any
+    deadline: _Deadline
+
+
+@dataclass(slots=True)
+class _ResourceBoundary:
+    policy: _ResourcePolicy
+    current_vms_bytes: int
+    current_rss_bytes: int
+    peak_rss_bytes: int
+    peak_rss_source: str = "getrusage-ru_maxrss-kib"
+    resource_backend: str = "linux-rlimit-as"
+
+    @property
+    def address_space_limit_bytes(self) -> int:
+        return self.policy.address_space_limit_bytes
+
+    @property
+    def deadline(self) -> _Deadline:
+        return self.policy.deadline
+
+    def _measure(self) -> tuple[int, int, int]:
+        self.deadline.remaining()
+        current_vms = self.policy.ops.current_vms_bytes()
+        current_rss = self.policy.ops.current_rss_bytes()
+        peak = self.policy.ops.peak_rss_bytes()
+        limit = self.address_space_limit_bytes
+        if (
+            type(current_vms) is not int
+            or type(current_rss) is not int
+            or type(peak) is not int
+            or current_vms < 0
+            or current_rss < 0
+            or peak < 0
+            or current_vms > limit
+            or current_rss > limit
+            or peak > limit
+        ):
+            raise ManifestError("current VMS, current RSS or peak RSS is invalid or over limit")
+        self.current_vms_bytes = current_vms
+        self.current_rss_bytes = current_rss
+        self.peak_rss_bytes = max(self.peak_rss_bytes, peak)
+        return current_vms, current_rss, peak
+
+    def check_planned_allocation(self, planned_bytes: int) -> None:
+        if type(planned_bytes) is not int or planned_bytes < 0:
+            raise ManifestError("planned allocation must be non-negative integer bytes")
+        current_vms, current_rss, _ = self._measure()
+        limit = self.address_space_limit_bytes
+        if planned_bytes > limit - current_rss:
+            raise ManifestError("current RSS plus planned allocation exceeds budget")
+        if planned_bytes > limit - current_vms:
+            raise ManifestError("planned allocation exceeds address-space budget")
+
+    def check_verifier_projection(self, result_size_bytes: int) -> int:
+        if type(result_size_bytes) is not int or result_size_bytes < 0:
+            raise ManifestError("result size must be non-negative integer bytes")
+        current_vms, _, _ = self._measure()
+        total = current_vms + 32 * result_size_bytes + 64 * 1024**2
+        if total > self.address_space_limit_bytes:
+            raise ManifestError("result verifier projection exceeds address-space budget")
+        return total
+
+    def maximum_result_bytes(self) -> int:
+        current_vms, _, _ = self._measure()
+        available = max(0, self.address_space_limit_bytes - current_vms - 64 * 1024**2)
+        return available // 32
+
+    def check_result_write(self, projected_result_size_bytes: int) -> None:
+        if type(projected_result_size_bytes) is not int or projected_result_size_bytes < 0:
+            raise ManifestError("result write size must be non-negative integer bytes")
+        if projected_result_size_bytes > self.maximum_result_bytes():
+            raise ManifestError("result write exceeds verifier budget")
+
+    def sample_peak_rss(self) -> int:
+        self._measure()
+        return self.peak_rss_bytes
+
+
+@dataclass(frozen=True, slots=True)
+class _ArtifactPaths:
+    directory: str
+    claim_name: str
+    result_name: str
+    seal_name: str
+
+    def as_claim_record(self) -> dict[str, str]:
+        return {
+            "claim": f"{self.directory}/{self.claim_name}",
+            "result": f"{self.directory}/{self.result_name}",
+            "seal": f"{self.directory}/{self.seal_name}",
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class _EvidenceFile:
+    name: str
+    fd: int
+    device: int
+    inode: int
+
+
+@dataclass(frozen=True, slots=True)
+class _DirectoryHandle:
+    path: Path
+    fd: int
+    device: int
+    inode: int
+
+
+@dataclass(slots=True)
+class _EvidenceDirectory:
+    handles: tuple[_DirectoryHandle, ...]
+    ops: Any
+    deadline: _Deadline
+
+    @property
+    def path(self) -> Path:
+        return self.handles[-1].path
+
+    @property
+    def fd(self) -> int:
+        return self.handles[-1].fd
+
+    def recheck(self) -> None:
+        self.deadline.remaining()
+        try:
+            for handle in self.handles:
+                opened = self.ops.fstat(handle.fd)
+                named = self.ops.stat_path(handle.path)
+                if (
+                    not stat.S_ISDIR(opened.st_mode)
+                    or not stat.S_ISDIR(named.st_mode)
+                    or (opened.st_dev, opened.st_ino) != (handle.device, handle.inode)
+                    or (named.st_dev, named.st_ino) != (handle.device, handle.inode)
+                ):
+                    raise ManifestError("evidence directory identity changed")
+        except OSError as exc:
+            raise ManifestError(f"evidence directory identity check failed: {exc}") from exc
+
+
+_PHASE_CONTEXT_ISSUER: Final = object()
+
+
+def _phase_context_binding_bytes(
+    phase: str,
+    paths: _ArtifactPaths,
+    review: _ReviewAttestation,
+    proof: _InvocationProof,
+    resources: _ResourceBoundary,
+    claim_sha256: str,
+    started_at_utc: str,
+) -> bytes:
+    return _canonical_bytes(
+        {
+            "claim_sha256": claim_sha256,
+            "phase": phase,
+            "paths": paths.as_claim_record(),
+            "proof": {
+                "invocation_commit": proof.invocation_commit,
+                "protected_blobs": dict(proof.protected_blobs),
+                "reviewed_commit": proof.reviewed_commit,
+            },
+            "resources": {
+                "address_space_limit_bytes": resources.address_space_limit_bytes,
+                "deadline_duration_seconds": resources.deadline.duration_seconds,
+                "deadline_started_at": resources.deadline.started_at,
+            },
+            "review": {
+                "allowed_intervening_paths": list(review.allowed_intervening_paths),
+                "attestation_path": review.attestation_path,
+                "protected_blobs": dict(review.protected_blobs),
+                "raw_sha256": review.raw_sha256,
+                "review_record_path": review.review_record_path,
+                "reviewed_at_utc": review.reviewed_at_utc,
+                "reviewed_commit": review.reviewed_commit,
+                "reviewed_tree": review.reviewed_tree,
+            },
+            "started_at_utc": started_at_utc,
+        }
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class _PhaseContext:
+    phase: str
+    paths: _ArtifactPaths
+    review: _ReviewAttestation
+    proof: _InvocationProof
+    resources: _ResourceBoundary
+    store: _EvidenceDirectory
+    claim_file: _EvidenceFile
+    result_file: _EvidenceFile
+    claim_sha256: str
+    claim_bytes: bytes
+    started_at_utc: str
+    bound_identity_bytes: bytes
+    issuer: object
+    closed: bool = False
+
+    def __post_init__(self) -> None:
+        if self.issuer is not _PHASE_CONTEXT_ISSUER:
+            raise ManifestError("phase context was not issued by the counted controller")
+        current = _phase_context_binding_bytes(
+            self.phase,
+            self.paths,
+            self.review,
+            self.proof,
+            self.resources,
+            self.claim_sha256,
+            self.started_at_utc,
+        )
+        if not hmac.compare_digest(current, self.bound_identity_bytes):
+            raise ManifestError("phase context binding is invalid at issuance")
+
+    def require_active(self, phase: str) -> None:
+        if self.closed:
+            raise ManifestError("phase context is closed")
+        try:
+            current_binding = _phase_context_binding_bytes(
+                self.phase,
+                self.paths,
+                self.review,
+                self.proof,
+                self.resources,
+                self.claim_sha256,
+                self.started_at_utc,
+            )
+            if not hmac.compare_digest(current_binding, self.bound_identity_bytes):
+                raise ManifestError("phase context binding changed")
+            if phase != self.phase:
+                raise ManifestError("phase context has the wrong phase")
+            self.store.recheck()
+            claim = _check_evidence_file(self.store, self.claim_file.name, self.claim_file.fd)
+            result = _check_evidence_file(self.store, self.result_file.name, self.result_file.fd)
+            if (claim.device, claim.inode) != (self.claim_file.device, self.claim_file.inode) or (
+                result.device,
+                result.inode,
+            ) != (self.result_file.device, self.result_file.inode):
+                raise ManifestError("phase evidence identity differs from original binding")
+            try:
+                current_claim = self.store.ops.read_all(self.claim_file.fd)
+            except OSError as read_exc:
+                raise ManifestError(f"claim bytes could not be reread: {read_exc}") from read_exc
+            if not hmac.compare_digest(current_claim, self.claim_bytes):
+                raise ManifestError("claim bytes differ from original binding")
+            self.resources.sample_peak_rss()
+        except BaseException as exc:
+            try:
+                self.close()
+            except ManifestError as close_exc:
+                raise close_exc from exc
+            raise
+
+    def close(self) -> None:
+        if self.closed:
+            return
+        object.__setattr__(self, "closed", True)
+        failures: list[str] = []
+        for file in (self.result_file, self.claim_file):
+            try:
+                self.store.ops.close(file.fd)
+            except OSError as exc:
+                failures.append(str(exc))
+        for handle in reversed(self.store.handles):
+            try:
+                self.store.ops.close(handle.fd)
+            except OSError as exc:
+                failures.append(str(exc))
+        if failures:
+            raise ManifestError(f"phase context close failed: {failures}")
 
 
 def parity_audit_ids(replicates: int) -> tuple[int, ...]:
@@ -1716,6 +2031,636 @@ def preflight_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _platform_name() -> str:
+    return sys.platform
+
+
+def _decode_mount_field(value: str) -> str:
+    def replace(match: re.Match[str]) -> str:
+        return chr(int(match.group(1), 8))
+
+    return re.sub(r"\\([0-7]{3})", replace, value)
+
+
+def _filesystem_type_for_path(mountinfo: bytes, path: Path) -> str:
+    try:
+        text = mountinfo.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as exc:
+        raise ManifestError("Linux mountinfo is not UTF-8") from exc
+    target = os.path.normcase(os.path.abspath(path))
+    matches: list[tuple[int, str]] = []
+    for line in text.splitlines():
+        before, marker, after = line.partition(" - ")
+        fields = before.split()
+        trailing = after.split()
+        if not marker or len(fields) < 5 or not trailing:
+            raise ManifestError("Linux mountinfo row is malformed")
+        mountpoint = os.path.normcase(os.path.abspath(_decode_mount_field(fields[4])))
+        try:
+            inside = os.path.commonpath((target, mountpoint)) == mountpoint
+        except ValueError:
+            inside = False
+        if inside:
+            matches.append((len(mountpoint), trailing[0]))
+    if not matches:
+        raise ManifestError("evidence filesystem cannot be resolved from mountinfo")
+    longest = max(length for length, _ in matches)
+    selected = [filesystem for length, filesystem in matches if length == longest]
+    if len(selected) != 1:
+        raise ManifestError("evidence filesystem mount is ambiguous")
+    return selected[0]
+
+
+def _verify_native_linux_environment(evidence: Mapping[str, Any]) -> None:
+    _exact_keys(evidence, {"osrelease", "pid1", "container"}, "native Linux evidence")
+    osrelease = evidence["osrelease"]
+    pid1 = evidence["pid1"]
+    container = evidence["container"]
+    if (
+        type(osrelease) is not str
+        or type(pid1) is not str
+        or type(container) is not bool
+        or "microsoft" in osrelease.casefold()
+        or container
+        or pid1 not in {"systemd", "init"}
+    ):
+        raise ManifestError("native Linux environment could not be proved")
+
+
+def _prepare_linux_resource_boundary(
+    manifest: Mapping[str, Any],
+    evidence_path: Path,
+    ops: Any,
+    deadline: _Deadline,
+) -> _ResourceBoundary:
+    deadline.remaining()
+    _verify_native_linux_environment(
+        _mapping(ops.native_environment_evidence(), "native Linux evidence")
+    )
+    runtime = _mapping(manifest["runtime_limits"], "runtime_limits")
+    limit = runtime["max_peak_rss_bytes"]
+    elapsed = runtime["max_elapsed_seconds"]
+    if type(limit) is not int or limit <= 0 or type(elapsed) not in (int, float):
+        raise ManifestError("authenticated runtime limits are invalid")
+    filesystem = _filesystem_type_for_path(ops.read_mountinfo(), evidence_path)
+    if filesystem not in {"ext4", "xfs", "btrfs"}:
+        raise ManifestError(f"evidence filesystem is unsupported: {filesystem}")
+    deadline.remaining()
+    ops.set_address_space_limit(limit, limit)
+    if ops.get_address_space_limit() != (limit, limit):
+        raise ManifestError("RLIMIT_AS installation did not read back exactly")
+    deadline.remaining()
+    current_vms = ops.current_vms_bytes()
+    current_rss = ops.current_rss_bytes()
+    peak_rss = ops.peak_rss_bytes()
+    if (
+        type(current_vms) is not int
+        or type(current_rss) is not int
+        or type(peak_rss) is not int
+        or current_vms < 0
+        or current_rss < 0
+        or peak_rss < 0
+        or current_vms > limit
+        or current_rss > limit
+        or peak_rss > limit
+    ):
+        raise ManifestError("process resource measurements are invalid or over limit")
+    return _ResourceBoundary(
+        _ResourcePolicy(limit, ops, deadline),
+        current_vms,
+        current_rss,
+        peak_rss,
+    )
+
+
+class _NativeLinuxOps:
+    def __init__(self) -> None:
+        required = ("O_DIRECTORY", "O_NOFOLLOW", "O_CLOEXEC")
+        if any(not hasattr(os, name) for name in required):
+            raise ManifestError("native Linux secure-open flags are unavailable")
+        if not all(operation in os.supports_dir_fd for operation in (os.open, os.mkdir, os.stat)):
+            raise ManifestError("native Linux dir_fd operations are unavailable")
+
+    def native_environment_evidence(self) -> dict[str, Any]:
+        osrelease = Path("/proc/sys/kernel/osrelease").read_text(encoding="utf-8").strip()
+        pid1 = Path("/proc/1/comm").read_text(encoding="utf-8").strip()
+        cgroup = Path("/proc/1/cgroup").read_text(encoding="utf-8").casefold()
+        markers = (Path("/.dockerenv"), Path("/run/.containerenv"))
+        container = (
+            any(path.exists() for path in markers)
+            or any(name in cgroup for name in ("docker", "containerd", "kubepods", "lxc"))
+            or bool(os.environ.get("container"))
+        )
+        return {"osrelease": osrelease, "pid1": pid1, "container": container}
+
+    def read_mountinfo(self) -> bytes:
+        return Path("/proc/self/mountinfo").read_bytes()
+
+    def set_address_space_limit(self, soft: int, hard: int) -> None:
+        resource_module: Any = importlib.import_module("resource")
+        resource_module.setrlimit(resource_module.RLIMIT_AS, (soft, hard))
+
+    def get_address_space_limit(self) -> tuple[int, int]:
+        resource_module: Any = importlib.import_module("resource")
+        soft, hard = resource_module.getrlimit(resource_module.RLIMIT_AS)
+        return int(soft), int(hard)
+
+    def current_vms_bytes(self) -> int:
+        psutil_module: Any = importlib.import_module("psutil")
+        return int(psutil_module.Process().memory_info().vms)
+
+    def current_rss_bytes(self) -> int:
+        psutil_module: Any = importlib.import_module("psutil")
+        return int(psutil_module.Process().memory_info().rss)
+
+    def peak_rss_bytes(self) -> int:
+        resource_module: Any = importlib.import_module("resource")
+        return int(resource_module.getrusage(resource_module.RUSAGE_SELF).ru_maxrss) * 1024
+
+    def utc_now(self) -> str:
+        from datetime import UTC
+
+        return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+    def open_root(self, path: Path) -> int:
+        return os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+
+    def open_dir_at(self, parent_fd: int, name: str) -> int:
+        return os.open(
+            name,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+            dir_fd=parent_fd,
+        )
+
+    def mkdir_at(self, parent_fd: int, name: str, mode: int) -> None:
+        os.mkdir(name, mode=mode, dir_fd=parent_fd)
+
+    def fstat(self, fd: int) -> os.stat_result:
+        return os.fstat(fd)
+
+    def stat_path(self, path: Path) -> os.stat_result:
+        return path.lstat()
+
+    def stat_at(self, parent_fd: int, name: str) -> os.stat_result:
+        return os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+
+    def fsync(self, fd: int) -> None:
+        os.fsync(fd)
+
+    def close(self, fd: int) -> None:
+        os.close(fd)
+
+    def open_exclusive_file(self, directory_fd: int, name: str, mode: int) -> int:
+        return os.open(
+            name,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+            mode,
+            dir_fd=directory_fd,
+        )
+
+    def open_existing_file(self, directory_fd: int, name: str) -> int:
+        return os.open(
+            name,
+            os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
+            dir_fd=directory_fd,
+        )
+
+    def write(self, fd: int, data: bytes) -> int:
+        return os.write(fd, data)
+
+    def read_all(self, fd: int) -> bytes:
+        size = os.fstat(fd).st_size
+        pread = cast(Callable[[int, int, int], bytes], os.__dict__["pread"])
+        chunks: list[bytes] = []
+        offset = 0
+        while offset < size:
+            chunk = pread(fd, min(1024 * 1024, size - offset), offset)
+            if not chunk:
+                raise OSError("unexpected EOF while rereading retained evidence")
+            chunks.append(chunk)
+            offset += len(chunk)
+        return b"".join(chunks)
+
+
+def _open_or_create_evidence_directory(
+    repo: Path,
+    relative: Path,
+    ops: Any,
+    deadline: _Deadline,
+) -> _EvidenceDirectory:
+    if relative.is_absolute() or any(part in {"", ".", ".."} for part in relative.parts):
+        raise ManifestError("evidence directory path is not repository-relative")
+    handles: list[_DirectoryHandle] = []
+    owned_fds: list[int] = []
+    try:
+        root_fd = ops.open_root(repo)
+        owned_fds.append(root_fd)
+        root_stat = ops.fstat(root_fd)
+        if not stat.S_ISDIR(root_stat.st_mode):
+            raise ManifestError("repository root handle is not a directory")
+        handles.append(
+            _DirectoryHandle(repo, root_fd, int(root_stat.st_dev), int(root_stat.st_ino))
+        )
+        for component in relative.parts:
+            deadline.remaining()
+            parent = handles[-1]
+            created = False
+            try:
+                child_fd = ops.open_dir_at(parent.fd, component)
+            except FileNotFoundError:
+                ops.mkdir_at(parent.fd, component, 0o700)
+                child_fd = ops.open_dir_at(parent.fd, component)
+                created = True
+            owned_fds.append(child_fd)
+            child_path = parent.path / component
+            child_stat = ops.fstat(child_fd)
+            if not stat.S_ISDIR(child_stat.st_mode):
+                raise ManifestError("evidence path component is not a directory")
+            handles.append(
+                _DirectoryHandle(
+                    child_path,
+                    child_fd,
+                    int(child_stat.st_dev),
+                    int(child_stat.st_ino),
+                )
+            )
+            if created:
+                ops.fsync(child_fd)
+                ops.fsync(parent.fd)
+        store = _EvidenceDirectory(tuple(handles), ops, deadline)
+        store.recheck()
+        return store
+    except BaseException as exc:
+        close_failures: list[str] = []
+        for fd in reversed(owned_fds):
+            try:
+                ops.close(fd)
+            except OSError as close_exc:
+                close_failures.append(str(close_exc))
+        if close_failures:
+            raise ManifestError(
+                f"evidence directory failure and close failed: {close_failures}"
+            ) from exc
+        if isinstance(exc, ManifestError):
+            raise
+        if isinstance(exc, OSError):
+            raise ManifestError(f"evidence directory creation or fsync failed: {exc}") from exc
+        raise
+
+
+def _check_evidence_file(store: _EvidenceDirectory, name: str, fd: int) -> _EvidenceFile:
+    try:
+        opened = store.ops.fstat(fd)
+        named = store.ops.stat_at(store.fd, name)
+    except OSError as exc:
+        raise ManifestError(f"evidence file identity check failed: {exc}") from exc
+    if not stat.S_ISREG(opened.st_mode) or not stat.S_ISREG(named.st_mode):
+        raise ManifestError("evidence file is not regular")
+    if opened.st_nlink != 1 or named.st_nlink != 1:
+        raise ManifestError("evidence file has an extra hard link")
+    if (opened.st_dev, opened.st_ino) != (named.st_dev, named.st_ino):
+        raise ManifestError("evidence file identity changed")
+    return _EvidenceFile(name, fd, int(opened.st_dev), int(opened.st_ino))
+
+
+def _open_exclusive_evidence_file(store: _EvidenceDirectory, name: str) -> _EvidenceFile:
+    if type(name) is not str or not name or "/" in name or "\\" in name or name in {".", ".."}:
+        raise ManifestError("evidence filename is invalid")
+    store.recheck()
+    try:
+        fd = store.ops.open_exclusive_file(store.fd, name, 0o600)
+    except FileExistsError as exc:
+        raise ManifestError(f"evidence artifact already exists: {name}") from exc
+    except OSError as exc:
+        raise ManifestError(f"evidence file open failed: {exc}") from exc
+    try:
+        return _check_evidence_file(store, name, fd)
+    except BaseException as exc:
+        try:
+            store.ops.close(fd)
+        except OSError as close_exc:
+            raise ManifestError(f"evidence file close failed: {close_exc}") from exc
+        raise
+
+
+def _write_all_evidence(file: _EvidenceFile, data: bytes, store: _EvidenceDirectory) -> None:
+    offset = 0
+    while offset < len(data):
+        store.deadline.remaining()
+        try:
+            written = store.ops.write(file.fd, data[offset:])
+        except OSError as exc:
+            raise ManifestError(f"evidence write failed: {exc}") from exc
+        if type(written) is not int or written <= 0 or written > len(data) - offset:
+            raise ManifestError("evidence write returned an invalid short-write count")
+        offset += written
+
+
+def _write_immutable_claim(store: _EvidenceDirectory, name: str, raw: bytes) -> _EvidenceFile:
+    writer = _open_exclusive_evidence_file(store, name)
+    writer_owned = True
+    reader_fd: int | None = None
+    reader_owned = False
+    try:
+        _write_all_evidence(writer, raw, store)
+        store.ops.fsync(writer.fd)
+        checked_writer = _check_evidence_file(store, name, writer.fd)
+        reader_fd = store.ops.open_existing_file(store.fd, name)
+        reader_owned = True
+        if type(reader_fd) is not int:
+            raise ManifestError("claim retained handle is invalid")
+        retained = _check_evidence_file(store, name, reader_fd)
+        if (retained.device, retained.inode) != (checked_writer.device, checked_writer.inode):
+            raise ManifestError("claim identity changed while reopening")
+        store.ops.close(writer.fd)
+        writer_owned = False
+        store.ops.fsync(store.fd)
+        store.recheck()
+        reader_owned = False
+        return retained
+    except BaseException as exc:
+        close_failures: list[str] = []
+        for fd, owned in ((reader_fd, reader_owned), (writer.fd, writer_owned)):
+            if fd is None or not owned:
+                continue
+            try:
+                store.ops.close(fd)
+            except (OSError, KeyError) as close_exc:
+                close_failures.append(str(close_exc))
+        if close_failures:
+            raise ManifestError(f"evidence close failed: {close_failures}") from exc
+        if isinstance(exc, ManifestError):
+            raise
+        if isinstance(exc, OSError):
+            operation = "fsync" if "fsync" in str(exc) else "write"
+            raise ManifestError(f"evidence {operation} failed: {exc}") from exc
+        raise
+
+
+def _reserve_result_file(store: _EvidenceDirectory, name: str) -> _EvidenceFile:
+    file = _open_exclusive_evidence_file(store, name)
+    try:
+        store.ops.fsync(file.fd)
+        checked = _check_evidence_file(store, name, file.fd)
+        store.ops.fsync(store.fd)
+        store.recheck()
+        return checked
+    except BaseException as exc:
+        try:
+            store.ops.close(file.fd)
+        except (OSError, KeyError) as close_exc:
+            raise ManifestError(f"result reservation close failed: {close_exc}") from exc
+        if isinstance(exc, ManifestError):
+            raise
+        if isinstance(exc, OSError):
+            raise ManifestError(f"result reservation fsync failed: {exc}") from exc
+        raise
+
+
+def _derive_artifact_paths(
+    manifest: Mapping[str, Any], phase: str, reviewed_commit: str
+) -> _ArtifactPaths:
+    if phase not in {"calibration", "validation"}:
+        raise ManifestError("counted phase is invalid")
+    manifest_sha = hashlib.sha256(_canonical_bytes(_mapping(manifest, "manifest"))).hexdigest()
+    directory = f"docs/reviews/step6a2/{manifest_sha}"
+    return _ArtifactPaths(
+        directory=directory,
+        claim_name=f"{phase}.claim",
+        result_name=f"{phase}-{reviewed_commit}-{phase}.json",
+        seal_name=f"{phase}.seal",
+    )
+
+
+def _assert_artifacts_absent(store: _EvidenceDirectory, paths: _ArtifactPaths) -> None:
+    for name in (paths.claim_name, paths.result_name, paths.seal_name):
+        try:
+            store.ops.stat_at(store.fd, name)
+        except (FileNotFoundError, KeyError):
+            continue
+        except OSError as exc:
+            raise ManifestError(f"artifact reservation check failed: {exc}") from exc
+        raise ManifestError(f"evidence artifact already exists: {name}")
+
+
+def _close_phase_start_resources(
+    store: _EvidenceDirectory,
+    *files: _EvidenceFile | None,
+) -> None:
+    failures: list[str] = []
+    for file in files:
+        if file is None:
+            continue
+        try:
+            store.ops.close(file.fd)
+        except (OSError, KeyError) as exc:
+            failures.append(str(exc))
+    for handle in reversed(store.handles):
+        try:
+            store.ops.close(handle.fd)
+        except (OSError, KeyError) as exc:
+            failures.append(str(exc))
+    if failures:
+        raise ManifestError(f"phase start resource close failed: {failures}")
+
+
+def _begin_linux_phase(
+    phase: str,
+    manifest: dict[str, Any],
+    ops: Any,
+    deadline: _Deadline,
+) -> _PhaseContext:
+    if phase == "validation":
+        raise ManifestError("validation requires the verified calibration trio from Slice 4")
+    if phase != "calibration":
+        raise ManifestError("counted phase is invalid")
+    _validate_manifest(manifest)
+    manifest_sha = hashlib.sha256(_canonical_bytes(_mapping(manifest, "manifest"))).hexdigest()
+    attestation_path = f"docs/reviews/step6a2/{manifest_sha}/task3.review.json"
+    attestation_raw = _read_tracked_worktree_bytes(_ROOT, attestation_path)
+    review = _parse_review_attestation(manifest, attestation_raw)
+    allowed_untracked = tuple(
+        str(value)
+        for value in _sequence(
+            _mapping(manifest["integrity"], "integrity")["allowed_untracked"],
+            "integrity.allowed_untracked",
+        )
+    )
+    proof = _verify_reviewed_git_state(
+        _ROOT,
+        manifest,
+        review,
+        deadline,
+        allowed_untracked=allowed_untracked,
+    )
+    evidence_path = _ROOT / Path(review.attestation_path).parent
+    resources = _prepare_linux_resource_boundary(manifest, evidence_path, ops, deadline)
+    paths = _derive_artifact_paths(manifest, phase, review.reviewed_commit)
+    store = _open_or_create_evidence_directory(_ROOT, Path(paths.directory), ops, deadline)
+    claim_file: _EvidenceFile | None = None
+    result_file: _EvidenceFile | None = None
+    try:
+        _assert_artifacts_absent(store, paths)
+        started_at = ops.utc_now()
+        _check_utc(started_at, "claim start")
+        attempt_id = f"{review.reviewed_commit}-{phase}"
+        claim = {
+            "artifact_paths": paths.as_claim_record(),
+            "attempt_id": attempt_id,
+            "invocation_commit": proof.invocation_commit,
+            "manifest_sha256": manifest_sha,
+            "phase": phase,
+            "protected_blobs": dict(proof.protected_blobs),
+            "protocol_version": PROTOCOL_VERSION,
+            "review_attestation": {
+                "path": review.attestation_path,
+                "sha256": review.raw_sha256,
+            },
+            "reviewed_commit": review.reviewed_commit,
+            "schema": "step6a2-phase-claim-v1",
+            "started_at_utc": started_at,
+        }
+        claim_raw = _canonical_bytes(claim)
+        claim_file = _write_immutable_claim(store, paths.claim_name, claim_raw)
+        result_file = _reserve_result_file(store, paths.result_name)
+        claim_sha = hashlib.sha256(claim_raw).hexdigest()
+        binding = _phase_context_binding_bytes(
+            phase,
+            paths,
+            review,
+            proof,
+            resources,
+            claim_sha,
+            started_at,
+        )
+        context = _PhaseContext(
+            phase,
+            paths,
+            review,
+            proof,
+            resources,
+            store,
+            claim_file,
+            result_file,
+            claim_sha,
+            claim_raw,
+            started_at,
+            binding,
+            _PHASE_CONTEXT_ISSUER,
+        )
+        return context
+    except BaseException as exc:
+        try:
+            _close_phase_start_resources(store, result_file, claim_file)
+        except ManifestError as close_exc:
+            raise close_exc from exc
+        raise
+
+
+def _begin_counted_phase(phase: str) -> Any:
+    started = time.monotonic()
+    manifest = load_manifest()
+    duration = float(manifest["runtime_limits"]["max_elapsed_seconds"])
+    deadline = _Deadline(started, duration, time.monotonic)
+    if _platform_name() != "linux":
+        raise ManifestError("counted phases require native Linux")
+    ops = _NativeLinuxOps()
+    return _begin_linux_phase(phase, manifest, ops, deadline)
+
+
+def _strict_repo_path(value: object, label: str) -> str:
+    if (
+        type(value) is not str
+        or not value
+        or value.startswith("/")
+        or "\\" in value
+        or any(ord(character) < 32 or ord(character) == 127 for character in value)
+    ):
+        raise ManifestError(f"{label} is invalid")
+    parts = value.split("/")
+    if any(part in {"", ".", ".."} for part in parts):
+        raise ManifestError(f"{label} is not a normalized POSIX path")
+    return value
+
+
+def _parse_review_attestation(manifest: Mapping[str, Any], raw: bytes) -> _ReviewAttestation:
+    payload = _parse_canonical_json_bytes(raw, label="review attestation")
+    _exact_keys(
+        payload,
+        {
+            "schema",
+            "protocol_version",
+            "manifest_sha256",
+            "verdict",
+            "reviewed_commit",
+            "reviewed_tree",
+            "protected_blobs",
+            "review_record_path",
+            "allowed_intervening_paths",
+            "review_scope",
+            "reviewer",
+            "reviewed_at_utc",
+        },
+        "review attestation",
+    )
+    manifest_sha = hashlib.sha256(_canonical_bytes(_mapping(manifest, "manifest"))).hexdigest()
+    if (
+        payload["schema"] != "step6a2-task3-review-v1"
+        or payload["protocol_version"] != PROTOCOL_VERSION
+        or payload["manifest_sha256"] != manifest_sha
+        or payload["verdict"] != "APPROVED"
+    ):
+        raise ManifestError("review attestation identity or verdict differs")
+    for key in ("reviewed_commit", "reviewed_tree"):
+        if type(payload[key]) is not str or re.fullmatch(r"[0-9a-f]{40}", payload[key]) is None:
+            raise ManifestError(f"review attestation {key} is invalid")
+    protected = _mapping(payload["protected_blobs"], "review attestation protected_blobs")
+    expected_paths = set(_manifest_protected_paths(manifest))
+    if set(protected) != expected_paths or any(
+        type(value) is not str or _HEX64.fullmatch(value) is None for value in protected.values()
+    ):
+        raise ManifestError("review attestation protected blobs differ")
+    attestation_path = f"docs/reviews/step6a2/{manifest_sha}/task3.review.json"
+    review_path = _strict_repo_path(
+        payload["review_record_path"], "review attestation review record path"
+    )
+    if not review_path.startswith("docs/reviews/") or review_path == attestation_path:
+        raise ManifestError("review attestation review record path is invalid")
+    allowed = payload["allowed_intervening_paths"]
+    if (
+        not isinstance(allowed, list)
+        or any(type(value) is not str for value in allowed)
+        or allowed != sorted({review_path, attestation_path})
+    ):
+        raise ManifestError("review attestation allowed paths differ")
+    if payload["review_scope"] != [
+        "artifact_verifier",
+        "counted_calibration",
+        "held_back_validation",
+        "resource_and_durability",
+    ]:
+        raise ManifestError("review attestation scope differs")
+    reviewer = _mapping(payload["reviewer"], "review attestation reviewer")
+    _exact_keys(reviewer, {"model", "role"}, "review attestation reviewer")
+    if (
+        type(reviewer["model"]) is not str
+        or not reviewer["model"]
+        or reviewer["role"] != "independent_statistical_safety"
+    ):
+        raise ManifestError("review attestation reviewer differs")
+    _check_utc(payload["reviewed_at_utc"], "review attestation timestamp")
+    return _ReviewAttestation(
+        reviewed_commit=payload["reviewed_commit"],
+        reviewed_tree=payload["reviewed_tree"],
+        protected_blobs=dict(protected),
+        review_record_path=review_path,
+        attestation_path=attestation_path,
+        allowed_intervening_paths=tuple(allowed),
+        reviewed_at_utc=payload["reviewed_at_utc"],
+        raw_sha256=hashlib.sha256(raw).hexdigest(),
+    )
+
+
 def _git(repo: Path, *args: str) -> bytes:
     completed = subprocess.run(
         ["git", *args],
@@ -1727,6 +2672,77 @@ def _git(repo: Path, *args: str) -> bytes:
         message = completed.stderr.decode("utf-8", errors="replace").strip()
         raise ManifestError(f"git {' '.join(args)} failed: {message}")
     return completed.stdout
+
+
+def _git_with_deadline(repo: Path, deadline: _Deadline, *args: str) -> bytes:
+    timeout = deadline.remaining()
+    try:
+        completed = subprocess.run(
+            ["git", *args],
+            cwd=repo,
+            check=False,
+            capture_output=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise ManifestError("counted phase deadline expired during git preflight") from exc
+    if completed.returncode != 0:
+        message = completed.stderr.decode("utf-8", errors="replace").strip()
+        raise ManifestError(f"git {' '.join(args)} failed: {message}")
+    return completed.stdout
+
+
+def _nul_paths(raw: bytes, label: str) -> tuple[str, ...]:
+    if raw and not raw.endswith(b"\0"):
+        raise ManifestError(f"{label} did not return NUL-terminated paths")
+    try:
+        return tuple(item.decode("utf-8", errors="strict") for item in raw.split(b"\0")[:-1])
+    except UnicodeDecodeError as exc:
+        raise ManifestError(f"{label} returned a non-UTF-8 repository path") from exc
+
+
+def _read_tracked_worktree_bytes(repo: Path, relative: str) -> bytes:
+    if type(relative) is not str or not relative or "\0" in relative:
+        raise ManifestError("tracked path is invalid")
+    pure = Path(relative)
+    if pure.is_absolute() or any(part in {"", ".", ".."} for part in pure.parts):
+        raise ManifestError("tracked path escapes the repository")
+    cursor = repo
+    for part in pure.parts:
+        cursor = cursor / part
+        try:
+            metadata = cursor.lstat()
+        except OSError as exc:
+            raise ManifestError(f"tracked file unavailable: {relative}") from exc
+        if stat.S_ISLNK(metadata.st_mode):
+            raise ManifestError(f"tracked path contains a symlink: {relative}")
+    if not stat.S_ISREG(metadata.st_mode):
+        raise ManifestError(f"tracked path is not a regular file: {relative}")
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        fd = os.open(cursor, flags)
+        opened = os.fstat(fd)
+        chunks: list[bytes] = []
+        while True:
+            chunk = os.read(fd, 1024 * 1024)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        after = cursor.lstat()
+    except OSError as exc:
+        raise ManifestError(f"tracked file could not be read securely: {relative}") from exc
+    finally:
+        if "fd" in locals():
+            os.close(fd)
+    if (
+        not stat.S_ISREG(opened.st_mode)
+        or (opened.st_dev, opened.st_ino) != (metadata.st_dev, metadata.st_ino)
+        or (after.st_dev, after.st_ino) != (opened.st_dev, opened.st_ino)
+    ):
+        raise ManifestError(f"tracked file identity changed while reading: {relative}")
+    return b"".join(chunks)
 
 
 def verify_protected_git_state(
@@ -1763,6 +2779,137 @@ def verify_protected_git_state(
             raise ManifestError(f"protected tracked file differs from HEAD: {normalized}")
         blobs[normalized] = hashlib.sha256(working).hexdigest()
     return blobs
+
+
+def _verify_reviewed_git_state(
+    repo: Path,
+    manifest: Mapping[str, Any],
+    attestation: _ReviewAttestation,
+    deadline: _Deadline,
+    *,
+    allowed_untracked: tuple[str, ...],
+) -> _InvocationProof:
+    root = Path(
+        _git_with_deadline(repo, deadline, "rev-parse", "--show-toplevel")
+        .decode("utf-8", errors="strict")
+        .strip()
+    ).resolve()
+    if root != repo.resolve():
+        raise ManifestError("repository root differs from counted preflight root")
+    invocation = _git_with_deadline(repo, deadline, "rev-parse", "HEAD").decode("ascii").strip()
+    actual_attestation = _read_tracked_worktree_bytes(repo, attestation.attestation_path)
+    if hashlib.sha256(actual_attestation).hexdigest() != attestation.raw_sha256:
+        raise ManifestError("tracked review attestation bytes differ from parsed attestation")
+    staged = _nul_paths(
+        _git_with_deadline(repo, deadline, "diff", "--cached", "--name-only", "-z", invocation),
+        "staged index diff",
+    )
+    if staged:
+        raise ManifestError("Git index differs from invocation HEAD")
+    try:
+        merge_base = (
+            _git_with_deadline(
+                repo, deadline, "merge-base", attestation.reviewed_commit, invocation
+            )
+            .decode("ascii")
+            .strip()
+        )
+    except ManifestError as exc:
+        raise ManifestError("reviewed commit is not an ancestor of invocation HEAD") from exc
+    if merge_base != attestation.reviewed_commit:
+        raise ManifestError("reviewed commit is not an ancestor of invocation HEAD")
+    reviewed_tree = (
+        _git_with_deadline(repo, deadline, "rev-parse", f"{attestation.reviewed_commit}^{{tree}}")
+        .decode("ascii")
+        .strip()
+    )
+    if reviewed_tree != attestation.reviewed_tree:
+        raise ManifestError("reviewed tree differs from attestation")
+
+    allowed_paths = set(attestation.allowed_intervening_paths)
+    history = _git_with_deadline(
+        repo, deadline, "rev-list", "--parents", f"{attestation.reviewed_commit}..{invocation}"
+    )
+    for raw_line in history.splitlines():
+        fields = raw_line.decode("ascii", errors="strict").split()
+        if len(fields) != 2:
+            raise ManifestError("review ancestry contains a merge commit")
+        commit = fields[0]
+        changed = set(
+            _nul_paths(
+                _git_with_deadline(
+                    repo,
+                    deadline,
+                    "diff-tree",
+                    "--no-commit-id",
+                    "--name-only",
+                    "-r",
+                    "-z",
+                    f"{commit}^",
+                    commit,
+                ),
+                "intervening commit diff",
+            )
+        )
+        if not changed <= allowed_paths:
+            raise ManifestError("intervening commit changes a non-review path")
+    endpoint = set(
+        _nul_paths(
+            _git_with_deadline(
+                repo,
+                deadline,
+                "diff",
+                "--name-only",
+                "-z",
+                attestation.reviewed_commit,
+                invocation,
+            ),
+            "review endpoint diff",
+        )
+    )
+    if not endpoint <= allowed_paths:
+        raise ManifestError("review endpoint changes a non-review path")
+    for path in allowed_paths:
+        _git_with_deadline(repo, deadline, "cat-file", "-e", f"{invocation}:{path}")
+
+    for relative, expected_sha in attestation.protected_blobs.items():
+        committed = _git_with_deadline(
+            repo, deadline, "show", f"{attestation.reviewed_commit}:{relative}"
+        )
+        if hashlib.sha256(committed).hexdigest() != expected_sha:
+            raise ManifestError(f"reviewed protected blob differs: {relative}")
+
+    tree = _git_with_deadline(repo, deadline, "ls-tree", "-r", "-z", invocation)
+    for entry in tree.split(b"\0"):
+        if not entry:
+            continue
+        try:
+            header, raw_path = entry.split(b"\t", 1)
+            mode, object_type, oid = header.decode("ascii").split()
+            relative = raw_path.decode("utf-8", errors="strict")
+        except (ValueError, UnicodeDecodeError) as exc:
+            raise ManifestError("invocation tree contains an unsupported entry") from exc
+        if object_type != "blob" or mode == "120000":
+            raise ManifestError(f"tracked path is not a regular file: {relative}")
+        working = _read_tracked_worktree_bytes(repo, relative)
+        committed = _git_with_deadline(repo, deadline, "cat-file", "blob", oid)
+        if working != committed:
+            raise ManifestError(f"tracked file differs from HEAD: {relative}")
+
+    untracked = set(
+        _nul_paths(
+            _git_with_deadline(repo, deadline, "ls-files", "--others", "--exclude-standard", "-z"),
+            "untracked file listing",
+        )
+    )
+    normalized_allowed = {path.replace("\\", "/") for path in allowed_untracked}
+    if not untracked <= normalized_allowed:
+        raise ManifestError("working tree contains an untracked path outside the exact allowance")
+    return _InvocationProof(
+        reviewed_commit=attestation.reviewed_commit,
+        invocation_commit=invocation,
+        protected_blobs=dict(attestation.protected_blobs),
+    )
 
 
 def _selection_error(message: str) -> SelectionArtifactError:
