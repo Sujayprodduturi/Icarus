@@ -321,6 +321,12 @@ Dated decisions that are not code and not in `goal.yaml`, so they have nowhere e
 |---|---|---|
 | D26 | **Continue autonomously within the approved scope and stop only at major milestones or genuine blockers. Use medium effort for delegated models and reviews, never high effort. Push committed changes to the Icarus GitHub repository.** This changes cadence and model settings, not frozen-stream, real-data, broker or live-trading authorization. | operator, 2026-09-27 |
 
+### 2026-09-27 — plain-language milestone summaries
+
+| id | decision | owner |
+|---|---|---|
+| D27 | **Use the wait-what style in every milestone summary.** Start with where the work sits in the original roadmap and why it matters. Explain what changed in plain language, what verification establishes and what it does not, and what comes next. Define necessary terms; avoid leading with internal slice names, commit IDs or test counts. Distinguish nested calibration task numbers from the main signal-test steps. | operator, 2026-09-27 |
+
 ## 7c. Deferred by decision — not forgotten
 
 Things consciously postponed. **Each names the condition that reopens it.** A deferral without a
