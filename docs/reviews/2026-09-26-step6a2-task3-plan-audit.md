@@ -1,4 +1,6 @@
-# Step 6a.2 Task 3 plan audit — pending Astra re-review
+# Step 6a.2 Task 3 plan audit — historical draft review
+
+**Update 2026-09-27:** Astra re-review is now complete; see the [new verdict](2026-09-27-step6a2-task3-rereview.md). Architecture is accepted within parent scope, but three bounded plan clarifications remain before implementation approval. The handover paragraph below records the earlier state.
 
 The first [Task 3 counted-gate draft](../plans/2026-09-26-step6a2-task3-counted-gate.md) was independently refuted before implementation or any frozen-stream draw. The reviewer found ten must-fix classes: one-file completion durability, cross-commit retry race, truncated-attempt discovery, dynamic-H outcome-dependent eligibility, incomplete event evidence, aggregate-forgery risk, resource-limit gaps, code-review commit circularity, calibration path-swap risk, and an overbroad clean-tree allowance.
 

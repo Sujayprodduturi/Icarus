@@ -303,6 +303,12 @@ Dated decisions that are not code and not in `goal.yaml`, so they have nowhere e
 | D22 | **Approve the written time-resolved benchmark design for Step 6 planning.** This approval does not authorise product code, real-data evaluation, a historical-data subscription, or broker integration. The existing daily and M15 windows, missing-refinement refusals, and lockbox/trial gates remain in force. | operator, 2026-09-26 |
 | D23 | **For the current Task 3a Step 6 continuation, do not stop for routine document-stage approvals.** Keep planning, building and reviewing within the already approved safety boundary; consult GPT-6 Astra before any major architectural decision, and stop at major milestones or when operator input is genuinely necessary. This is a scoped process authorization, not permission for real-data evaluation, broker integration, live orders, a paid subscription, or a safety-invariant change. Plain-English pre-build explanation and post-build summary still apply. | operator, 2026-09-26 |
 
+### 2026-09-27 — intended host and unresolved setup
+
+| id | decision | owner |
+|---|---|---|
+| D24 | **Use the current PC as the intended Icarus host.** The operator said "We can have it this pc." Hardware selection does not certify deployment readiness or authorize an OS migration. The current machine is Windows 11; the Linux deployment arrangement, static public IP/CGNAT, continuous uptime and UPS remain to be verified. The operator requested an authentication recommendation and confirmed the CA has not yet been consulted; neither authentication policy nor tax classification was newly approved. Recommendations and evidence are in `docs/plans/2026-09-27-orchestration-roadmap.md`. | operator, 2026-09-27 |
+
 ## 7c. Deferred by decision — not forgotten
 
 Things consciously postponed. **Each names the condition that reopens it.** A deferral without a
