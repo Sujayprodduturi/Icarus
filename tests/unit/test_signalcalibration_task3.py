@@ -2909,11 +2909,16 @@ def test_metric_adapter_does_not_hide_wrong_scalar_refusal_on_empty(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     empty = _scripted_metric_replicate((), blocks=())
-    monkeypatch.setattr(
-        calibration,
-        "_scalar_cr2_moments",
-        lambda *_args: MetricRefusal.ZERO_VARIANCE,
-    )
+    original = _cr2_moments
+
+    def wrong_only_for_empty(
+        values: tuple[float, ...], blocks: tuple[int, ...]
+    ) -> CandidateMoments | MetricRefusal:
+        if not values:
+            return MetricRefusal.ZERO_VARIANCE
+        return original(values, blocks)
+
+    monkeypatch.setattr(calibration, "_scalar_cr2_moments", wrong_only_for_empty)
 
     with pytest.raises(ManifestError, match="parity"):
         calibration._build_metric_events(
