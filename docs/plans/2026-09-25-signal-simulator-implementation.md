@@ -47,6 +47,7 @@
   def test_shared_bar_helper_refuses_missing_symbol_session():
       from tests.unit.test_portfolio_characterization import _panel
       from icarus.engine.simcore import _sim_bar, _ts_at
+
       panel = _panel()
       panel.bars[0].open[1] = np.nan
       assert _sim_bar(panel, 0, 1, _ts_at(panel, 1)) is None
@@ -78,8 +79,10 @@ def _case():
     signals = {symbol: np.zeros(len(panel), dtype=np.float64) for symbol in panel.symbols}
     stops = {symbol: np.full(len(panel), 10.0) for symbol in panel.symbols}
     simulator = SignalSimulator(
-        notional_inr=Decimal("100000"), costs=CostModel(_COSTS),
-        fills=FillModel(REALISM), stale_after_sessions=20,
+        notional_inr=Decimal("100000"),
+        costs=CostModel(_COSTS),
+        fills=FillModel(REALISM),
+        stale_after_sessions=20,
     )
     return strategy, panel, signals, stops, simulator
 ```

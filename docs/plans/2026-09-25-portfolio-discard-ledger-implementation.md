@@ -83,8 +83,10 @@ class PortfolioDiscard:
 - [ ] Add RED synthetic tests with literal `(symbol, decision_index, reason)` expectations for all eight existing skip reasons and the three omissions. Exercise both `NO_SLOT` sites (already-full book and capacity exhausted during ranked iteration), the last-bar/untradable precedence, an absent next bar, partial entry fill, and re-entry after a close. Each test must name a realistic wrong branch that would make it fail. Include a mutation witness that suppresses one discard append but leaves its input `1.0` intact; the run-end emitted-ID equality must fail.
 
 ```python
-assert [(d.signal_id.symbol, d.signal_id.decision_index, d.reason.value)
-        for d in result.portfolio_discards] == [
+assert [
+    (d.signal_id.symbol, d.signal_id.decision_index, d.reason.value)
+    for d in result.portfolio_discards
+] == [
     ("AAA", 45, "not_tradable"),
     ("BBB", 49, "no_next_bar"),
 ]
