@@ -369,6 +369,40 @@ class _EvidenceDirectory:
 
 
 _PHASE_CONTEXT_ISSUER: Final = object()
+_VERIFIER_READ_CHUNK_BYTES: Final = 1024 * 1024
+
+
+def _read_exact_evidence_bytes(
+    ops: Any,
+    deadline: _Deadline,
+    fd: int,
+    exact_size: int,
+    *,
+    label: str,
+) -> bytes:
+    if type(exact_size) is not int or exact_size < 0:
+        raise ManifestError(f"{label} size is invalid")
+    chunks: list[bytes] = []
+    offset = 0
+    try:
+        while offset < exact_size:
+            deadline.remaining()
+            chunk = ops.pread(fd, min(_VERIFIER_READ_CHUNK_BYTES, exact_size - offset), offset)
+            if type(chunk) is not bytes or not chunk:
+                raise ManifestError(f"{label} ended before its frozen size")
+            if len(chunk) > exact_size - offset:
+                raise ManifestError(f"{label} read exceeded its frozen size")
+            chunks.append(chunk)
+            offset += len(chunk)
+        deadline.remaining()
+        extra = ops.pread(fd, 1, exact_size)
+    except OSError as exc:
+        raise ManifestError(f"{label} bounded read failed: {exc}") from exc
+    if type(extra) is not bytes:
+        raise ManifestError(f"{label} bounded read returned non-bytes")
+    if extra:
+        raise ManifestError(f"{label} grew beyond its frozen size")
+    return b"".join(chunks)
 
 
 def _phase_context_binding_bytes(
@@ -428,6 +462,8 @@ class _PhaseContext:
     closed: bool = False
     provider_issued: bool = False
     writing_finished: bool = False
+    writer_expected: _ExpectedPhaseContext | None = None
+    writer_expected_binding_bytes: bytes | None = None
 
     def __post_init__(self) -> None:
         if self.issuer is not _PHASE_CONTEXT_ISSUER:
@@ -469,12 +505,17 @@ class _PhaseContext:
                 result.inode,
             ) != (self.result_file.device, self.result_file.inode):
                 raise ManifestError("phase evidence identity differs from original binding")
-            try:
-                current_claim = self.store.ops.read_all(self.claim_file.fd)
-            except OSError as read_exc:
-                raise ManifestError(f"claim bytes could not be reread: {read_exc}") from read_exc
+            current_claim = _read_exact_evidence_bytes(
+                self.store.ops,
+                self.resources.deadline,
+                self.claim_file.fd,
+                len(self.claim_bytes),
+                label="claim",
+            )
             if not hmac.compare_digest(current_claim, self.claim_bytes):
                 raise ManifestError("claim bytes differ from original binding")
+            if self.writer_expected is not None or self.writer_expected_binding_bytes is not None:
+                _require_bound_writer_expected(self)
             self.resources.sample_peak_rss()
         except BaseException as exc:
             try:
@@ -2993,6 +3034,10 @@ class _NativeLinuxOps:
     def tell(self, fd: int) -> int:
         return os.lseek(fd, 0, os.SEEK_CUR)
 
+    def pread(self, fd: int, size: int, offset: int) -> bytes:
+        pread = cast(Callable[[int, int, int], bytes], os.__dict__["pread"])
+        return pread(fd, size, offset)
+
     def read_all(self, fd: int) -> bytes:
         size = os.fstat(fd).st_size
         pread = cast(Callable[[int, int, int], bytes], os.__dict__["pread"])
@@ -3891,11 +3936,70 @@ class _ExpectedPhaseContext:
             _finite_number(floor[1], "validation floor")
 
 
+def _writer_expected_binding(context: _PhaseContext, expected: _ExpectedPhaseContext) -> bytes:
+    floor = expected.verified_calibration_floor
+    return _canonical_bytes(
+        {
+            "attempt_sha256": hashlib.sha256(expected.attempt_bytes).hexdigest(),
+            "context_binding_sha256": hashlib.sha256(context.bound_identity_bytes).hexdigest(),
+            "phase": expected.phase,
+            "provenance_sha256": hashlib.sha256(expected.provenance_bytes).hexdigest(),
+            "runtime_sha256": hashlib.sha256(expected.runtime_bytes).hexdigest(),
+            "verified_calibration_floor": list(floor) if floor is not None else None,
+        }
+    )
+
+
+def _require_bound_writer_expected(context: _PhaseContext) -> _ExpectedPhaseContext:
+    expected = context.writer_expected
+    binding = context.writer_expected_binding_bytes
+    if not context.writing_finished or not isinstance(expected, _ExpectedPhaseContext):
+        raise ManifestError("finished phase lacks writer-bound expected context")
+    if type(binding) is not bytes or not hmac.compare_digest(
+        binding, _writer_expected_binding(context, expected)
+    ):
+        raise ManifestError("writer-bound expected context authentication failed")
+    return expected
+
+
+def _bind_writer_expected(context: _PhaseContext, expected: _ExpectedPhaseContext) -> None:
+    context.require_active(context.phase)
+    if not context.writing_finished:
+        raise ManifestError("writer expected context cannot bind before finalization")
+    if context.writer_expected is not None or context.writer_expected_binding_bytes is not None:
+        context.close()
+        raise ManifestError("writer expected context is already bound")
+    if expected.phase != context.phase:
+        context.close()
+        raise ManifestError("writer expected context has the wrong phase")
+    object.__setattr__(context, "writer_expected", expected)
+    object.__setattr__(
+        context,
+        "writer_expected_binding_bytes",
+        _writer_expected_binding(context, expected),
+    )
+    _require_bound_writer_expected(context)
+
+
 @dataclass(frozen=True, slots=True)
 class VerifiedPhaseResult:
     phase: str
     phase_verdict: str
     selected_floor: tuple[int, float] | None
+
+
+@dataclass(frozen=True, slots=True)
+class _VerifiedPhaseEvidence:
+    phase: str
+    phase_verdict: str
+    selected_floor: tuple[int, float] | None
+    result_sha256: str
+    result_size_bytes: int
+    verification_projected_bytes: int
+    final_peak_rss_bytes: int
+    verification_elapsed_seconds: float
+    context_binding_bytes: bytes
+    writer_expected_binding_bytes: bytes
 
 
 def _finite_number(value: object, label: str, *, nonnegative: bool = False) -> float:
@@ -4846,14 +4950,16 @@ def _write_active_phase_result(
         safe_boundary = False
         written = _append_phase_bytes(context, suffix, written, closing_reserve=0)
         context.resources.check_verifier_projection(written)
-        _handoff_result_reader(context)
-        return _ExpectedPhaseContext(
+        expected = _ExpectedPhaseContext(
             phase=context.phase,
             provenance_bytes=_canonical_bytes(provenance),
             attempt_bytes=_canonical_bytes(attempt),
             runtime_bytes=_canonical_bytes(runtime),
             verified_calibration_floor=None,
         )
+        _handoff_result_reader(context)
+        _bind_writer_expected(context, expected)
+        return expected
     except BaseException as exc:
         if safe_boundary and not context.closed:
             try:
@@ -4943,6 +5049,159 @@ def _handoff_result_reader(context: _PhaseContext) -> None:
             raise
         if isinstance(exc, OSError):
             raise ManifestError(f"result reader handoff failed: {exc}") from exc
+        raise
+
+
+def _rehash_exact_evidence(
+    ops: Any,
+    deadline: _Deadline,
+    fd: int,
+    exact_size: int,
+    *,
+    label: str,
+) -> str:
+    digest = hashlib.sha256()
+    offset = 0
+    try:
+        while offset < exact_size:
+            deadline.remaining()
+            chunk = ops.pread(fd, min(_VERIFIER_READ_CHUNK_BYTES, exact_size - offset), offset)
+            if type(chunk) is not bytes or not chunk:
+                raise ManifestError(f"{label} ended before its frozen size")
+            if len(chunk) > exact_size - offset:
+                raise ManifestError(f"{label} read exceeded its frozen size")
+            digest.update(chunk)
+            offset += len(chunk)
+        deadline.remaining()
+        extra = ops.pread(fd, 1, exact_size)
+    except OSError as exc:
+        raise ManifestError(f"{label} bounded rehash failed: {exc}") from exc
+    if type(extra) is not bytes:
+        raise ManifestError(f"{label} bounded rehash returned non-bytes")
+    if extra:
+        raise ManifestError(f"{label} grew beyond its frozen size")
+    return digest.hexdigest()
+
+
+def _check_verified_result_extent(
+    context: _PhaseContext, reader: _EvidenceFile, exact_size: int
+) -> None:
+    current = _check_evidence_file(context.store, reader.name, reader.fd)
+    if (current.device, current.inode) != (context.result_file.device, context.result_file.inode):
+        raise ManifestError("verified result identity differs from retained result")
+    try:
+        current_stat = context.store.ops.fstat(reader.fd)
+    except OSError as exc:
+        raise ManifestError(f"verified result extent check failed: {exc}") from exc
+    if type(current_stat.st_size) is not int or current_stat.st_size != exact_size:
+        raise ManifestError("verified result extent changed")
+
+
+def _verify_finished_phase_result(
+    context: _PhaseContext, manifest: dict[str, Any]
+) -> _VerifiedPhaseEvidence:
+    reader_fd: int | None = None
+    reader_owned = False
+    try:
+        context.require_active(context.phase)
+        expected = _require_bound_writer_expected(context)
+        _validate_manifest(manifest)
+        reader_fd = context.store.ops.open_existing_file(
+            context.store.fd, context.paths.result_name
+        )
+        reader_owned = True
+        if type(reader_fd) is not int:
+            raise ManifestError("verification result handle is invalid")
+        reader = _check_evidence_file(context.store, context.paths.result_name, reader_fd)
+        if (reader.device, reader.inode) != (
+            context.result_file.device,
+            context.result_file.inode,
+        ):
+            raise ManifestError("verification result identity differs from retained result")
+        try:
+            initial_stat = context.store.ops.fstat(reader.fd)
+        except OSError as exc:
+            raise ManifestError(f"verification result size check failed: {exc}") from exc
+        result_size = initial_stat.st_size
+        if type(result_size) is not int or result_size < 0:
+            raise ManifestError("verification result size is invalid")
+        projected = context.resources.check_verifier_projection(result_size)
+        started = context.resources.deadline.clock()
+        if not math.isfinite(started):
+            raise ManifestError("verification clock is invalid")
+        raw = _read_exact_evidence_bytes(
+            context.store.ops,
+            context.resources.deadline,
+            reader.fd,
+            result_size,
+            label="result",
+        )
+        result_sha256 = hashlib.sha256(raw).hexdigest()
+        parsed = _parse_canonical_json_bytes(raw, label="phase result")
+        verified = validate_phase_result(manifest, parsed, expected)
+        del parsed
+        del raw
+        _check_verified_result_extent(context, reader, result_size)
+        rehashed = _rehash_exact_evidence(
+            context.store.ops,
+            context.resources.deadline,
+            reader.fd,
+            result_size,
+            label="result",
+        )
+        if not hmac.compare_digest(rehashed, result_sha256):
+            raise ManifestError("verified result bytes changed after recomputation")
+        _check_verified_result_extent(context, reader, result_size)
+        context.require_active(context.phase)
+        bound = _require_bound_writer_expected(context)
+        if bound is not expected:
+            raise ManifestError("writer-bound expected context changed during verification")
+        expected_binding = context.writer_expected_binding_bytes
+        assert isinstance(expected_binding, bytes)
+        reader_owned = False
+        try:
+            context.store.ops.close(reader.fd)
+        except OSError as exc:
+            raise ManifestError(f"verification reader close failed: {exc}") from exc
+        context.require_active(context.phase)
+        final_peak = context.resources.sample_peak_rss()
+        ended = context.resources.deadline.clock()
+        elapsed = ended - started
+        if not math.isfinite(ended) or not math.isfinite(elapsed) or elapsed < 0.0:
+            raise ManifestError("verification elapsed time is invalid")
+        context.resources.deadline.remaining()
+        if _require_bound_writer_expected(context) is not expected:
+            raise ManifestError("writer-bound expected context changed after reader close")
+        return _VerifiedPhaseEvidence(
+            phase=verified.phase,
+            phase_verdict=verified.phase_verdict,
+            selected_floor=verified.selected_floor,
+            result_sha256=result_sha256,
+            result_size_bytes=result_size,
+            verification_projected_bytes=projected,
+            final_peak_rss_bytes=final_peak,
+            verification_elapsed_seconds=elapsed,
+            context_binding_bytes=context.bound_identity_bytes,
+            writer_expected_binding_bytes=expected_binding,
+        )
+    except BaseException as exc:
+        close_failure: BaseException | None = None
+        if reader_owned and reader_fd is not None:
+            reader_owned = False
+            try:
+                context.store.ops.close(reader_fd)
+            except (OSError, KeyError) as close_exc:
+                close_failure = close_exc
+        try:
+            context.close()
+        except ManifestError as close_exc:
+            close_failure = close_exc
+        if close_failure is not None:
+            raise ManifestError(f"verification close failed: {close_failure}") from exc
+        if isinstance(exc, ManifestError):
+            raise
+        if isinstance(exc, OSError):
+            raise ManifestError(f"saved-result verification failed: {exc}") from exc
         raise
 
 

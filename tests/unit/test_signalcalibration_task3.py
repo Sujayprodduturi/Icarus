@@ -1371,6 +1371,12 @@ class _EvidenceOps:
     def tell(self, fd: int) -> int:
         return self.offsets[fd]
 
+    def pread(self, fd: int, size: int, offset: int) -> bytes:
+        self._fail("pread")
+        data = self.nodes[self.fds[fd]]["data"]
+        self.calls.append(("pread", self.fds[fd], size, offset))
+        return bytes(data[offset : offset + size])
+
     def read_all(self, fd: int) -> bytes:
         return bytes(self.nodes[self.fds[fd]]["data"])
 
@@ -2167,7 +2173,10 @@ def test_phase_context_mutated_bound_evidence_fails_closed(
         claim_path = context.store.path / context.claim_file.name
         ops.nodes[claim_path]["data"].extend(b"tamper")
 
-    with pytest.raises(ManifestError, match=r"binding|claim bytes"):
+    with pytest.raises(
+        ManifestError,
+        match=r"binding|claim bytes|claim grew beyond its frozen size",
+    ):
         context.require_active("calibration")
     assert context.closed is True
 
@@ -3208,6 +3217,39 @@ def _independent_writer_expected(
     )
 
 
+def _prepared_verification_fixture(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    complete_result: dict[str, Any],
+    *,
+    stored_result: dict[str, Any] | None = None,
+) -> tuple[
+    dict[str, Any],
+    calibration._PhaseContext,
+    _ControllerOps,
+    calibration._ExpectedPhaseContext,
+]:
+    manifest, context, ops = _writer_fixture(tmp_path, monkeypatch, complete_result)
+    expected = _independent_writer_expected(context, manifest, complete_result["chunks"])
+    prepared = json.loads(json.dumps(complete_result if stored_result is None else stored_result))
+    prepared["provenance"] = calibration._parse_canonical_json_bytes(
+        expected.provenance_bytes, label="prepared provenance"
+    )
+    prepared["attempt"] = calibration._parse_canonical_json_bytes(
+        expected.attempt_bytes, label="prepared attempt"
+    )
+    prepared["runtime"] = calibration._parse_canonical_json_bytes(
+        expected.runtime_bytes, label="prepared runtime"
+    )
+    prepared["terminal"]["ended_at_utc"] = context.started_at_utc
+    raw = calibration._canonical_bytes(prepared)
+    result_path = context.store.path / context.paths.result_name
+    ops.nodes[result_path]["data"] = bytearray(raw)
+    calibration._handoff_result_reader(context)
+    calibration._bind_writer_expected(context, expected)
+    return manifest, context, ops, expected
+
+
 def test_phase_writer_streams_canonical_complete_result_and_hands_off_reader(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -3239,6 +3281,22 @@ def test_phase_writer_streams_canonical_complete_result_and_hands_off_reader(
     assert fsyncs.count(context.store.path) == len(expected_result["chunks"]) + 2
     assert context.store.path / context.paths.seal_name not in ops.nodes
     context.require_active("calibration")
+    retained_fds = dict(ops.fds)
+
+    evidence = calibration._verify_finished_phase_result(context, manifest)
+
+    assert evidence.phase == "calibration"
+    assert evidence.phase_verdict == "PASSED"
+    assert evidence.selected_floor == verified.selected_floor
+    assert evidence.result_sha256 == hashlib.sha256(raw).hexdigest()
+    assert evidence.result_size_bytes == len(raw)
+    assert evidence.verification_projected_bytes > len(raw)
+    assert evidence.final_peak_rss_bytes == 64 * 1024 * 1024
+    assert evidence.verification_elapsed_seconds == 0.0
+    assert evidence.context_binding_bytes == context.bound_identity_bytes
+    assert dict(ops.fds) == retained_fds
+    assert context.closed is False
+    assert context.store.path / context.paths.seal_name not in ops.nodes
     with pytest.raises(ManifestError, match="already finished"):
         calibration._write_phase_result(context, manifest)
     assert context.closed is True
@@ -3279,6 +3337,324 @@ def test_phase_writer_complete_statistical_failure_remains_unverified(
     assert parsed["terminal"]["state"] == "UNVERIFIED"
     assert parsed["summary"]["phase_verdict"] == "FAILED"
     assert calibration.validate_phase_result(manifest, parsed, expected).phase_verdict == "FAILED"
+    evidence = calibration._verify_finished_phase_result(context, manifest)
+    assert evidence.phase_verdict == "FAILED"
+    assert evidence.selected_floor is None
+    assert context.closed is False
+    context.close()
+
+
+@pytest.mark.parametrize("state", ["unfinalized", "missing_binding"])
+def test_finished_verifier_refuses_unfinalized_or_unbound_context(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+    state: str,
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, _ = _writer_fixture(tmp_path, monkeypatch, complete)
+    if state == "missing_binding":
+        calibration._handoff_result_reader(context)
+
+    with pytest.raises(ManifestError, match=r"finished phase|writer-bound"):
+        calibration._verify_finished_phase_result(context, manifest)
+
+    assert context.closed is True
+
+
+def test_finished_verifier_rejects_forged_matching_result_and_expected_runtime(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, ops, expected = _prepared_verification_fixture(
+        tmp_path, monkeypatch, complete
+    )
+    forged = json.loads(json.dumps(complete))
+    forged["runtime"]["resource_state"] = "FORGED"
+    result_path = context.store.path / context.paths.result_name
+    ops.nodes[result_path]["data"] = bytearray(calibration._canonical_bytes(forged))
+    object.__setattr__(
+        context,
+        "writer_expected",
+        dataclasses.replace(
+            expected,
+            runtime_bytes=calibration._canonical_bytes(forged["runtime"]),
+        ),
+    )
+
+    with pytest.raises(ManifestError, match="authentication"):
+        calibration._verify_finished_phase_result(context, manifest)
+
+    assert context.closed is True
+
+
+@pytest.mark.parametrize("mutation", ["malformed", "incomplete", "event"])
+def test_finished_verifier_refuses_invalid_saved_result(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+    mutation: str,
+) -> None:
+    complete, _ = full_calibration
+    stored = json.loads(json.dumps(complete))
+    if mutation == "incomplete":
+        stored["summary"] = {
+            "candidate_results": [],
+            "cells": [],
+            "parity_complete": False,
+            "phase_verdict": "INCOMPLETE",
+            "selected_floor": None,
+        }
+        stored["terminal"]["state"] = "INCOMPLETE"
+        stored["terminal"]["failure"] = {
+            "kind": "ManifestError",
+            "message": "stopped",
+            "cell_id": 0,
+            "chunk_id": 0,
+            "replicate_ids": [],
+        }
+    elif mutation == "event":
+        stored["chunks"][0]["metrics"][0]["coverage_ids"].append(10_000)
+    manifest, context, ops, _ = _prepared_verification_fixture(
+        tmp_path, monkeypatch, complete, stored_result=stored
+    )
+    if mutation == "malformed":
+        result_path = context.store.path / context.paths.result_name
+        ops.nodes[result_path]["data"] = bytearray(b'{"bad":}\n')
+
+    with pytest.raises(ManifestError):
+        calibration._verify_finished_phase_result(context, manifest)
+
+    assert context.closed is True
+    assert context.store.path / context.paths.seal_name not in ops.nodes
+
+
+def test_finished_verifier_checks_projection_before_result_read(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, ops, _ = _prepared_verification_fixture(tmp_path, monkeypatch, complete)
+    result_path = context.store.path / context.paths.result_name
+    prior_calls = len(ops.calls)
+    monkeypatch.setattr(
+        calibration._ResourceBoundary,
+        "check_verifier_projection",
+        lambda _self, _size: (_ for _ in ()).throw(ManifestError("projection refused")),
+    )
+
+    with pytest.raises(ManifestError, match="projection refused"):
+        calibration._verify_finished_phase_result(context, manifest)
+
+    result_reads = [
+        call for call in ops.calls[prior_calls:] if call[0] == "pread" and call[1] == result_path
+    ]
+    assert result_reads == []
+    assert context.closed is True
+
+
+@pytest.mark.parametrize("mutation", ["grow", "shrink"])
+def test_finished_verifier_reads_only_frozen_result_extent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+    mutation: str,
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, ops, _ = _prepared_verification_fixture(tmp_path, monkeypatch, complete)
+    result_path = context.store.path / context.paths.result_name
+    original_pread = ops.pread
+    mutated = False
+
+    def mutate_before_first_result_read(fd: int, size: int, offset: int) -> bytes:
+        nonlocal mutated
+        if not mutated and ops.fds[fd] == result_path:
+            mutated = True
+            if mutation == "grow":
+                ops.nodes[result_path]["data"].extend(b"x")
+            else:
+                del ops.nodes[result_path]["data"][-1]
+        return original_pread(fd, size, offset)
+
+    ops.pread = mutate_before_first_result_read  # type: ignore[method-assign]
+    with pytest.raises(ManifestError, match=r"grew|ended|extent"):
+        calibration._verify_finished_phase_result(context, manifest)
+
+    assert mutated is True
+    assert context.closed is True
+
+
+@pytest.mark.parametrize("mutation", ["content", "identity"])
+def test_finished_verifier_detects_post_recomputation_mutation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+    mutation: str,
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, ops, _ = _prepared_verification_fixture(tmp_path, monkeypatch, complete)
+    result_path = context.store.path / context.paths.result_name
+    original_validate = calibration.validate_phase_result
+
+    def mutate_after_validate(*args: Any, **kwargs: Any) -> Any:
+        verified = original_validate(*args, **kwargs)
+        if mutation == "content":
+            ops.nodes[result_path]["data"][10] ^= 1
+        else:
+            ops.nodes[result_path]["ino"] += 1
+        return verified
+
+    monkeypatch.setattr(calibration, "validate_phase_result", mutate_after_validate)
+    with pytest.raises(ManifestError, match=r"changed|identity"):
+        calibration._verify_finished_phase_result(context, manifest)
+
+    assert context.closed is True
+
+
+def test_finished_verifier_bounds_claim_reread_before_result_projection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, ops, _ = _prepared_verification_fixture(tmp_path, monkeypatch, complete)
+    claim_path = context.store.path / context.paths.claim_name
+    result_path = context.store.path / context.paths.result_name
+    original_claim_size = len(context.claim_bytes)
+    ops.nodes[claim_path]["data"].extend(b"x" * (2 * 1024**2))
+    prior_calls = len(ops.calls)
+
+    with pytest.raises(ManifestError, match="claim grew"):
+        calibration._verify_finished_phase_result(context, manifest)
+
+    new_reads = [call for call in ops.calls[prior_calls:] if call[0] == "pread"]
+    claim_reads = [call for call in new_reads if call[1] == claim_path]
+    assert claim_reads
+    assert max(call[2] for call in claim_reads) <= max(original_claim_size, 1)
+    assert all(call[1] != result_path for call in new_reads)
+    assert context.closed is True
+
+
+def test_finished_verifier_deadline_covers_each_bounded_result_read(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, ops, _ = _prepared_verification_fixture(tmp_path, monkeypatch, complete)
+    result_path = context.store.path / context.paths.result_name
+    expired = False
+
+    def clock() -> float:
+        return 61.0 if expired else 1.0
+
+    deadline = calibration._Deadline(0.0, 60.0, clock)
+    object.__setattr__(context.resources.policy, "deadline", deadline)
+    context.store.deadline = deadline
+    original_pread = ops.pread
+
+    def expire_after_first_result_read(fd: int, size: int, offset: int) -> bytes:
+        nonlocal expired
+        chunk = original_pread(fd, size, offset)
+        if ops.fds[fd] == result_path:
+            expired = True
+        return chunk
+
+    ops.pread = expire_after_first_result_read  # type: ignore[method-assign]
+    with pytest.raises(ManifestError, match="deadline"):
+        calibration._verify_finished_phase_result(context, manifest)
+
+    assert context.closed is True
+
+
+def test_finished_verifier_rechecks_deadline_after_reader_close(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, ops, _ = _prepared_verification_fixture(tmp_path, monkeypatch, complete)
+    expired = False
+
+    def clock() -> float:
+        return 61.0 if expired else 1.0
+
+    deadline = calibration._Deadline(0.0, 60.0, clock)
+    object.__setattr__(context.resources.policy, "deadline", deadline)
+    context.store.deadline = deadline
+    original_open = ops.open_existing_file
+    original_close = ops.close
+    verification_reader: int | None = None
+
+    def track_reader(directory_fd: int, name: str) -> int:
+        nonlocal verification_reader
+        verification_reader = original_open(directory_fd, name)
+        return verification_reader
+
+    def expire_after_reader_close(fd: int) -> None:
+        nonlocal expired
+        original_close(fd)
+        if fd == verification_reader:
+            expired = True
+
+    ops.open_existing_file = track_reader  # type: ignore[method-assign]
+    ops.close = expire_after_reader_close  # type: ignore[method-assign]
+    with pytest.raises(ManifestError, match="deadline"):
+        calibration._verify_finished_phase_result(context, manifest)
+
+    assert verification_reader is not None
+    assert verification_reader not in ops.fds
+    assert context.closed is True
+
+
+def test_finished_verifier_never_retries_reader_close_after_fd_reuse(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, ops, _ = _prepared_verification_fixture(tmp_path, monkeypatch, complete)
+    original_open = ops.open_existing_file
+    original_close = ops.close
+    verification_reader: int | None = None
+    reader_closes = 0
+    sentinel = tmp_path / "verification-close-sentinel"
+    ops.nodes[sentinel] = {
+        "kind": "file",
+        "dev": 1,
+        "ino": 199_999,
+        "nlink": 1,
+        "data": bytearray(),
+    }
+
+    def track_reader(directory_fd: int, name: str) -> int:
+        nonlocal verification_reader
+        verification_reader = original_open(directory_fd, name)
+        return verification_reader
+
+    def release_reuse_then_fail(fd: int) -> None:
+        nonlocal reader_closes
+        if fd == verification_reader:
+            reader_closes += 1
+            del ops.fds[fd]
+            del ops.offsets[fd]
+            ops.fds[fd] = sentinel
+            ops.offsets[fd] = 0
+            raise OSError("verification close reported failure after release")
+        original_close(fd)
+
+    ops.open_existing_file = track_reader  # type: ignore[method-assign]
+    ops.close = release_reuse_then_fail  # type: ignore[method-assign]
+    with pytest.raises(ManifestError, match="reader close"):
+        calibration._verify_finished_phase_result(context, manifest)
+
+    assert verification_reader is not None
+    assert reader_closes == 1
+    assert ops.fds[verification_reader] == sentinel
+    assert context.closed is True
 
 
 @pytest.mark.parametrize("mutation", ["missing", "reordered"])
