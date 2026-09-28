@@ -41,7 +41,9 @@ def _commit_all(repo: Path, message: str) -> str:
     return _run_git(repo, "rev-parse", "HEAD")
 
 
-def _reviewed_repo(tmp_path: Path) -> tuple[Path, dict[str, Any], bytes]:
+def _reviewed_repo(
+    tmp_path: Path, *, authentic_manifest: bool = False
+) -> tuple[Path, dict[str, Any], bytes]:
     repo = tmp_path / "repo"
     repo.mkdir()
     _run_git(repo, "init")
@@ -50,10 +52,16 @@ def _reviewed_repo(tmp_path: Path) -> tuple[Path, dict[str, Any], bytes]:
     _run_git(repo, "config", "core.autocrlf", "false")
     manifest = _manifest()
     protected = calibration._manifest_protected_paths(manifest)
+    manifest_path = manifest["integrity"]["protected_paths"]["manifest"]
     for index, relative in enumerate(protected):
         path = repo / relative
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(f"protected-{index}\n".encode())
+        raw = (
+            calibration._canonical_bytes(manifest)
+            if authentic_manifest and relative == manifest_path
+            else f"protected-{index}\n".encode()
+        )
+        path.write_bytes(raw)
     (repo / "tracked.txt").write_text("reviewed\n", encoding="utf-8")
     reviewed = _commit_all(repo, "reviewed code")
     reviewed_tree = _run_git(repo, "rev-parse", f"{reviewed}^{{tree}}")
@@ -3173,8 +3181,10 @@ def _writer_fixture(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     complete_result: dict[str, Any],
+    *,
+    authentic_manifest: bool = False,
 ) -> tuple[dict[str, Any], calibration._PhaseContext, _ControllerOps]:
-    repo, manifest, _ = _reviewed_repo(tmp_path)
+    repo, manifest, _ = _reviewed_repo(tmp_path, authentic_manifest=authentic_manifest)
     ops = _ControllerOps(repo)
     ops.short_write = 10_000_000
     monkeypatch.setattr(calibration, "_ROOT", repo)
@@ -3258,7 +3268,7 @@ def _independent_writer_expected(
         calibration._canonical_bytes(provenance),
         calibration._canonical_bytes(attempt),
         calibration._canonical_bytes(runtime),
-        None,
+        context.verified_calibration_floor,
     )
 
 
@@ -3268,13 +3278,16 @@ def _prepared_verification_fixture(
     complete_result: dict[str, Any],
     *,
     stored_result: dict[str, Any] | None = None,
+    authentic_manifest: bool = False,
 ) -> tuple[
     dict[str, Any],
     calibration._PhaseContext,
     _ControllerOps,
     calibration._ExpectedPhaseContext,
 ]:
-    manifest, context, ops = _writer_fixture(tmp_path, monkeypatch, complete_result)
+    manifest, context, ops = _writer_fixture(
+        tmp_path, monkeypatch, complete_result, authentic_manifest=authentic_manifest
+    )
     expected = _independent_writer_expected(context, manifest, complete_result["chunks"])
     prepared = json.loads(json.dumps(complete_result if stored_result is None else stored_result))
     prepared["provenance"] = calibration._parse_canonical_json_bytes(
@@ -3334,6 +3347,43 @@ def _stub_completion_verifier(
 
     monkeypatch.setattr(calibration, "_verify_finished_phase_result", verify)
     return calls
+
+
+def _validation_writer_fixture(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    calibration_result: dict[str, Any],
+    validation_result: dict[str, Any],
+) -> tuple[dict[str, Any], calibration._PhaseContext, _ControllerOps]:
+    manifest, calibration_context, ops, _ = _prepared_verification_fixture(
+        tmp_path, monkeypatch, calibration_result, authentic_manifest=True
+    )
+    _stub_completion_verifier(monkeypatch, calibration_context)
+    completion = calibration._complete_phase(calibration_context, manifest)
+    monkeypatch.setattr(calibration, "_platform_name", lambda: "linux")
+    tick = [0.0]
+    monkeypatch.setattr(time, "monotonic", lambda: tick[0])
+    validation = calibration._begin_validation_phase(calibration_context, completion, manifest)
+    tick[0] = 1.0
+    _ScriptedChunkProvider.chunks = list(validation_result["chunks"])
+    _ScriptedChunkProvider.fail_after = None
+    by_key = {
+        (chunk["cell_id"], chunk["chunk_id"], event["metric"]): event
+        for chunk in validation_result["chunks"]
+        for event in chunk["metrics"]
+    }
+
+    def scripted_events(
+        _manifest: dict[str, Any],
+        _phase: str,
+        metric: str,
+        chunk: calibration._CountedChunk,
+    ) -> dict[str, Any]:
+        assert _phase == "validation"
+        return cast(dict[str, Any], by_key[(chunk.cell_id, chunk.chunk_id, metric)])
+
+    monkeypatch.setattr(calibration, "_build_metric_events", scripted_events)
+    return manifest, validation, ops
 
 
 def test_phase_writer_streams_canonical_complete_result_and_hands_off_reader(
@@ -4893,6 +4943,97 @@ def test_phase_writer_rejects_extra_chunk_after_complete_topology(
     assert context.closed is True
 
 
+def test_validation_writer_streams_one_bound_floor_and_independently_verifies(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+    full_validation: tuple[dict[str, Any], Any],
+) -> None:
+    calibration_result, _ = full_calibration
+    validation_result, _ = full_validation
+    manifest, context, ops = _validation_writer_fixture(
+        tmp_path, monkeypatch, calibration_result, validation_result
+    )
+    independent = _independent_writer_expected(context, manifest, validation_result["chunks"])
+    monkeypatch.setattr(
+        np.random,
+        "PCG64",
+        lambda *_args, **_kwargs: pytest.fail("scripted writer drew reserved RNG"),
+    )
+
+    returned = calibration._write_phase_result(context, manifest)
+
+    raw = bytes(ops.nodes[context.store.path / context.paths.result_name]["data"])
+    parsed = calibration._parse_canonical_json_bytes(raw, label="written validation")
+    assert returned == independent
+    assert returned.verified_calibration_floor == context.verified_calibration_floor
+    assert parsed["chunks"] == validation_result["chunks"]
+    assert parsed["summary"] == validation_result["summary"]
+    assert len(parsed["summary"]["candidate_results"]) == 1
+    assert parsed["terminal"]["state"] == "UNVERIFIED"
+    verified = calibration.validate_phase_result(manifest, parsed, returned)
+    assert verified.phase == "validation"
+    assert verified.phase_verdict == "PASSED"
+    assert verified.selected_floor == context.verified_calibration_floor
+    assert not context.closed
+    with pytest.raises(ManifestError, match="already finished"):
+        calibration._write_phase_result(context, manifest)
+    assert context.closed
+
+
+def test_validation_writer_refuses_changed_bound_floor_before_provider(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+    full_validation: tuple[dict[str, Any], Any],
+) -> None:
+    calibration_result, _ = full_calibration
+    validation_result, _ = full_validation
+    manifest, context, ops = _validation_writer_fixture(
+        tmp_path, monkeypatch, calibration_result, validation_result
+    )
+    other = manifest["candidate_floors"][1]
+    object.__setattr__(
+        context, "verified_calibration_floor", (other["minimum_blocks"], float(other["minimum_nu"]))
+    )
+    monkeypatch.setattr(
+        calibration,
+        "_CountedChunkProvider",
+        lambda *_args: pytest.fail("changed floor reached counted provider"),
+    )
+
+    with pytest.raises(ManifestError, match="binding changed"):
+        calibration._write_phase_result(context, manifest)
+
+    assert context.closed
+    assert ops.nodes[context.store.path / context.paths.result_name]["data"] == bytearray()
+
+
+def test_validation_summary_failure_never_searches_another_floor(
+    monkeypatch: pytest.MonkeyPatch,
+    full_validation: tuple[dict[str, Any], Any],
+) -> None:
+    result, _ = full_validation
+    manifest = _manifest()
+    context = _provider_context(monkeypatch, manifest, phase="validation")
+    object.__setattr__(context, "verified_calibration_floor", (6, 4.0))
+    cells = json.loads(json.dumps(result["summary"]["cells"]))
+    cells[0]["metrics"][0]["checks"]["coverage_lower"]["passed"] = False
+
+    summary = calibration._complete_phase_summary(manifest, context, cells)
+
+    assert summary["phase_verdict"] == "FAILED"
+    assert summary["selected_floor"] is None
+    assert summary["candidate_results"] == [
+        {
+            "floor": manifest["candidate_floors"][0],
+            "fixed_refusal_controls_passed": True,
+            "passed": False,
+        }
+    ]
+    context.close()
+
+
 def test_validation_startup_requires_live_completion_and_fresh_deadline(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -5303,23 +5444,75 @@ def test_validation_trio_refuses_completion_revoked_during_recomputation(
     assert context.store.path / paths.claim_name not in ops.nodes
 
 
-def test_validation_context_cannot_construct_counted_provider_yet(
+def test_live_validation_context_issues_one_real_provider_without_drawing(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     full_calibration: tuple[dict[str, Any], Any],
+    full_validation: tuple[dict[str, Any], Any],
 ) -> None:
-    complete, _ = full_calibration
-    manifest, context, _ops, _ = _prepared_verification_fixture(tmp_path, monkeypatch, complete)
-    _stub_completion_verifier(monkeypatch, context)
-    completion = calibration._complete_phase(context, manifest)
-    monkeypatch.setattr(calibration, "_platform_name", lambda: "linux")
-    validation = calibration._begin_validation_phase(context, completion, manifest)
-    monkeypatch.setattr(
-        np.random, "PCG64", lambda *_args, **_kwargs: pytest.fail("validation drew RNG")
+    calibration_result, _ = full_calibration
+    validation_result, _ = full_validation
+    manifest, context, _ops = _validation_writer_fixture(
+        tmp_path, monkeypatch, calibration_result, validation_result
     )
-    with pytest.raises(ManifestError, match="validation"):
-        _REAL_COUNTED_CHUNK_PROVIDER(validation, manifest)
-    assert validation.closed
+    monkeypatch.setattr(
+        np.random, "PCG64", lambda *_args, **_kwargs: pytest.fail("provider construction drew RNG")
+    )
+
+    provider = _REAL_COUNTED_CHUNK_PROVIDER(context, manifest)
+
+    assert provider._phase == "validation"
+    assert provider._phase_seed == manifest["phases"]["validation"]["master_seed"]
+    assert context.provider_issued
+    assert not context.closed
+    with pytest.raises(ManifestError, match="already issued"):
+        _REAL_COUNTED_CHUNK_PROVIDER(context, manifest)
+    assert context.closed
+
+
+@pytest.mark.parametrize(
+    ("mutation", "match"),
+    [
+        ("lineage", "binding changed"),
+        ("claim", "claim bytes"),
+        ("result_identity", "identity"),
+        ("deadline", "deadline expired"),
+        ("resource", "over limit"),
+    ],
+)
+def test_live_validation_provider_refuses_changed_evidence_or_resources(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+    full_validation: tuple[dict[str, Any], Any],
+    mutation: str,
+    match: str,
+) -> None:
+    calibration_result, _ = full_calibration
+    validation_result, _ = full_validation
+    manifest, context, ops = _validation_writer_fixture(
+        tmp_path, monkeypatch, calibration_result, validation_result
+    )
+    if mutation == "lineage":
+        object.__setattr__(context, "calibration_completion_binding_bytes", b"changed")
+    elif mutation == "claim":
+        ops.nodes[context.store.path / context.paths.claim_name]["data"][0] = 0
+    elif mutation == "result_identity":
+        ops.nodes[context.store.path / context.paths.result_name]["ino"] += 1
+    elif mutation == "deadline":
+        object.__setattr__(context.resources.deadline, "clock", lambda: 7202.0)
+    else:
+        ops.current_vms_bytes = (  # type: ignore[method-assign]
+            lambda: context.resources.address_space_limit_bytes + 1
+        )
+    monkeypatch.setattr(
+        np.random, "SeedSequence", lambda *_args, **_kwargs: pytest.fail("refusal reached RNG")
+    )
+
+    with pytest.raises(ManifestError, match=match):
+        _REAL_COUNTED_CHUNK_PROVIDER(context, manifest)
+    assert context.closed
+    assert not context.provider_issued
 
 
 @pytest.mark.parametrize("boundary", ["trio", "git"])

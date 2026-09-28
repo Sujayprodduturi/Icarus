@@ -1146,8 +1146,6 @@ class _CountedChunkProvider:
             raise ManifestError("counted provider context was not issued by the counted controller")
         self._context = context
         try:
-            if context.phase == "validation":
-                raise ManifestError("validation counted provider awaits a separate execution slice")
             context.require_active(context.phase)
             if context.provider_issued:
                 raise ManifestError("phase context already issued its counted provider")
@@ -4770,11 +4768,22 @@ def _runtime_snapshot(
 
 
 def _complete_phase_summary(
-    manifest: dict[str, Any], phase: str, cell_summaries: list[dict[str, Any]]
+    manifest: dict[str, Any], context: _PhaseContext, cell_summaries: list[dict[str, Any]]
 ) -> dict[str, Any]:
-    if phase != "calibration":
-        raise ManifestError("validation result writing remains locked until Slice 4")
-    floors = _sequence(manifest["candidate_floors"], "candidate_floors")
+    context.require_active(context.phase)
+    phase = context.phase
+    all_floors = _sequence(manifest["candidate_floors"], "candidate_floors")
+    if phase == "calibration":
+        floors = all_floors
+    else:
+        verified_floor = context.verified_calibration_floor
+        floors = [
+            floor
+            for floor in all_floors
+            if (floor["minimum_blocks"], float(floor["minimum_nu"])) == verified_floor
+        ]
+        if len(floors) != 1:
+            raise ManifestError("bound validation floor is not frozen")
     by_id = {cell["cell_id"]: cell for cell in cell_summaries}
     candidate_results: list[dict[str, Any]] = []
     block_witness = False
@@ -4796,7 +4805,7 @@ def _complete_phase_summary(
         candidate_results.append(
             {"floor": floor, "fixed_refusal_controls_passed": True, "passed": passed}
         )
-    if not block_witness or not df_witness:
+    if phase == "calibration" and (not block_witness or not df_witness):
         raise ManifestError("candidate refusal controls lack actual block and df-only witnesses")
     selected = next((item["floor"] for item in candidate_results if item["passed"]), None)
     return {
@@ -4877,9 +4886,9 @@ def _write_active_phase_result(
         context.close()
         raise ManifestError("phase result writing is already finished")
     _validate_manifest(manifest)
-    if context.phase != "calibration":
+    if context.phase not in {"calibration", "validation"}:
         context.close()
-        raise ManifestError("validation result writing remains locked until Slice 4")
+        raise ManifestError("phase result writer received an invalid phase")
     context.resources.check_planned_allocation(_WRITER_CHUNK_ALLOCATION_BYTES)
     attempt, provenance, contract = _phase_result_identity(context, manifest)
     provider = _CountedChunkProvider(context, manifest)
@@ -5004,7 +5013,7 @@ def _write_active_phase_result(
             raise ManifestError("counted provider yielded extra frozen topology")
         context.resources.check_planned_allocation(_WRITER_SUMMARY_ALLOCATION_BYTES)
         planned_peak = max(planned_peak, _WRITER_SUMMARY_ALLOCATION_BYTES)
-        summary = _complete_phase_summary(manifest, context.phase, cell_summaries)
+        summary = _complete_phase_summary(manifest, context, cell_summaries)
         runtime = _runtime_snapshot(context, manifest, planned_peak)
         terminal = {
             "state": "UNVERIFIED",
@@ -5022,7 +5031,7 @@ def _write_active_phase_result(
             provenance_bytes=_canonical_bytes(provenance),
             attempt_bytes=_canonical_bytes(attempt),
             runtime_bytes=_canonical_bytes(runtime),
-            verified_calibration_floor=None,
+            verified_calibration_floor=context.verified_calibration_floor,
         )
         _handoff_result_reader(context)
         _bind_writer_expected(context, expected)
