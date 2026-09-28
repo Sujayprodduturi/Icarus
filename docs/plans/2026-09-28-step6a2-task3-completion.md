@@ -1,6 +1,6 @@
 # Step 6a.2 Task 3 Slice 4B — candidate record and completion authority
 
-**Status:** bounded implementation brief following the operator's 2026-09-28 approval of the same-process authority proposal. Root reviewed and approved this bounded brief before builder dispatch on 2026-09-28. The exact schema and superseding authority rules are in [contracts §§6–8](2026-09-27-step6a2-task3-contracts.md). This is not approval of a counted experiment.
+**Status: ACCEPTED at `bcaa900` on 2026-09-28.** Independent review, 1,557 local unit passes, 1,562 Linux CI passes, clean static checks and four caught post-commit fault probes completed; see the [review record](../reviews/2026-09-28-step6a2-task3-completion-review.md). This bounded implementation follows the operator's approval of the same-process authority proposal. Root reviewed and approved this bounded brief before builder dispatch on 2026-09-28. The exact schema and superseding authority rules are in [contracts §§6–8](2026-09-27-step6a2-task3-contracts.md). This is not approval of a counted experiment.
 
 ## Scope and minimal API
 
