@@ -1,6 +1,6 @@
 # Step 6a.2 Task 3 Slice 4E — combined counted runner
 
-**Status: bounded design independently reviewed, 2026-09-28; implementation next.** Follows validation generation at `11241b8` pending exact Linux CI. The exact [Task 3 contracts](2026-09-27-step6a2-task3-contracts.md) and operator decision D29 govern this slice. It adds one same-process CLI path for calibration followed, only on an independently verified PASSED result, by held-back validation. It does not itself authorize the first official draw, product inference, real-data evaluation, broker access or live trading.
+**Status: implemented and accepted at `9f7360c`, 2026-09-28; whole-runner hold points pending.** Follows accepted validation generation at `11241b8`. The exact [Task 3 contracts](2026-09-27-step6a2-task3-contracts.md) and operator decision D29 govern this slice. It adds one same-process CLI path for calibration followed, only on an independently verified PASSED result, by held-back validation. It does not itself authorize the first official draw, product inference, real-data evaluation, broker access or live trading.
 
 ## Command boundary
 
