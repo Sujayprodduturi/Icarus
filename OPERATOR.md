@@ -333,6 +333,12 @@ Dated decisions that are not code and not in `goal.yaml`, so they have nowhere e
 |---|---|---|
 | D28 | **Continue the next steps while being mindful of usage limits.** No explicit token budget, reset-credit redemption or reduction in review/safety requirements was requested. D26's medium-effort requirement remains in force. | operator, 2026-09-28 |
 
+### 2026-09-28 — same-process completion authority
+
+| id | decision | owner |
+|---|---|---|
+| D29 | **Approve the stricter same-process completion approach.** Persisted seal bytes are inert candidate evidence; completion authority is issued privately only after file/directory sync, single-close and final resource/deadline checks succeed under the original two-hour limit. Validation requires that live authority plus fresh complete evidence verification and a passing calibration result. Process loss prevents automatic continuation for that attempt, even with intact files; there is no restart recovery, resume or redraw. This approves implementing the reviewed completion-authority proposal and its exact contract, not an official experiment, attestation, statistical threshold change or live trading. | operator, replying "Go ahead" to the explicit recommendation on 2026-09-28 |
+
 ## 7c. Deferred by decision — not forgotten
 
 Things consciously postponed. **Each names the condition that reopens it.** A deferral without a

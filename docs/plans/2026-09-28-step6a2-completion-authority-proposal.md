@@ -1,6 +1,6 @@
 # Step 6a.2 completion authority proposal
 
-**Status: PROPOSED — requires an operator decision. It is not approved and enables nothing today.**
+**Status: operator-approved direction on 2026-09-28 (OPERATOR D29).** The operator explicitly approved the stricter same-process approach. Implementation must follow the separately reviewed exact Slice 4B contract. No official experiment, restart recovery or trading authority is enabled by this approval.
 
 ## Plain-English recommendation
 

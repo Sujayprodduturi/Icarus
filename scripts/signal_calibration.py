@@ -21,7 +21,7 @@ import sys
 import time
 from collections import OrderedDict
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
@@ -369,6 +369,7 @@ class _EvidenceDirectory:
 
 
 _PHASE_CONTEXT_ISSUER: Final = object()
+_PHASE_COMPLETION_ISSUER: Final = object()
 _VERIFIER_READ_CHUNK_BYTES: Final = 1024 * 1024
 
 
@@ -413,11 +414,16 @@ def _phase_context_binding_bytes(
     resources: _ResourceBoundary,
     claim_sha256: str,
     started_at_utc: str,
+    original_pid: int | None = None,
 ) -> bytes:
+    bound_pid = os.getpid() if original_pid is None else original_pid
+    if type(bound_pid) is not int or bound_pid <= 0:
+        raise ManifestError("phase context PID is invalid")
     return _canonical_bytes(
         {
             "claim_sha256": claim_sha256,
             "phase": phase,
+            "original_pid": bound_pid,
             "paths": paths.as_claim_record(),
             "proof": {
                 "invocation_commit": proof.invocation_commit,
@@ -464,6 +470,9 @@ class _PhaseContext:
     writing_finished: bool = False
     writer_expected: _ExpectedPhaseContext | None = None
     writer_expected_binding_bytes: bytes | None = None
+    original_pid: int = field(default_factory=os.getpid)
+    completion_attempted: bool = False
+    completion: _PhaseCompletion | None = None
 
     def __post_init__(self) -> None:
         if self.issuer is not _PHASE_CONTEXT_ISSUER:
@@ -476,6 +485,7 @@ class _PhaseContext:
             self.resources,
             self.claim_sha256,
             self.started_at_utc,
+            self.original_pid,
         )
         if not hmac.compare_digest(current, self.bound_identity_bytes):
             raise ManifestError("phase context binding is invalid at issuance")
@@ -492,6 +502,7 @@ class _PhaseContext:
                 self.resources,
                 self.claim_sha256,
                 self.started_at_utc,
+                self.original_pid,
             )
             if not hmac.compare_digest(current_binding, self.bound_identity_bytes):
                 raise ManifestError("phase context binding changed")
@@ -528,6 +539,7 @@ class _PhaseContext:
         if self.closed:
             return
         object.__setattr__(self, "closed", True)
+        object.__setattr__(self, "completion", None)
         failures: list[str] = []
         for file in (self.result_file, self.claim_file):
             try:
@@ -3182,8 +3194,8 @@ def _write_immutable_claim(store: _EvidenceDirectory, name: str, raw: bytes) -> 
         retained = _check_evidence_file(store, name, reader_fd)
         if (retained.device, retained.inode) != (checked_writer.device, checked_writer.inode):
             raise ManifestError("claim identity changed while reopening")
-        store.ops.close(writer.fd)
         writer_owned = False
+        store.ops.close(writer.fd)
         store.ops.fsync(store.fd)
         store.recheck()
         reader_owned = False
@@ -4000,6 +4012,35 @@ class _VerifiedPhaseEvidence:
     verification_elapsed_seconds: float
     context_binding_bytes: bytes
     writer_expected_binding_bytes: bytes
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class _PhaseCompletion:
+    context: _PhaseContext
+    issuer: object
+    pid: int
+    context_binding_bytes: bytes
+    writer_expected_binding_bytes: bytes
+    phase: str
+    attempt_id: str
+    manifest_sha256: str
+    claim_sha256: str
+    claim_device: int
+    claim_inode: int
+    result_sha256: str
+    result_size_bytes: int
+    result_device: int
+    result_inode: int
+    candidate_sha256: str
+    candidate_size_bytes: int
+    candidate_device: int
+    candidate_inode: int
+    phase_verdict: str
+    selected_floor: tuple[int, float] | None
+    completed_total_elapsed_seconds: float
+    completed_peak_rss_bytes: int
+    completed_at_utc: str
+    payload_binding_bytes: bytes
 
 
 def _finite_number(value: object, label: str, *, nonnegative: bool = False) -> float:
@@ -5202,6 +5243,361 @@ def _verify_finished_phase_result(
             raise
         if isinstance(exc, OSError):
             raise ManifestError(f"saved-result verification failed: {exc}") from exc
+        raise
+
+
+_COMPLETION_CANDIDATE_MAX_BYTES: Final = 64 * 1024
+_COMPLETION_CANDIDATE_BASE_BYTES: Final = 4096
+
+
+def _completion_candidate_encoding_bound(context: _PhaseContext) -> int:
+    paths = context.paths.as_claim_record()
+    variable_strings = (
+        context.phase,
+        context.review.reviewed_commit,
+        context.proof.invocation_commit,
+        context.review.raw_sha256,
+        context.claim_sha256,
+        paths["claim"],
+        paths["result"],
+    )
+    if any(type(value) is not str for value in variable_strings):
+        raise ManifestError("completion candidate metadata is not text")
+    bound = _COMPLETION_CANDIDATE_BASE_BYTES + 4 * sum(len(value) for value in variable_strings)
+    if bound > _COMPLETION_CANDIDATE_MAX_BYTES:
+        raise ManifestError("completion candidate metadata exceeds its encoding bound")
+    return bound
+
+
+def _write_candidate_once(context: _PhaseContext, candidate: _EvidenceFile, raw: bytes) -> None:
+    context.resources.deadline.remaining()
+    try:
+        written = context.store.ops.write(candidate.fd, raw)
+    except OSError as exc:
+        raise ManifestError(f"completion candidate write failed: {exc}") from exc
+    if type(written) is not int or written != len(raw):
+        raise ManifestError("completion candidate write was not exact")
+
+
+def _phase_completion_payload(completion: _PhaseCompletion) -> dict[str, Any]:
+    return {
+        "attempt_id": completion.attempt_id,
+        "candidate": {
+            "device": completion.candidate_device,
+            "inode": completion.candidate_inode,
+            "sha256": completion.candidate_sha256,
+            "size_bytes": completion.candidate_size_bytes,
+        },
+        "claim": {
+            "device": completion.claim_device,
+            "inode": completion.claim_inode,
+            "sha256": completion.claim_sha256,
+        },
+        "completed_at_utc": completion.completed_at_utc,
+        "completed_peak_rss_bytes": completion.completed_peak_rss_bytes,
+        "completed_total_elapsed_seconds": completion.completed_total_elapsed_seconds,
+        "context_binding_sha256": hashlib.sha256(completion.context_binding_bytes).hexdigest(),
+        "manifest_sha256": completion.manifest_sha256,
+        "phase": completion.phase,
+        "phase_verdict": completion.phase_verdict,
+        "pid": completion.pid,
+        "result": {
+            "device": completion.result_device,
+            "inode": completion.result_inode,
+            "sha256": completion.result_sha256,
+            "size_bytes": completion.result_size_bytes,
+        },
+        "selected_floor": (
+            list(completion.selected_floor) if completion.selected_floor is not None else None
+        ),
+        "writer_expected_binding_sha256": hashlib.sha256(
+            completion.writer_expected_binding_bytes
+        ).hexdigest(),
+    }
+
+
+def _check_candidate_identity(
+    context: _PhaseContext,
+    candidate: _EvidenceFile,
+    exact_size: int,
+) -> None:
+    try:
+        named = context.store.ops.stat_at(context.store.fd, candidate.name)
+    except OSError as exc:
+        raise ManifestError(f"candidate identity check failed: {exc}") from exc
+    if (
+        not stat.S_ISREG(named.st_mode)
+        or named.st_nlink != 1
+        or (named.st_dev, named.st_ino) != (candidate.device, candidate.inode)
+    ):
+        raise ManifestError("candidate identity changed")
+    if type(named.st_size) is not int or named.st_size != exact_size:
+        raise ManifestError("candidate extent changed")
+
+
+def _require_phase_completion(
+    context: _PhaseContext, completion: _PhaseCompletion
+) -> _PhaseCompletion:
+    if context.closed:
+        raise ManifestError("phase completion context is closed")
+    if (
+        not isinstance(completion, _PhaseCompletion)
+        or completion.issuer is not _PHASE_COMPLETION_ISSUER
+        or completion.context is not context
+        or context.completion is not completion
+        or not context.completion_attempted
+    ):
+        raise ManifestError("phase completion was not issued for this context")
+    if (
+        type(context.original_pid) is not int
+        or context.original_pid <= 0
+        or completion.pid != context.original_pid
+        or os.getpid() != context.original_pid
+    ):
+        raise ManifestError("phase completion PID differs from the issuing process")
+    current_context_binding = _phase_context_binding_bytes(
+        context.phase,
+        context.paths,
+        context.review,
+        context.proof,
+        context.resources,
+        context.claim_sha256,
+        context.started_at_utc,
+        context.original_pid,
+    )
+    _require_bound_writer_expected(context)
+    if (
+        not hmac.compare_digest(context.bound_identity_bytes, current_context_binding)
+        or not hmac.compare_digest(completion.context_binding_bytes, current_context_binding)
+        or context.writer_expected_binding_bytes is None
+        or not hmac.compare_digest(
+            completion.writer_expected_binding_bytes,
+            context.writer_expected_binding_bytes,
+        )
+        or completion.phase != context.phase
+    ):
+        raise ManifestError("phase completion context binding changed")
+    expected_binding = _canonical_bytes(_phase_completion_payload(completion))
+    if not hmac.compare_digest(completion.payload_binding_bytes, expected_binding):
+        raise ManifestError("phase completion payload binding changed")
+    return completion
+
+
+def _complete_phase(context: _PhaseContext, manifest: dict[str, Any]) -> _PhaseCompletion:
+    candidate_writer: _EvidenceFile | None = None
+    writer_owned = False
+    candidate_reader_fd: int | None = None
+    reader_owned = False
+    try:
+        if context.closed:
+            raise ManifestError("phase completion context is closed")
+        if os.getpid() != context.original_pid:
+            raise ManifestError("phase completion PID differs from phase creation")
+        context.require_active(context.phase)
+        if context.completion_attempted:
+            context.close()
+            raise ManifestError("phase completion was already attempted")
+        object.__setattr__(context, "completion_attempted", True)
+        evidence = _verify_finished_phase_result(context, manifest)
+        candidate_encoding_bound = _completion_candidate_encoding_bound(context)
+        completion_allocation_bound = candidate_encoding_bound * 8
+        context.resources.check_planned_allocation(completion_allocation_bound)
+        now = context.resources.deadline.clock()
+        prewrite_total = now - context.resources.deadline.started_at
+        if not math.isfinite(now) or not math.isfinite(prewrite_total) or prewrite_total < 0.0:
+            raise ManifestError("candidate prewrite elapsed time is invalid")
+        prewrite_peak = context.resources.sample_peak_rss()
+        captured_at: str = context.store.ops.utc_now()
+        _check_utc(captured_at, "candidate prewrite time")
+        if captured_at < context.started_at_utc:
+            raise ManifestError("candidate prewrite time precedes attempt")
+        manifest_sha = hashlib.sha256(_canonical_bytes(manifest)).hexdigest()
+        paths = context.paths.as_claim_record()
+        attempt_id = f"{context.review.reviewed_commit}-{context.phase}"
+        harness_path = str(
+            _mapping(
+                _mapping(manifest["integrity"], "integrity")["protected_paths"],
+                "integrity.protected_paths",
+            )["harness"]
+        )
+        candidate_payload = {
+            "attempt_id": attempt_id,
+            "authority": "NONE",
+            "claim_path": paths["claim"],
+            "claim_sha256": context.claim_sha256,
+            "invocation_commit": context.proof.invocation_commit,
+            "manifest_sha256": manifest_sha,
+            "phase": context.phase,
+            "phase_verdict": evidence.phase_verdict,
+            "prewrite_snapshot": {
+                "captured_at_utc": captured_at,
+                "peak_rss_bytes": prewrite_peak,
+                "resource_verdict": "WITHIN_LIMIT",
+                "total_elapsed_seconds": prewrite_total,
+                "verification_elapsed_seconds": evidence.verification_elapsed_seconds,
+                "verification_projected_bytes": evidence.verification_projected_bytes,
+            },
+            "protocol_version": PROTOCOL_VERSION,
+            "result_path": paths["result"],
+            "result_sha256": evidence.result_sha256,
+            "result_size_bytes": evidence.result_size_bytes,
+            "review_attestation_sha256": context.review.raw_sha256,
+            "reviewed_commit": context.review.reviewed_commit,
+            "schema": "step6a2-completion-candidate-v2",
+            "verifier": {
+                "harness_sha256": context.proof.protected_blobs[harness_path],
+                "schema": "step6a2-result-verifier-v1",
+            },
+        }
+        candidate_bytes = _canonical_bytes(candidate_payload)
+        if len(candidate_bytes) > candidate_encoding_bound:
+            raise ManifestError("completion candidate exceeds its derived encoding bound")
+        context.require_active(context.phase)
+        candidate_writer = _open_exclusive_evidence_file(context.store, context.paths.seal_name)
+        writer_owned = True
+        _write_candidate_once(context, candidate_writer, candidate_bytes)
+        context.require_active(context.phase)
+        context.store.ops.fsync(candidate_writer.fd)
+        context.require_active(context.phase)
+        context.store.ops.fsync(context.store.fd)
+        context.require_active(context.phase)
+        checked_writer = _check_evidence_file(
+            context.store, candidate_writer.name, candidate_writer.fd
+        )
+        if (checked_writer.device, checked_writer.inode) != (
+            candidate_writer.device,
+            candidate_writer.inode,
+        ):
+            raise ManifestError("candidate identity changed while writing")
+        writer_owned = False
+        context.store.ops.close(candidate_writer.fd)
+        context.require_active(context.phase)
+        candidate_reader_fd = context.store.ops.open_existing_file(
+            context.store.fd, context.paths.seal_name
+        )
+        reader_owned = True
+        if type(candidate_reader_fd) is not int:
+            raise ManifestError("candidate retained reader is invalid")
+        candidate_reader = _check_evidence_file(
+            context.store, context.paths.seal_name, candidate_reader_fd
+        )
+        if (candidate_reader.device, candidate_reader.inode) != (
+            candidate_writer.device,
+            candidate_writer.inode,
+        ):
+            raise ManifestError("candidate identity changed while reopening")
+        reread = _read_exact_evidence_bytes(
+            context.store.ops,
+            context.resources.deadline,
+            candidate_reader.fd,
+            len(candidate_bytes),
+            label="candidate",
+        )
+        if not hmac.compare_digest(reread, candidate_bytes):
+            raise ManifestError("candidate bytes differ after reopening")
+        candidate_sha = hashlib.sha256(reread).hexdigest()
+        _check_candidate_identity(context, candidate_writer, len(candidate_bytes))
+        context.require_active(context.phase)
+        _check_verified_result_extent(context, context.result_file, evidence.result_size_bytes)
+        result_sha = _rehash_exact_evidence(
+            context.store.ops,
+            context.resources.deadline,
+            context.result_file.fd,
+            evidence.result_size_bytes,
+            label="completed result",
+        )
+        if not hmac.compare_digest(result_sha, evidence.result_sha256):
+            raise ManifestError("result bytes changed during completion")
+        _check_verified_result_extent(context, context.result_file, evidence.result_size_bytes)
+        final_candidate = _read_exact_evidence_bytes(
+            context.store.ops,
+            context.resources.deadline,
+            candidate_reader.fd,
+            len(candidate_bytes),
+            label="candidate",
+        )
+        if not hmac.compare_digest(final_candidate, candidate_bytes):
+            raise ManifestError("candidate bytes changed during completion")
+        _check_candidate_identity(context, candidate_writer, len(candidate_bytes))
+        reader_owned = False
+        context.store.ops.close(candidate_reader.fd)
+        context.require_active(context.phase)
+        _check_candidate_identity(context, candidate_writer, len(candidate_bytes))
+        context.resources.check_planned_allocation(completion_allocation_bound)
+        completed_at: str = context.store.ops.utc_now()
+        _check_utc(completed_at, "completion time")
+        if completed_at < context.started_at_utc:
+            raise ManifestError("completion time precedes attempt")
+        completed_peak = context.resources.sample_peak_rss()
+        ended = context.resources.deadline.clock()
+        completed_elapsed = ended - context.resources.deadline.started_at
+        if (
+            not math.isfinite(ended)
+            or not math.isfinite(completed_elapsed)
+            or completed_elapsed < 0.0
+        ):
+            raise ManifestError("completed elapsed time is invalid")
+        expected_binding = context.writer_expected_binding_bytes
+        if not isinstance(expected_binding, bytes):
+            raise ManifestError("completion lost writer expected binding")
+        completion = _PhaseCompletion(
+            context=context,
+            issuer=_PHASE_COMPLETION_ISSUER,
+            pid=context.original_pid,
+            context_binding_bytes=context.bound_identity_bytes,
+            writer_expected_binding_bytes=expected_binding,
+            phase=context.phase,
+            attempt_id=attempt_id,
+            manifest_sha256=manifest_sha,
+            claim_sha256=context.claim_sha256,
+            claim_device=context.claim_file.device,
+            claim_inode=context.claim_file.inode,
+            result_sha256=evidence.result_sha256,
+            result_size_bytes=evidence.result_size_bytes,
+            result_device=context.result_file.device,
+            result_inode=context.result_file.inode,
+            candidate_sha256=candidate_sha,
+            candidate_size_bytes=len(candidate_bytes),
+            candidate_device=candidate_writer.device,
+            candidate_inode=candidate_writer.inode,
+            phase_verdict=evidence.phase_verdict,
+            selected_floor=evidence.selected_floor,
+            completed_total_elapsed_seconds=completed_elapsed,
+            completed_peak_rss_bytes=completed_peak,
+            completed_at_utc=completed_at,
+            payload_binding_bytes=b"",
+        )
+        object.__setattr__(
+            completion,
+            "payload_binding_bytes",
+            _canonical_bytes(_phase_completion_payload(completion)),
+        )
+        context.resources.deadline.remaining()
+        object.__setattr__(context, "completion", completion)
+        return completion
+    except BaseException as exc:
+        close_failure: BaseException | None = None
+        for fd, owned in (
+            (candidate_reader_fd, reader_owned),
+            (candidate_writer.fd if candidate_writer is not None else None, writer_owned),
+        ):
+            if fd is None or not owned:
+                continue
+            try:
+                context.store.ops.close(fd)
+            except (OSError, KeyError) as close_exc:
+                close_failure = close_exc
+        object.__setattr__(context, "completion", None)
+        try:
+            context.close()
+        except ManifestError as close_exc:
+            close_failure = close_exc
+        if close_failure is not None:
+            raise ManifestError(f"phase completion close failed: {close_failure}") from exc
+        if isinstance(exc, ManifestError):
+            raise
+        if isinstance(exc, OSError):
+            raise ManifestError(f"phase completion I/O failed: {exc}") from exc
         raise
 
 

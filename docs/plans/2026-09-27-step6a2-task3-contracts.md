@@ -152,40 +152,49 @@ All counts and bounds are recomputed from chunk event IDs using the frozen famil
 
 **INCOMPLETE summary clarification (2026-09-27, Astra Medium and root):** complete-summary requirements above apply only to complete results. An incomplete result uses exactly `{cells:[],candidate_results:[],selected_floor:null,parity_complete:false,phase_verdict:"INCOMPLETE"}`. Durably committed chunk partitions preserve observed counts and generated ranges; the terminal failure identifies where processing stopped. Do not invent unfinished outcomes or compute partial-run confidence bounds. This failure representation does not change the statistical protocol or permit a seal.
 
-`runtime` is the pre-verification snapshot exactly `{platform,resource_backend,address_space_limit_bytes,peak_rss_before_verification_bytes,peak_rss_source,planned_peak_bytes,maximum_result_bytes,generation_elapsed_seconds,deadline_seconds,resource_state}`; `resource_state` must be `WITHIN_LIMIT` for an unverified complete result. `terminal` is exactly `{state:"UNVERIFIED"|"INCOMPLETE",ended_at_utc:utc,failure:null|{kind:string,message:string,cell_id:integer|null,chunk_id:integer|null,replicate_ids:[integer]}}`. A complete statistical pass or failure is still `UNVERIFIED` until the seal exists. Caught failures close valid JSON as `INCOMPLETE`; abrupt failure may leave invalid bytes, which remain reserved.
+`runtime` is the pre-verification snapshot exactly `{platform,resource_backend,address_space_limit_bytes,peak_rss_before_verification_bytes,peak_rss_source,planned_peak_bytes,maximum_result_bytes,generation_elapsed_seconds,deadline_seconds,resource_state}`; `resource_state` must be `WITHIN_LIMIT` for an unverified complete result. `terminal` is exactly `{state:"UNVERIFIED"|"INCOMPLETE",ended_at_utc:utc,failure:null|{kind:string,message:string,cell_id:integer|null,chunk_id:integer|null,replicate_ids:[integer]}}`. A complete result's immutable terminal remains `UNVERIFIED`; completion authority is separately established under amended §6, never by file existence. Caught failures close valid JSON as `INCOMPLETE`; abrupt failure may leave invalid bytes, which remain reserved.
 
-## 6. Seal contract
+## 6. Candidate record and process-local completion authority
 
-**Implementation hold, 2026-09-28:** the schema below is retained, but the seal's successful finalization point needs an explicit ruling. Identical surviving bytes can follow successful finalization or a post-write deadline/fsync failure; later hashing cannot distinguish that history. Do not implement sealing or validation unlock until this is resolved. Independent result verification proceeds separately under the [Slice 4A plan](2026-09-28-step6a2-task3-verification.md).
+**Operator-approved amendment, 2026-09-28:** the same-process authority proposal supersedes the former `step6a2-completion-seal-v1` schema and persisted-seal authority. Identical surviving bytes cannot prove whether later fsync, close and deadline checks succeeded. The existing `.seal` path now holds an inert candidate record only. No legacy seal is accepted as authority. The [Slice 4B plan](2026-09-28-step6a2-task3-completion.md) specifies the bounded implementation; validation execution and its combined invocation remain separately held.
 
-The seal schema is `step6a2-completion-seal-v1` with exactly:
+The exact candidate schema is `step6a2-completion-candidate-v2`:
 
 ```text
 {
-  schema, protocol_version, manifest_sha256, phase, attempt_id,
+  schema:"step6a2-completion-candidate-v2", protocol_version, manifest_sha256,
+  phase:"calibration"|"validation", attempt_id,
   claim_path, claim_sha256, result_path, result_sha256, result_size_bytes,
   reviewed_commit, invocation_commit, review_attestation_sha256,
-  phase_verdict:"PASSED"|"FAILED", verification_verdict:"COMPLETE",
+  phase_verdict:"PASSED"|"FAILED", authority:"NONE",
   verifier:{schema:"step6a2-result-verifier-v1",harness_sha256:sha256},
-  verification_elapsed_seconds:number, total_elapsed_seconds:number,
-  verification_projected_bytes:integer, final_peak_rss_bytes:integer,
-  final_resource_verdict:"WITHIN_LIMIT", verified_at_utc:utc
+  prewrite_snapshot:{
+    verification_elapsed_seconds:number, total_elapsed_seconds:number,
+    verification_projected_bytes:integer, peak_rss_bytes:integer,
+    resource_verdict:"WITHIN_LIMIT", captured_at_utc:utc
+  }
 }
 ```
 
-A seal may be created only after reopening the final result through the retained evidence-directory handle, hashing those same bytes, strict parsing, and independent recomputation of provenance, partitions, parity, bounds, verdicts and first-passing selection. `INCOMPLETE` results are never sealed. `COMPLETE` describes evidence completeness; validation unlock additionally requires calibration `phase_verdict == PASSED` and a non-null first-passing floor.
+These are the only keys. Common canonical JSON/type rules apply. Elapsed measurements are finite nonnegative numbers; sizes/projections/peak values are nonnegative integers excluding booleans. Limits, provenance and phase values are independently derived from the authenticated context and manifest. UTC is not earlier than the attempt start. Snapshot fields describe checks before candidate serialization/write, not completed finalization. There is no persisted `COMPLETE` authority or final elapsed/resource claim.
+
+Only a private controller-issued completion capability represents successful finalization. Its immutable payload binds the exact issuing context object and its canonical identity, writer-expected binding, phase/attempt/manifest, claim/result digests and original identities, candidate digest/size/original identity, selected floor, phase verdict, issuing PID and the post-close elapsed/peak/UTC snapshot. The capability must be the exact object retained in the context's one issuance slot, have the private issuer marker, and match the current PID and bindings. Type, equal fields, copying, parsing files, or a forked process cannot establish authority. This is an accidental-misuse boundary, not protection against arbitrary malicious Python in the issuing process.
+
+Candidate creation requires a fresh internal call to independent result verification; callers cannot supply a saved verification result. Complete PASSED and FAILED results may reach completion; INCOMPLETE results never do. Capability issuance occurs once, only after candidate write, file fsync, containing-directory fsync, a single writer-close attempt, content/identity rechecks and closure of verification-only handles, followed by original-deadline/resource checks. Failure at any stage permanently invalidates the context and leaves no valid capability. Surviving candidate bytes, partial or complete, remain reserved and never authorize anything.
 
 ## 7. Validation evidence allowance
 
-Calibration preflight allows only `AGENTS.md` plus the exact current calibration claim/result/seal paths derived above. Before calibration claim, those paths must not exist.
+Calibration preflight allows only `AGENTS.md` plus the exact current calibration claim/result/candidate paths derived above. Before calibration claim, those paths must not exist.
 
-Validation first opens and verifies the exact calibration claim, result and seal derived from the calibration claim; a user path is only a locator and must equal the derived result path. After verification, validation cleanliness allows exactly:
+Future validation requires the live same-process calibration completion capability AND fresh complete verification of its exact claim, result and candidate bytes. The capability must identify a PASSED calibration with its non-null first-passing floor. FAILED completion is evidence completeness only and cannot unlock validation. A user path is only a locator and must equal the derived result path. Process loss or a PID change destroys authority: intact or perfectly reverified files cannot reconstruct it. No restart/resume path is introduced.
+
+After verification, validation cleanliness allows exactly:
 
 - the frozen `AGENTS.md` allowance;
 - the three exact verified calibration paths;
-- the three exact current validation claim/result/seal paths.
+- the three exact current validation claim/result/candidate paths.
 
-No directory prefix, glob, other result, selection summary, temporary file or sibling evidence path is allowed. The calibration trio may remain untracked and does not count as an intervening commit. If committed, HEAD would violate the review-only ancestry rule and validation refuses. File identity for the opened calibration result is retained and rechecked through validation claim and result reservation.
+No directory prefix, glob, other result, selection summary, temporary file or sibling evidence path is allowed. The calibration trio may remain untracked and does not count as an intervening commit. If committed, HEAD would violate the review-only ancestry rule and validation refuses. Original identities and bound contents are rechecked through future validation claim and result reservation. The combined calibrate-then-validate invocation, capability consumption and validation execution require their own reviewed milestone; Slice 4B implements none of them.
 
 ## 8. Resource and durability contract
 
@@ -195,20 +204,22 @@ On Linux, before claim or RNG, the controller must:
 
 - resolve the evidence mount from `/proc/self/mountinfo`, accept only `ext4`, `xfs` or `btrfs`, and reject network, overlay, FUSE, `tmpfs` and unknown filesystems;
 - set both soft and hard `resource.RLIMIT_AS` to 2 GiB and verify the installed value; this caps virtual address space, not RSS;
-- start one monotonic two-hour deadline covering preflight, generation, result close, independent verification and seal creation;
+- start one monotonic two-hour deadline covering preflight, generation, result close, independent verification, candidate writing, file/directory fsync, single close attempts, final evidence checks and the final resource/deadline checks before capability issuance;
 - open and retain no-follow directory handles for the evidence path.
 
-Peak resident memory is measured separately with Linux `getrusage(RUSAGE_SELF).ru_maxrss` converted to bytes, sampled after the largest allocation and every chunk, and recorded as peak RSS. Current RSS plus simultaneously live planned arrays/cache is checked before allocation. The hard address-space cap remains active during result verification. Before reading result bytes, require `current_vms + 32 * result_size_bytes + 64 MiB <= 2 GiB`; otherwise close as incomplete and do not seal. The factor is a conservative JSON bytes-plus-object allowance, not a statistical threshold. Result writing also refuses before exceeding that projected verifier budget.
+Peak resident memory is measured separately with Linux `getrusage(RUSAGE_SELF).ru_maxrss` converted to bytes, sampled after the largest allocation and every chunk, and recorded as peak RSS. Current RSS plus simultaneously live planned arrays/cache is checked before allocation. The hard address-space cap remains active during verification and completion. Before reading result bytes, require `current_vms + 32 * result_size_bytes + 64 MiB <= 2 GiB`; otherwise fail without authority. The factor is a conservative JSON bytes-plus-object allowance, not a statistical threshold. Result writing also refuses before exceeding that projected verifier budget. Candidate serialization, encoding and bounded rereads require allocation guards too.
 
-Evidence files are opened relative to retained directory handles with `O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC`, mode `0600`. The runner rejects non-regular files, extra hard links and device/inode changes. It fsyncs every checkpoint and final file, then fsyncs the containing directory. When it creates a directory, it fsyncs the new directory and its parent before continuing. Any unsupported flag, limit, filesystem proof, fsync, allocation, flush, identity or deadline failure refuses before a draw when possible; after claim it produces or leaves an incomplete attempt and never a seal. No rename, overwrite, truncation, resume or cleanup path exists.
+Evidence files are opened relative to retained directory handles with `O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC`, mode `0600`. The runner rejects non-regular files, extra hard links and device/inode changes. It fsyncs every checkpoint and final file, then fsyncs the containing directory. When it creates a directory, it fsyncs the new directory and its parent before continuing. Any unsupported flag, limit, filesystem proof, fsync, allocation, flush, identity, close or deadline failure refuses before a draw when possible; after claim it permanently invalidates completion authority. It may leave incomplete result bytes or partial/complete inert candidate bytes. This explicitly replaces the impossible former requirement that every post-claim failure leave no seal bytes.
+
+Relinquish ownership before each close attempt, even if close reports failure after releasing its descriptor. Cleanup attempts every remaining owned handle once, surfaces cleanup failures, and never retries an uncertain descriptor. Success retains the authenticated context's original handles for a future same-process consumer; closing or invalidating that context invalidates its capability. No rename, overwrite, truncation, resume or cleanup of artifact paths exists. No extra artifact is added.
 
 Sources for the platform semantics, checked 2026-09-27: [Python 3.12 `resource`](https://docs.python.org/3.12/library/resource.html) (`RLIMIT_AS` is address-space, not RSS) and [Linux `fsync(2)`](https://man7.org/linux/man-pages/man2/fsync.2.html) (file fsync does not make directory entries durable; the directory also needs fsync).
 
 ## 9. Acceptance invariants
 
-- A result with a missing/extra key, duplicate/trailing byte, changed cell, incomplete range, duplicated/foreign ID, trusted aggregate, non-first floor or incomplete parity never receives a seal.
+- A result with a missing/extra key, duplicate/trailing byte, changed cell, incomplete range, duplicated/foreign ID, trusted aggregate, non-first floor or incomplete parity never receives completion authority.
 - A redelivered launch sees the stable claim and refuses before RNG, regardless of result or seal condition.
-- Validation cannot unlock from a summary or digest alone; it requires the exact verified calibration trio and recomputes the complete result.
+- Validation cannot unlock from a summary or digest alone; it requires the exact live same-process completion capability plus the verified calibration trio and recomputes the complete result.
 - Review ancestry is checked commit-by-commit; endpoint blob equality alone is insufficient.
 - Resource installation and durable directory/file creation are proved with failure-injection tests before any counted draw.
 - The first frozen calibration draw remains a separate hold point requiring independent approval of the implemented, committed runner and this contract.

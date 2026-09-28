@@ -2073,6 +2073,49 @@ def test_evidence_root_fstat_failure_closes_unregistered_fd(tmp_path: Path) -> N
     assert ops.fds == {}
 
 
+def test_claim_close_error_after_release_never_retries_reused_writer_fd(
+    tmp_path: Path,
+) -> None:
+    store, ops = _fake_evidence_store(tmp_path)
+    original_open = ops.open_exclusive_file
+    original_close = ops.close
+    writer_fd: int | None = None
+    closes = 0
+    sentinel = tmp_path / "sentinel"
+    ops.nodes[sentinel] = {
+        "kind": "file",
+        "dev": 1,
+        "ino": 99_999,
+        "nlink": 1,
+        "data": bytearray(),
+    }
+
+    def track_writer(directory_fd: int, name: str, mode: int) -> int:
+        nonlocal writer_fd
+        writer_fd = original_open(directory_fd, name, mode)
+        return writer_fd
+
+    def release_reuse_then_fail(fd: int) -> None:
+        nonlocal closes
+        if fd == writer_fd:
+            closes += 1
+            del ops.fds[fd]
+            del ops.offsets[fd]
+            ops.fds[fd] = sentinel
+            ops.offsets[fd] = 0
+            raise OSError("claim close reported failure after release")
+        original_close(fd)
+
+    ops.open_exclusive_file = track_writer  # type: ignore[method-assign]
+    ops.close = release_reuse_then_fail  # type: ignore[method-assign]
+    with pytest.raises(ManifestError, match="close"):
+        calibration._write_immutable_claim(store, "calibration.claim", b"claim\n")
+
+    assert writer_fd is not None
+    assert closes == 1
+    assert ops.fds[writer_fd] == sentinel
+
+
 def test_claim_directory_fsync_failure_does_not_double_close_writer(tmp_path: Path) -> None:
     store, ops = _fake_evidence_store(tmp_path)
     original_fsync = ops.fsync
@@ -3250,6 +3293,47 @@ def _prepared_verification_fixture(
     return manifest, context, ops, expected
 
 
+def _stub_completion_verifier(
+    monkeypatch: pytest.MonkeyPatch,
+    context: calibration._PhaseContext,
+    *,
+    verdict: str = "PASSED",
+) -> list[int]:
+    result_path = context.store.path / context.paths.result_name
+    raw = bytes(context.store.ops.nodes[result_path]["data"])
+    parsed = calibration._parse_canonical_json_bytes(raw, label="stub result")
+    selected = parsed["summary"]["selected_floor"]
+    floor = (
+        (selected["minimum_blocks"], float(selected["minimum_nu"]))
+        if selected is not None and verdict == "PASSED"
+        else None
+    )
+    calls: list[int] = []
+
+    def verify(
+        supplied: calibration._PhaseContext, _manifest: dict[str, Any]
+    ) -> calibration._VerifiedPhaseEvidence:
+        assert supplied is context
+        calls.append(1)
+        expected_binding = context.writer_expected_binding_bytes
+        assert isinstance(expected_binding, bytes)
+        return calibration._VerifiedPhaseEvidence(
+            context.phase,
+            verdict,
+            floor,
+            hashlib.sha256(raw).hexdigest(),
+            len(raw),
+            256 * 1024 * 1024,
+            64 * 1024 * 1024,
+            0.25,
+            context.bound_identity_bytes,
+            expected_binding,
+        )
+
+    monkeypatch.setattr(calibration, "_verify_finished_phase_result", verify)
+    return calls
+
+
 def test_phase_writer_streams_canonical_complete_result_and_hands_off_reader(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -3337,9 +3421,16 @@ def test_phase_writer_complete_statistical_failure_remains_unverified(
     assert parsed["terminal"]["state"] == "UNVERIFIED"
     assert parsed["summary"]["phase_verdict"] == "FAILED"
     assert calibration.validate_phase_result(manifest, parsed, expected).phase_verdict == "FAILED"
-    evidence = calibration._verify_finished_phase_result(context, manifest)
-    assert evidence.phase_verdict == "FAILED"
-    assert evidence.selected_floor is None
+    completion = calibration._complete_phase(context, manifest)
+    assert completion.phase_verdict == "FAILED"
+    assert completion.selected_floor is None
+    assert calibration._require_phase_completion(context, completion) is completion
+    candidate_path = context.store.path / context.paths.seal_name
+    candidate = calibration._parse_canonical_json_bytes(
+        bytes(ops.nodes[candidate_path]["data"]), label="failed candidate"
+    )
+    assert candidate["phase_verdict"] == "FAILED"
+    assert candidate["authority"] == "NONE"
     assert context.closed is False
     context.close()
 
@@ -3654,6 +3745,486 @@ def test_finished_verifier_never_retries_reader_close_after_fd_reuse(
     assert verification_reader is not None
     assert reader_closes == 1
     assert ops.fds[verification_reader] == sentinel
+    assert context.closed is True
+
+
+def test_complete_phase_writes_inert_candidate_then_issues_process_authority(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, ops, _ = _prepared_verification_fixture(tmp_path, monkeypatch, complete)
+    independently_verified = calibration._verify_finished_phase_result(context, manifest)
+    prior_calls = len(ops.calls)
+
+    completion = calibration._complete_phase(context, manifest)
+
+    candidate_path = context.store.path / context.paths.seal_name
+    raw = bytes(ops.nodes[candidate_path]["data"])
+    candidate = calibration._parse_canonical_json_bytes(raw, label="completion candidate")
+    assert set(candidate) == {
+        "attempt_id",
+        "authority",
+        "claim_path",
+        "claim_sha256",
+        "invocation_commit",
+        "manifest_sha256",
+        "phase",
+        "phase_verdict",
+        "prewrite_snapshot",
+        "protocol_version",
+        "result_path",
+        "result_sha256",
+        "result_size_bytes",
+        "review_attestation_sha256",
+        "reviewed_commit",
+        "schema",
+        "verifier",
+    }
+    paths = context.paths.as_claim_record()
+    harness_path = manifest["integrity"]["protected_paths"]["harness"]
+    expected_candidate = {
+        "attempt_id": f"{context.review.reviewed_commit}-{context.phase}",
+        "authority": "NONE",
+        "claim_path": paths["claim"],
+        "claim_sha256": context.claim_sha256,
+        "invocation_commit": context.proof.invocation_commit,
+        "manifest_sha256": hashlib.sha256(calibration._canonical_bytes(manifest)).hexdigest(),
+        "phase": context.phase,
+        "phase_verdict": "PASSED",
+        "prewrite_snapshot": {
+            "captured_at_utc": "2026-09-27T01:02:03.000000Z",
+            "peak_rss_bytes": 64 * 1024 * 1024,
+            "resource_verdict": "WITHIN_LIMIT",
+            "total_elapsed_seconds": 1.0,
+            "verification_elapsed_seconds": independently_verified.verification_elapsed_seconds,
+            "verification_projected_bytes": independently_verified.verification_projected_bytes,
+        },
+        "protocol_version": calibration.PROTOCOL_VERSION,
+        "result_path": paths["result"],
+        "result_sha256": independently_verified.result_sha256,
+        "result_size_bytes": independently_verified.result_size_bytes,
+        "review_attestation_sha256": context.review.raw_sha256,
+        "reviewed_commit": context.review.reviewed_commit,
+        "schema": "step6a2-completion-candidate-v2",
+        "verifier": {
+            "harness_sha256": context.proof.protected_blobs[harness_path],
+            "schema": "step6a2-result-verifier-v1",
+        },
+    }
+    assert candidate == expected_candidate
+    assert independently_verified.selected_floor is not None
+    expected_capability_payload = {
+        "attempt_id": expected_candidate["attempt_id"],
+        "candidate": {
+            "device": 1,
+            "inode": ops.nodes[candidate_path]["ino"],
+            "sha256": hashlib.sha256(raw).hexdigest(),
+            "size_bytes": len(raw),
+        },
+        "claim": {
+            "device": context.claim_file.device,
+            "inode": context.claim_file.inode,
+            "sha256": context.claim_sha256,
+        },
+        "completed_at_utc": "2026-09-27T01:02:03.000000Z",
+        "completed_peak_rss_bytes": 64 * 1024 * 1024,
+        "completed_total_elapsed_seconds": 1.0,
+        "context_binding_sha256": hashlib.sha256(context.bound_identity_bytes).hexdigest(),
+        "manifest_sha256": expected_candidate["manifest_sha256"],
+        "phase": context.phase,
+        "phase_verdict": "PASSED",
+        "pid": context.original_pid,
+        "result": {
+            "device": context.result_file.device,
+            "inode": context.result_file.inode,
+            "sha256": independently_verified.result_sha256,
+            "size_bytes": independently_verified.result_size_bytes,
+        },
+        "selected_floor": list(independently_verified.selected_floor),
+        "writer_expected_binding_sha256": hashlib.sha256(
+            context.writer_expected_binding_bytes or b""
+        ).hexdigest(),
+    }
+    assert completion.payload_binding_bytes == calibration._canonical_bytes(
+        expected_capability_payload
+    )
+    assert candidate["schema"] == "step6a2-completion-candidate-v2"
+    assert candidate["authority"] == "NONE"
+    assert candidate["phase_verdict"] == "PASSED"
+    assert (
+        candidate["result_sha256"]
+        == hashlib.sha256(
+            bytes(ops.nodes[context.store.path / context.paths.result_name]["data"])
+        ).hexdigest()
+    )
+    assert raw.endswith(b"\n") and raw.count(b"\n") == 1
+    assert calibration._require_phase_completion(context, completion) is completion
+    assert context.closed is False
+    calls = ops.calls[prior_calls:]
+    assert calls.index(("fsync", candidate_path)) < calls.index(("fsync", context.store.path))
+    prior_require = len(ops.calls)
+    expired = calibration._Deadline(0.0, 60.0, lambda: 61.0)
+    object.__setattr__(context.resources.policy, "deadline", expired)
+    context.store.deadline = expired
+    assert calibration._require_phase_completion(context, completion) is completion
+    assert len(ops.calls) == prior_require
+    context.close()
+    with pytest.raises(ManifestError, match="closed"):
+        calibration._require_phase_completion(context, completion)
+
+
+def test_complete_phase_refuses_short_candidate_write_and_closes_context(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, ops, _ = _prepared_verification_fixture(tmp_path, monkeypatch, complete)
+    calls = _stub_completion_verifier(monkeypatch, context)
+    ops.short_write = 7
+
+    with pytest.raises(ManifestError, match="exact"):
+        calibration._complete_phase(context, manifest)
+
+    candidate = context.store.path / context.paths.seal_name
+    assert calls == [1]
+    assert len(ops.nodes[candidate]["data"]) == 7
+    assert context.completion is None
+    assert context.closed is True
+
+
+def test_phase_completion_is_exact_object_bound_to_current_context_values(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, _, _ = _prepared_verification_fixture(tmp_path, monkeypatch, complete)
+    _stub_completion_verifier(monkeypatch, context)
+    completion = calibration._complete_phase(context, manifest)
+
+    copied = dataclasses.replace(completion)
+    with pytest.raises(ManifestError, match="issued"):
+        calibration._require_phase_completion(context, copied)
+    context.proof.protected_blobs["scripts/signal_calibration.py"] = "0" * 64
+    with pytest.raises(ManifestError, match="binding"):
+        calibration._require_phase_completion(context, completion)
+
+
+def test_complete_phase_detects_same_size_candidate_edit_during_result_rehash(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, ops, _ = _prepared_verification_fixture(tmp_path, monkeypatch, complete)
+    _stub_completion_verifier(monkeypatch, context)
+    original = calibration._rehash_exact_evidence
+    changed = False
+
+    def mutate_after_rehash(*args: Any, **kwargs: Any) -> str:
+        nonlocal changed
+        digest = original(*args, **kwargs)
+        if kwargs.get("label") == "completed result":
+            candidate = context.store.path / context.paths.seal_name
+            ops.nodes[candidate]["data"][0] ^= 1
+            changed = True
+        return digest
+
+    monkeypatch.setattr(calibration, "_rehash_exact_evidence", mutate_after_rehash)
+    with pytest.raises(ManifestError, match="candidate bytes changed"):
+        calibration._complete_phase(context, manifest)
+
+    assert changed is True
+    assert context.closed is True
+    assert context.completion is None
+
+
+def test_complete_phase_final_deadline_check_follows_payload_binding(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, ops, _ = _prepared_verification_fixture(tmp_path, monkeypatch, complete)
+    _stub_completion_verifier(monkeypatch, context)
+    expired = False
+    deadline = context.resources.deadline
+    object.__setattr__(deadline, "clock", lambda: 61.0 if expired else 1.0)
+    original = calibration._phase_completion_payload
+
+    def expire_during_payload(
+        completion: calibration._PhaseCompletion,
+    ) -> dict[str, Any]:
+        nonlocal expired
+        payload = original(completion)
+        expired = True
+        return payload
+
+    monkeypatch.setattr(calibration, "_phase_completion_payload", expire_during_payload)
+    with pytest.raises(ManifestError, match="deadline"):
+        calibration._complete_phase(context, manifest)
+
+    assert context.store.path / context.paths.seal_name in ops.nodes
+    assert context.completion is None
+    assert context.closed is True
+
+
+@pytest.mark.parametrize("sync_target", ["file", "directory"])
+def test_complete_phase_sync_failure_leaves_inert_candidate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+    sync_target: str,
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, ops, _ = _prepared_verification_fixture(tmp_path, monkeypatch, complete)
+    _stub_completion_verifier(monkeypatch, context)
+    original = ops.fsync
+    candidate = context.store.path / context.paths.seal_name
+    reached = False
+
+    def fail_selected(fd: int) -> None:
+        nonlocal reached
+        path = ops.fds[fd]
+        if path == (candidate if sync_target == "file" else context.store.path):
+            reached = True
+            raise OSError(f"injected candidate {sync_target} sync failure")
+        original(fd)
+
+    ops.fsync = fail_selected  # type: ignore[method-assign]
+    with pytest.raises(ManifestError, match="I/O failed"):
+        calibration._complete_phase(context, manifest)
+
+    assert reached is True
+    assert bytes(ops.nodes[candidate]["data"]).endswith(b"\n")
+    assert context.completion is None
+    assert context.closed is True
+
+
+def test_complete_phase_repeated_attempt_invalidates_first_authority_without_rewrite(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, ops, _ = _prepared_verification_fixture(tmp_path, monkeypatch, complete)
+    calls = _stub_completion_verifier(monkeypatch, context)
+    completion = calibration._complete_phase(context, manifest)
+    candidate = context.store.path / context.paths.seal_name
+    raw = bytes(ops.nodes[candidate]["data"])
+
+    with pytest.raises(ManifestError, match="already attempted"):
+        calibration._complete_phase(context, manifest)
+
+    assert calls == [1]
+    assert bytes(ops.nodes[candidate]["data"]) == raw
+    assert context.closed is True
+    with pytest.raises(ManifestError, match="closed"):
+        calibration._require_phase_completion(context, completion)
+
+
+def test_complete_phase_writer_release_error_does_not_close_reused_fd(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, ops, _ = _prepared_verification_fixture(tmp_path, monkeypatch, complete)
+    _stub_completion_verifier(monkeypatch, context)
+    original_open = ops.open_exclusive_file
+    original_close = ops.close
+    writer_fd: int | None = None
+    closes = 0
+    sentinel = tmp_path / "completion-sentinel"
+    ops.nodes[sentinel] = {
+        "kind": "file",
+        "dev": 1,
+        "ino": 88_888,
+        "nlink": 1,
+        "data": bytearray(),
+    }
+
+    def track_candidate(directory_fd: int, name: str, mode: int) -> int:
+        nonlocal writer_fd
+        fd = original_open(directory_fd, name, mode)
+        if name == context.paths.seal_name:
+            writer_fd = fd
+        return fd
+
+    def release_reuse_then_fail(fd: int) -> None:
+        nonlocal closes
+        if fd == writer_fd:
+            closes += 1
+            del ops.fds[fd]
+            del ops.offsets[fd]
+            ops.fds[fd] = sentinel
+            ops.offsets[fd] = 0
+            raise OSError("candidate close reported failure after release")
+        original_close(fd)
+
+    ops.open_exclusive_file = track_candidate  # type: ignore[method-assign]
+    ops.close = release_reuse_then_fail  # type: ignore[method-assign]
+    with pytest.raises(ManifestError, match="close"):
+        calibration._complete_phase(context, manifest)
+
+    assert writer_fd is not None
+    assert closes == 1
+    assert ops.fds[writer_fd] == sentinel
+    assert context.completion is None
+    assert context.closed is True
+
+
+def test_complete_phase_existing_candidate_is_never_modified(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, ops, _ = _prepared_verification_fixture(tmp_path, monkeypatch, complete)
+    _stub_completion_verifier(monkeypatch, context)
+    candidate = context.store.path / context.paths.seal_name
+    ops.nodes[candidate] = {
+        "kind": "file",
+        "dev": 1,
+        "ino": 77_777,
+        "nlink": 1,
+        "data": bytearray(b"existing\n"),
+    }
+
+    with pytest.raises(ManifestError, match="already exists"):
+        calibration._complete_phase(context, manifest)
+
+    assert bytes(ops.nodes[candidate]["data"]) == b"existing\n"
+    assert context.completion is None
+    assert context.closed is True
+
+
+def test_complete_phase_fresh_verification_rejects_postverification_tamper(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, ops, _ = _prepared_verification_fixture(tmp_path, monkeypatch, complete)
+    calibration._verify_finished_phase_result(context, manifest)
+    result_path = context.store.path / context.paths.result_name
+    ops.nodes[result_path]["data"][0] ^= 1
+
+    with pytest.raises(ManifestError):
+        calibration._complete_phase(context, manifest)
+
+    assert context.store.path / context.paths.seal_name not in ops.nodes
+    assert context.completion is None
+    assert context.closed is True
+
+
+def test_complete_phase_refuses_pid_change_before_candidate_reservation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, ops, _ = _prepared_verification_fixture(tmp_path, monkeypatch, complete)
+    calls = _stub_completion_verifier(monkeypatch, context)
+    monkeypatch.setattr(os, "getpid", lambda: context.original_pid + 1)
+
+    with pytest.raises(ManifestError, match="PID"):
+        calibration._complete_phase(context, manifest)
+
+    assert calls == []
+    assert context.store.path / context.paths.seal_name not in ops.nodes
+    assert context.closed is True
+
+
+@pytest.mark.parametrize(("refusal_call", "candidate_exists"), [(1, False), (2, True)])
+def test_complete_phase_resource_refusal_preallocation_and_final_boundary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+    refusal_call: int,
+    candidate_exists: bool,
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, ops, _ = _prepared_verification_fixture(tmp_path, monkeypatch, complete)
+    _stub_completion_verifier(monkeypatch, context)
+    original = context.resources.check_planned_allocation
+    calls = 0
+
+    def refuse_selected(planned_bytes: int) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == refusal_call:
+            raise ManifestError("injected completion allocation refusal")
+        original(planned_bytes)
+
+    monkeypatch.setattr(
+        calibration._ResourceBoundary,
+        "check_planned_allocation",
+        lambda self, planned_bytes: (
+            refuse_selected(planned_bytes) if self is context.resources else original(planned_bytes)
+        ),
+    )
+    with pytest.raises(ManifestError, match="allocation refusal"):
+        calibration._complete_phase(context, manifest)
+
+    candidate = context.store.path / context.paths.seal_name
+    assert (candidate in ops.nodes) is candidate_exists
+    assert calls == refusal_call
+    assert context.completion is None
+    assert context.closed is True
+
+
+def test_complete_phase_reader_release_error_does_not_close_reused_fd(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, ops, _ = _prepared_verification_fixture(tmp_path, monkeypatch, complete)
+    _stub_completion_verifier(monkeypatch, context)
+    original_open = ops.open_existing_file
+    original_close = ops.close
+    reader_fd: int | None = None
+    closes = 0
+    sentinel = tmp_path / "completion-reader-sentinel"
+    ops.nodes[sentinel] = {
+        "kind": "file",
+        "dev": 1,
+        "ino": 66_666,
+        "nlink": 1,
+        "data": bytearray(),
+    }
+
+    def track_candidate_reader(directory_fd: int, name: str) -> int:
+        nonlocal reader_fd
+        fd = original_open(directory_fd, name)
+        if name == context.paths.seal_name:
+            reader_fd = fd
+        return fd
+
+    def release_reuse_then_fail(fd: int) -> None:
+        nonlocal closes
+        if fd == reader_fd:
+            closes += 1
+            del ops.fds[fd]
+            del ops.offsets[fd]
+            ops.fds[fd] = sentinel
+            ops.offsets[fd] = 0
+            raise OSError("candidate reader close reported failure after release")
+        original_close(fd)
+
+    ops.open_existing_file = track_candidate_reader  # type: ignore[method-assign]
+    ops.close = release_reuse_then_fail  # type: ignore[method-assign]
+    with pytest.raises(ManifestError, match="close"):
+        calibration._complete_phase(context, manifest)
+
+    assert reader_fd is not None
+    assert closes == 1
+    assert ops.fds[reader_fd] == sentinel
+    assert context.completion is None
     assert context.closed is True
 
 
@@ -4135,6 +4706,100 @@ def test_phase_writer_invalid_failure_timestamp_cannot_close_incomplete_json(
     with pytest.raises(ManifestError):
         calibration._parse_canonical_json_bytes(raw, label="bad timestamp partial")
     assert context.closed is True
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="requires native Linux completion syscalls")
+def test_native_completion_candidate_and_forked_authority_refusal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manifest = calibration.load_manifest()
+    ops = calibration._NativeLinuxOps()
+    deadline = calibration._Deadline(time.monotonic(), 30.0, time.monotonic)
+    store = calibration._open_or_create_evidence_directory(
+        tmp_path, Path("evidence/completion"), ops, deadline
+    )
+    claim_raw = b"{}\n"
+    result_raw = b"{}\n"
+    claim = calibration._write_immutable_claim(store, "calibration.claim", claim_raw)
+    result = calibration._reserve_result_file(store, "calibration-result.json")
+    review = calibration._ReviewAttestation(
+        "a" * 40,
+        "b" * 40,
+        {},
+        "docs/reviews/review.md",
+        "docs/reviews/attestation.json",
+        (),
+        "2026-09-27T00:00:00.000000Z",
+        "c" * 64,
+    )
+    harness_path = manifest["integrity"]["protected_paths"]["harness"]
+    proof = calibration._InvocationProof("a" * 40, "d" * 40, {harness_path: "e" * 64})
+    resources = calibration._ResourceBoundary(
+        calibration._ResourcePolicy(2 * 1024**3, ops, deadline),
+        ops.current_vms_bytes(),
+        ops.current_rss_bytes(),
+        ops.peak_rss_bytes(),
+    )
+    paths = calibration._ArtifactPaths(
+        "evidence/completion", claim.name, result.name, "calibration.seal"
+    )
+    started = "2026-09-27T00:00:00.000000Z"
+    claim_sha = hashlib.sha256(claim_raw).hexdigest()
+    binding = calibration._phase_context_binding_bytes(
+        "calibration", paths, review, proof, resources, claim_sha, started
+    )
+    context = calibration._PhaseContext(
+        "calibration",
+        paths,
+        review,
+        proof,
+        resources,
+        store,
+        claim,
+        result,
+        claim_sha,
+        claim_raw,
+        started,
+        binding,
+        calibration._PHASE_CONTEXT_ISSUER,
+    )
+    calibration._write_all_evidence(result, result_raw, store)
+    ops.fsync(result.fd)
+    calibration._handoff_result_reader(context)
+    expected = calibration._ExpectedPhaseContext("calibration", b"{}\n", b"{}\n", b"{}\n", None)
+    calibration._bind_writer_expected(context, expected)
+    expected_binding = context.writer_expected_binding_bytes
+    assert isinstance(expected_binding, bytes)
+    verified = calibration._VerifiedPhaseEvidence(
+        "calibration",
+        "FAILED",
+        None,
+        hashlib.sha256(result_raw).hexdigest(),
+        len(result_raw),
+        1024,
+        1024,
+        0.01,
+        context.bound_identity_bytes,
+        expected_binding,
+    )
+    monkeypatch.setattr(calibration, "_verify_finished_phase_result", lambda *_args: verified)
+
+    completion = calibration._complete_phase(context, manifest)
+
+    candidate = store.path / paths.seal_name
+    assert candidate.read_bytes().endswith(b"\n")
+    assert (candidate.stat().st_mode & 0o777) == 0o600
+    assert calibration._require_phase_completion(context, completion) is completion
+    child_pid = cast(Any, os).fork()
+    if child_pid == 0:
+        try:
+            calibration._require_phase_completion(context, completion)
+        except ManifestError:
+            os._exit(0)
+        os._exit(7)
+    _, status = os.waitpid(child_pid, 0)
+    assert status == 0
+    context.close()
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="requires native Linux descriptor modes")
