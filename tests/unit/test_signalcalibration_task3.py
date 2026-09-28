@@ -27,6 +27,8 @@ from icarus.engine.signalmetrics import (
     _cr2_moments,
 )
 
+_REAL_COUNTED_CHUNK_PROVIDER = calibration._CountedChunkProvider
+
 
 def _run_git(repo: Path, *args: str) -> str:
     completed = subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True)
@@ -4889,3 +4891,780 @@ def test_phase_writer_rejects_extra_chunk_after_complete_topology(
     assert parsed["terminal"]["state"] == "INCOMPLETE"
     assert parsed["summary"]["phase_verdict"] == "INCOMPLETE"
     assert context.closed is True
+
+
+def test_validation_startup_requires_live_completion_and_fresh_deadline(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    complete, _ = full_calibration
+    manifest, calibration_context, ops, _ = _prepared_verification_fixture(
+        tmp_path, monkeypatch, complete
+    )
+    _stub_completion_verifier(monkeypatch, calibration_context)
+    completion = calibration._complete_phase(calibration_context, manifest)
+    assert completion.phase_verdict == "PASSED"
+    original_deadline = calibration_context.resources.deadline
+    object.__setattr__(original_deadline, "clock", lambda: 60.0)
+    monkeypatch.setattr(time, "monotonic", lambda: 60.0)
+    monkeypatch.setattr(calibration, "_platform_name", lambda: "linux")
+    monkeypatch.setattr(
+        np.random,
+        "PCG64",
+        lambda *_args, **_kwargs: pytest.fail("validation startup drew RNG"),
+    )
+
+    validation = calibration._begin_validation_phase(calibration_context, completion, manifest)
+
+    assert validation.phase == "validation"
+    assert validation.resources.deadline is not original_deadline
+    assert validation.resources.deadline.duration_seconds == 7200
+    assert validation.resources.deadline.started_at == 60.0
+    assert validation.verified_calibration_floor == completion.selected_floor
+    assert validation.calibration_completion_binding_bytes == completion.payload_binding_bytes
+    assert calibration_context.closed
+    assert validation.store.path / validation.paths.claim_name in ops.nodes
+    assert validation.store.path / validation.paths.result_name in ops.nodes
+    assert validation.store.path / validation.paths.seal_name not in ops.nodes
+    with pytest.raises(ManifestError):
+        calibration._begin_validation_phase(calibration_context, completion, manifest)
+    validation.close()
+
+
+def test_validation_startup_refuses_failed_completion_before_claim(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    complete, _ = full_calibration
+    manifest, calibration_context, ops, _ = _prepared_verification_fixture(
+        tmp_path, monkeypatch, complete
+    )
+    _stub_completion_verifier(monkeypatch, calibration_context, verdict="FAILED")
+    completion = calibration._complete_phase(calibration_context, manifest)
+    monkeypatch.setattr(calibration, "_platform_name", lambda: "linux")
+    paths = calibration._derive_artifact_paths(
+        manifest, "validation", completion.context.review.reviewed_commit
+    )
+    with pytest.raises(ManifestError, match="PASSED"):
+        calibration._begin_validation_phase(calibration_context, completion, manifest)
+    assert calibration_context.store.path / paths.claim_name not in ops.nodes
+    assert not calibration_context.closed
+    assert not calibration_context.completion_consumed
+    calibration_context.close()
+
+
+@pytest.mark.parametrize("target", ["claim", "result", "candidate"])
+def test_validation_startup_recomputes_trio_and_consumes_on_tamper(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+    target: str,
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, ops, _ = _prepared_verification_fixture(tmp_path, monkeypatch, complete)
+    _stub_completion_verifier(monkeypatch, context)
+    completion = calibration._complete_phase(context, manifest)
+    monkeypatch.setattr(calibration, "_platform_name", lambda: "linux")
+    path = context.store.path / getattr(
+        context.paths,
+        {"claim": "claim_name", "result": "result_name", "candidate": "seal_name"}[target],
+    )
+    ops.nodes[path]["data"][0] ^= 1
+    validation_paths = calibration._derive_artifact_paths(
+        manifest, "validation", context.review.reviewed_commit
+    )
+
+    with pytest.raises(ManifestError, match=r"changed|bytes"):
+        calibration._begin_validation_phase(context, completion, manifest)
+    assert context.closed
+    assert context.completion_consumed
+    assert context.store.path / validation_paths.claim_name not in ops.nodes
+    with pytest.raises(ManifestError):
+        calibration._begin_validation_phase(context, completion, manifest)
+
+
+@pytest.mark.parametrize("boundary", ["after_claim", "after_result"])
+def test_validation_startup_catches_late_calibration_edit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+    boundary: str,
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, ops, _ = _prepared_verification_fixture(tmp_path, monkeypatch, complete)
+    _stub_completion_verifier(monkeypatch, context)
+    completion = calibration._complete_phase(context, manifest)
+    monkeypatch.setattr(calibration, "_platform_name", lambda: "linux")
+    path = context.store.path / context.paths.seal_name
+    reached = False
+    if boundary == "after_claim":
+        original = calibration._write_immutable_claim
+
+        def inject(store: Any, name: str, raw: bytes) -> Any:
+            nonlocal reached
+            result = original(store, name, raw)
+            reached = True
+            ops.nodes[path]["data"][0] ^= 1
+            return result
+
+        monkeypatch.setattr(calibration, "_write_immutable_claim", inject)
+    else:
+        original_result = calibration._reserve_result_file
+
+        def inject_result(store: Any, name: str) -> Any:
+            nonlocal reached
+            result = original_result(store, name)
+            reached = True
+            ops.nodes[path]["data"][0] ^= 1
+            return result
+
+        monkeypatch.setattr(calibration, "_reserve_result_file", inject_result)
+
+    with pytest.raises(ManifestError, match="candidate bytes changed"):
+        calibration._begin_validation_phase(context, completion, manifest)
+
+    paths = calibration._derive_artifact_paths(
+        manifest, "validation", context.review.reviewed_commit
+    )
+    assert reached
+    assert context.closed
+    assert context.store.path / paths.claim_name in ops.nodes
+    assert (context.store.path / paths.result_name in ops.nodes) is (boundary == "after_result")
+
+
+def test_validation_startup_git_allowance_is_exact_before_claim(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, _ops, _ = _prepared_verification_fixture(tmp_path, monkeypatch, complete)
+    _stub_completion_verifier(monkeypatch, context)
+    completion = calibration._complete_phase(context, manifest)
+    monkeypatch.setattr(calibration, "_platform_name", lambda: "linux")
+    original = calibration._verify_reviewed_git_state
+    seen: list[tuple[str, ...]] = []
+
+    def inspect(*args: Any, **kwargs: Any) -> Any:
+        seen.append(tuple(kwargs["allowed_untracked"]))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(calibration, "_verify_reviewed_git_state", inspect)
+    validation = calibration._begin_validation_phase(context, completion, manifest)
+
+    assert seen == [("AGENTS.md", *tuple(context.paths.as_claim_record().values()))]
+    assert all("validation" not in item for item in seen[0])
+    validation.close()
+
+
+@pytest.mark.parametrize("defect", ["copied", "wrong_limit", "wrong_pid"])
+def test_validation_startup_refuses_authority_or_limit_without_claim(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+    defect: str,
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, ops, _ = _prepared_verification_fixture(tmp_path, monkeypatch, complete)
+    _stub_completion_verifier(monkeypatch, context)
+    completion = calibration._complete_phase(context, manifest)
+    monkeypatch.setattr(calibration, "_platform_name", lambda: "linux")
+    if defect == "copied":
+        completion = dataclasses.replace(completion)
+    elif defect == "wrong_limit":
+        ops.get_address_space_limit = lambda: (1024, 1024)  # type: ignore[method-assign]
+    else:
+        monkeypatch.setattr(os, "getpid", lambda: context.original_pid + 1)
+
+    with pytest.raises(ManifestError):
+        calibration._begin_validation_phase(context, completion, manifest)
+
+    paths = calibration._derive_artifact_paths(
+        manifest, "validation", context.review.reviewed_commit
+    )
+    assert context.closed is (defect == "wrong_limit")
+    assert context.store.path / paths.claim_name not in ops.nodes
+    if defect == "copied":
+        authentic = context.completion
+        assert authentic is not None
+        validation = calibration._begin_validation_phase(context, authentic, manifest)
+        validation.close()
+    elif defect == "wrong_pid":
+        context.close()
+
+
+def test_validation_trio_uses_independent_owned_readers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, ops, _ = _prepared_verification_fixture(tmp_path, monkeypatch, complete)
+    _stub_completion_verifier(monkeypatch, context)
+    completion = calibration._complete_phase(context, manifest)
+    monkeypatch.setattr(calibration, "_platform_name", lambda: "linux")
+    original_open = ops.open_existing_file
+    original_fds = {context.claim_file.fd, context.result_file.fd}
+    trio_names = {context.paths.claim_name, context.paths.result_name, context.paths.seal_name}
+    new_fds: list[int] = []
+
+    def track(directory_fd: int, name: str) -> int:
+        fd = original_open(directory_fd, name)
+        if name in trio_names:
+            assert fd not in original_fds
+            new_fds.append(fd)
+        return fd
+
+    ops.open_existing_file = track  # type: ignore[method-assign]
+    validation = calibration._begin_validation_phase(context, completion, manifest)
+
+    assert len(new_fds) == 12
+    assert len(set(new_fds)) == 12
+    assert all(fd not in ops.fds for fd in new_fds)
+    validation.close()
+
+
+def test_validation_candidate_reader_release_then_error_is_not_reclosed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, ops, _ = _prepared_verification_fixture(tmp_path, monkeypatch, complete)
+    _stub_completion_verifier(monkeypatch, context)
+    completion = calibration._complete_phase(context, manifest)
+    monkeypatch.setattr(calibration, "_platform_name", lambda: "linux")
+    original_open = ops.open_existing_file
+    original_close = ops.close
+    candidate_fd: int | None = None
+    closes = 0
+    sentinel = tmp_path / "validation-reader-sentinel"
+    ops.nodes[sentinel] = {"kind": "file", "dev": 1, "ino": 987654, "nlink": 1, "data": bytearray()}
+
+    def track(directory_fd: int, name: str) -> int:
+        nonlocal candidate_fd
+        fd = original_open(directory_fd, name)
+        if name == context.paths.seal_name and candidate_fd is None:
+            candidate_fd = fd
+        return fd
+
+    def release_reuse_then_fail(fd: int) -> None:
+        nonlocal closes
+        if fd == candidate_fd:
+            closes += 1
+            del ops.fds[fd]
+            del ops.offsets[fd]
+            ops.fds[fd] = sentinel
+            ops.offsets[fd] = 0
+            raise OSError("candidate reader close after release")
+        original_close(fd)
+
+    ops.open_existing_file = track  # type: ignore[method-assign]
+    ops.close = release_reuse_then_fail  # type: ignore[method-assign]
+    with pytest.raises(ManifestError, match="close"):
+        calibration._begin_validation_phase(context, completion, manifest)
+
+    assert candidate_fd is not None
+    assert closes == 1
+    assert ops.fds[candidate_fd] == sentinel
+    assert context.closed
+
+
+def test_calibration_context_binding_rejects_validation_lineage(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    complete, _ = full_calibration
+    _manifest_data, context, _ops, _ = _prepared_verification_fixture(
+        tmp_path, monkeypatch, complete
+    )
+    with pytest.raises(ManifestError, match="cannot carry validation lineage"):
+        calibration._phase_context_binding_bytes(
+            "calibration",
+            context.paths,
+            context.review,
+            context.proof,
+            context.resources,
+            context.claim_sha256,
+            context.started_at_utc,
+            context.original_pid,
+            (6, 4.0),
+            b"forged",
+        )
+    context.close()
+
+
+def test_validation_trio_rejects_invalid_nested_candidate_even_with_matching_digest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, ops, _ = _prepared_verification_fixture(tmp_path, monkeypatch, complete)
+    _stub_completion_verifier(monkeypatch, context)
+    completion = calibration._complete_phase(context, manifest)
+    candidate_path = context.store.path / context.paths.seal_name
+    payload = calibration._parse_canonical_json_bytes(
+        bytes(ops.nodes[candidate_path]["data"]), label="test candidate"
+    )
+    payload["prewrite_snapshot"]["peak_rss_bytes"] = True
+    raw = calibration._canonical_bytes(payload)
+    ops.nodes[candidate_path]["data"] = bytearray(raw)
+    forged = dataclasses.replace(
+        completion,
+        candidate_sha256=hashlib.sha256(raw).hexdigest(),
+        candidate_size_bytes=len(raw),
+    )
+
+    def isolate_candidate_schema(
+        supplied: calibration._PhaseContext, offered: calibration._PhaseCompletion
+    ) -> calibration._PhaseCompletion:
+        assert supplied is context and offered is forged
+        return forged
+
+    # The exact-object authority refusal has its own test; reach the nested schema here.
+    monkeypatch.setattr(calibration, "_require_phase_completion", isolate_candidate_schema)
+    with pytest.raises(ManifestError, match="size or peak"):
+        calibration._recheck_calibration_trio(
+            context,
+            forged,
+            manifest,
+            calibration._Deadline(0.0, 7200.0, lambda: 1.0),
+            context.resources,
+            recompute=False,
+        )
+    context.close()
+
+
+@pytest.mark.parametrize("mutation", ["clock", "claim", "result"])
+def test_validation_startup_rechecks_after_calibration_close(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+    mutation: str,
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, ops, _ = _prepared_verification_fixture(tmp_path, monkeypatch, complete)
+    _stub_completion_verifier(monkeypatch, context)
+    completion = calibration._complete_phase(context, manifest)
+    monkeypatch.setattr(calibration, "_platform_name", lambda: "linux")
+    tick = [1.0]
+    monkeypatch.setattr(time, "monotonic", lambda: tick[0])
+    original_close = calibration._PhaseContext.close
+    paths = calibration._derive_artifact_paths(
+        manifest, "validation", context.review.reviewed_commit
+    )
+
+    def change_during_close(self: calibration._PhaseContext) -> None:
+        if self is context:
+            if mutation == "clock":
+                tick[0] = 7202.0
+            else:
+                name = paths.claim_name if mutation == "claim" else paths.result_name
+                ops.nodes[context.store.path / name]["data"].extend(b"x")
+        original_close(self)
+
+    monkeypatch.setattr(calibration._PhaseContext, "close", change_during_close)
+    with pytest.raises(ManifestError):
+        calibration._begin_validation_phase(context, completion, manifest)
+
+    assert context.closed
+    assert context.store.path / paths.claim_name in ops.nodes
+    assert context.store.path / paths.result_name in ops.nodes
+
+
+def test_validation_trio_refuses_completion_revoked_during_recomputation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, ops, _ = _prepared_verification_fixture(tmp_path, monkeypatch, complete)
+    _stub_completion_verifier(monkeypatch, context)
+    completion = calibration._complete_phase(context, manifest)
+    monkeypatch.setattr(calibration, "_platform_name", lambda: "linux")
+    original = calibration.validate_phase_result
+
+    def revoke(*args: Any, **kwargs: Any) -> Any:
+        verified = original(*args, **kwargs)
+        object.__setattr__(context, "completion", None)
+        return verified
+
+    monkeypatch.setattr(calibration, "validate_phase_result", revoke)
+    with pytest.raises(ManifestError, match="completion"):
+        calibration._begin_validation_phase(context, completion, manifest)
+    assert context.closed
+    paths = calibration._derive_artifact_paths(
+        manifest, "validation", context.review.reviewed_commit
+    )
+    assert context.store.path / paths.claim_name not in ops.nodes
+
+
+def test_validation_context_cannot_construct_counted_provider_yet(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, _ops, _ = _prepared_verification_fixture(tmp_path, monkeypatch, complete)
+    _stub_completion_verifier(monkeypatch, context)
+    completion = calibration._complete_phase(context, manifest)
+    monkeypatch.setattr(calibration, "_platform_name", lambda: "linux")
+    validation = calibration._begin_validation_phase(context, completion, manifest)
+    monkeypatch.setattr(
+        np.random, "PCG64", lambda *_args, **_kwargs: pytest.fail("validation drew RNG")
+    )
+    with pytest.raises(ManifestError, match="validation"):
+        _REAL_COUNTED_CHUNK_PROVIDER(validation, manifest)
+    assert validation.closed
+
+
+@pytest.mark.parametrize("boundary", ["trio", "git"])
+def test_validation_fresh_deadline_covers_trio_and_git(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+    boundary: str,
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, ops, _ = _prepared_verification_fixture(tmp_path, monkeypatch, complete)
+    _stub_completion_verifier(monkeypatch, context)
+    completion = calibration._complete_phase(context, manifest)
+    monkeypatch.setattr(calibration, "_platform_name", lambda: "linux")
+    tick = [1.0]
+    monkeypatch.setattr(time, "monotonic", lambda: tick[0])
+    reached = False
+    if boundary == "trio":
+        original = ops.open_existing_file
+
+        def expire_trio(directory_fd: int, name: str) -> int:
+            nonlocal reached
+            fd = original(directory_fd, name)
+            if name == context.paths.claim_name and not reached:
+                reached = True
+                tick[0] = 7202.0
+            return fd
+
+        ops.open_existing_file = expire_trio  # type: ignore[method-assign]
+    else:
+        original_git = calibration._verify_reviewed_git_state
+
+        def expire_git(*args: Any, **kwargs: Any) -> Any:
+            nonlocal reached
+            reached = True
+            tick[0] = 7202.0
+            return original_git(*args, **kwargs)
+
+        monkeypatch.setattr(calibration, "_verify_reviewed_git_state", expire_git)
+
+    with pytest.raises(ManifestError, match="deadline"):
+        calibration._begin_validation_phase(context, completion, manifest)
+    assert reached
+    assert context.closed
+    paths = calibration._derive_artifact_paths(
+        manifest, "validation", context.review.reviewed_commit
+    )
+    assert context.store.path / paths.claim_name not in ops.nodes
+
+
+@pytest.mark.parametrize("artifact", ["claim", "result"])
+def test_validation_reservation_fsync_failure_is_permanently_reserved(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+    artifact: str,
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, ops, _ = _prepared_verification_fixture(tmp_path, monkeypatch, complete)
+    _stub_completion_verifier(monkeypatch, context)
+    completion = calibration._complete_phase(context, manifest)
+    monkeypatch.setattr(calibration, "_platform_name", lambda: "linux")
+    paths = calibration._derive_artifact_paths(
+        manifest, "validation", context.review.reviewed_commit
+    )
+    target = context.store.path / (paths.claim_name if artifact == "claim" else paths.result_name)
+    original = ops.fsync
+    reached = False
+
+    def fail_target(fd: int) -> None:
+        nonlocal reached
+        if ops.fds[fd] == target:
+            reached = True
+            raise OSError("injected validation fsync failure")
+        original(fd)
+
+    ops.fsync = fail_target  # type: ignore[method-assign]
+    with pytest.raises(ManifestError, match=r"fsync|I/O"):
+        calibration._begin_validation_phase(context, completion, manifest)
+    assert reached
+    assert context.closed and context.completion_consumed
+    assert target in ops.nodes
+    assert context.store.path / paths.seal_name not in ops.nodes
+
+
+@pytest.mark.parametrize("mutation", ["replacement", "hardlink"])
+def test_validation_late_calibration_identity_or_link_refuses(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+    mutation: str,
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, ops, _ = _prepared_verification_fixture(tmp_path, monkeypatch, complete)
+    _stub_completion_verifier(monkeypatch, context)
+    completion = calibration._complete_phase(context, manifest)
+    monkeypatch.setattr(calibration, "_platform_name", lambda: "linux")
+    original = calibration._write_immutable_claim
+    reached = False
+
+    def change_after_claim(store: Any, name: str, raw: bytes) -> Any:
+        nonlocal reached
+        file = original(store, name, raw)
+        reached = True
+        candidate = ops.nodes[context.store.path / context.paths.seal_name]
+        if mutation == "replacement":
+            candidate["ino"] += 100
+        else:
+            candidate["nlink"] = 2
+        return file
+
+    monkeypatch.setattr(calibration, "_write_immutable_claim", change_after_claim)
+    with pytest.raises(ManifestError, match=r"identity|link"):
+        calibration._begin_validation_phase(context, completion, manifest)
+    assert reached and context.closed
+    paths = calibration._derive_artifact_paths(
+        manifest, "validation", context.review.reviewed_commit
+    )
+    assert context.store.path / paths.claim_name in ops.nodes
+    assert context.store.path / paths.result_name not in ops.nodes
+
+
+def test_validation_startup_refuses_completion_revoked_in_final_trio_cleanup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, ops, _ = _prepared_verification_fixture(tmp_path, monkeypatch, complete)
+    _stub_completion_verifier(monkeypatch, context)
+    completion = calibration._complete_phase(context, manifest)
+    monkeypatch.setattr(calibration, "_platform_name", lambda: "linux")
+    original = calibration._close_phase_start_resources
+    cleanup_calls = 0
+
+    def revoke_at_final_cleanup(store: Any, *files: Any) -> None:
+        nonlocal cleanup_calls
+        if files and all(
+            file.name
+            in {context.paths.claim_name, context.paths.result_name, context.paths.seal_name}
+            for file in files
+        ):
+            cleanup_calls += 1
+            if cleanup_calls == 4:
+                object.__setattr__(context, "completion", None)
+        original(store, *files)
+
+    monkeypatch.setattr(calibration, "_close_phase_start_resources", revoke_at_final_cleanup)
+    with pytest.raises(ManifestError, match="completion"):
+        calibration._begin_validation_phase(context, completion, manifest)
+    assert cleanup_calls == 4
+    assert context.closed
+    paths = calibration._derive_artifact_paths(
+        manifest, "validation", context.review.reviewed_commit
+    )
+    assert context.store.path / paths.claim_name in ops.nodes
+    assert context.store.path / paths.result_name in ops.nodes
+
+
+@pytest.mark.parametrize("mutation", ["inode", "hardlink"])
+def test_validation_final_candidate_rehash_rechecks_identity_after_hash(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+    mutation: str,
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, ops, _ = _prepared_verification_fixture(tmp_path, monkeypatch, complete)
+    _stub_completion_verifier(monkeypatch, context)
+    completion = calibration._complete_phase(context, manifest)
+    monkeypatch.setattr(calibration, "_platform_name", lambda: "linux")
+    original = calibration._rehash_exact_evidence
+    candidate_path = context.store.path / context.paths.seal_name
+    candidate_hashes = 0
+
+    def mutate_after_final_hash(*args: Any, **kwargs: Any) -> str:
+        nonlocal candidate_hashes
+        digest = original(*args, **kwargs)
+        if kwargs.get("label") == "calibration evidence" and ops.fds[args[2]] == candidate_path:
+            candidate_hashes += 1
+            if candidate_hashes == 4:
+                node = ops.nodes[candidate_path]
+                if mutation == "inode":
+                    node["ino"] += 1000
+                else:
+                    node["nlink"] = 2
+        return digest
+
+    monkeypatch.setattr(calibration, "_rehash_exact_evidence", mutate_after_final_hash)
+    with pytest.raises(ManifestError, match=r"identity|link"):
+        calibration._begin_validation_phase(context, completion, manifest)
+    assert candidate_hashes == 4
+    assert context.closed
+    paths = calibration._derive_artifact_paths(
+        manifest, "validation", context.review.reviewed_commit
+    )
+    assert context.store.path / paths.claim_name in ops.nodes
+    assert context.store.path / paths.result_name in ops.nodes
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="requires native Linux evidence syscalls")
+def test_native_validation_startup_reserves_real_scratch_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manifest = calibration.load_manifest()
+    ops = calibration._NativeLinuxOps()
+    limit = manifest["runtime_limits"]["max_peak_rss_bytes"]
+    monkeypatch.setattr(calibration, "_ROOT", tmp_path)
+    monkeypatch.setattr(ops, "get_address_space_limit", lambda: (limit, limit))
+    monkeypatch.setattr(
+        ops,
+        "set_address_space_limit",
+        lambda *_args: pytest.fail("scratch smoke installed RLIMIT"),
+    )
+    deadline = calibration._Deadline(time.monotonic(), 30.0, time.monotonic)
+    harness = manifest["integrity"]["protected_paths"]["harness"]
+    manifest_sha = hashlib.sha256(calibration._canonical_bytes(manifest)).hexdigest()
+    review = calibration._ReviewAttestation(
+        "a" * 40,
+        "b" * 40,
+        {harness: "e" * 64},
+        "docs/reviews/scratch-review.md",
+        f"docs/reviews/step6a2/{manifest_sha}/task3.review.json",
+        (),
+        "2026-09-27T00:00:00.000000Z",
+        "c" * 64,
+    )
+    proof = calibration._InvocationProof(
+        review.reviewed_commit,
+        "d" * 40,
+        {harness: "e" * 64},
+    )
+    paths = calibration._derive_artifact_paths(manifest, "calibration", review.reviewed_commit)
+    store = calibration._open_or_create_evidence_directory(
+        tmp_path, Path(paths.directory), ops, deadline
+    )
+    resources = calibration._ResourceBoundary(
+        calibration._ResourcePolicy(limit, ops, deadline),
+        ops.current_vms_bytes(),
+        ops.current_rss_bytes(),
+        ops.peak_rss_bytes(),
+    )
+    started_at = "2026-09-27T00:00:00.000000Z"
+    claim_raw = calibration._canonical_bytes(
+        {
+            "artifact_paths": paths.as_claim_record(),
+            "attempt_id": f"{review.reviewed_commit}-calibration",
+            "invocation_commit": proof.invocation_commit,
+            "manifest_sha256": manifest_sha,
+            "phase": "calibration",
+            "protected_blobs": dict(proof.protected_blobs),
+            "protocol_version": calibration.PROTOCOL_VERSION,
+            "review_attestation": {
+                "path": review.attestation_path,
+                "sha256": review.raw_sha256,
+            },
+            "reviewed_commit": review.reviewed_commit,
+            "schema": "step6a2-phase-claim-v1",
+            "started_at_utc": started_at,
+        }
+    )
+    claim = calibration._write_immutable_claim(store, paths.claim_name, claim_raw)
+    result = calibration._reserve_result_file(store, paths.result_name)
+    claim_sha = hashlib.sha256(claim_raw).hexdigest()
+    binding = calibration._phase_context_binding_bytes(
+        "calibration", paths, review, proof, resources, claim_sha, started_at
+    )
+    context = calibration._PhaseContext(
+        "calibration",
+        paths,
+        review,
+        proof,
+        resources,
+        store,
+        claim,
+        result,
+        claim_sha,
+        claim_raw,
+        started_at,
+        binding,
+        calibration._PHASE_CONTEXT_ISSUER,
+    )
+    result_raw = b"{}\n"
+    calibration._write_all_evidence(result, result_raw, store)
+    ops.fsync(result.fd)
+    calibration._handoff_result_reader(context)
+    expected = calibration._ExpectedPhaseContext("calibration", b"{}\n", b"{}\n", b"{}\n", None)
+    calibration._bind_writer_expected(context, expected)
+    expected_binding = context.writer_expected_binding_bytes
+    assert isinstance(expected_binding, bytes)
+    floor = (6, 4.0)
+    evidence = calibration._VerifiedPhaseEvidence(
+        "calibration",
+        "PASSED",
+        floor,
+        hashlib.sha256(result_raw).hexdigest(),
+        len(result_raw),
+        1024,
+        ops.peak_rss_bytes(),
+        0.01,
+        context.bound_identity_bytes,
+        expected_binding,
+    )
+    monkeypatch.setattr(calibration, "_verify_finished_phase_result", lambda *_args: evidence)
+    completion = calibration._complete_phase(context, manifest)
+    monkeypatch.setattr(calibration, "_read_tracked_worktree_bytes", lambda *_args: b"scratch\n")
+    monkeypatch.setattr(calibration, "_parse_review_attestation", lambda *_args: review)
+    monkeypatch.setattr(calibration, "_verify_reviewed_git_state", lambda *_args, **_kwargs: proof)
+    monkeypatch.setattr(
+        calibration,
+        "validate_phase_result",
+        lambda *_args: calibration.VerifiedPhaseResult("calibration", "PASSED", floor),
+    )
+
+    def resource_view(
+        _manifest: Any,
+        _evidence_path: Path,
+        received_ops: Any,
+        fresh_deadline: calibration._Deadline,
+    ) -> calibration._ResourceBoundary:
+        assert received_ops is ops
+        return calibration._ResourceBoundary(
+            calibration._ResourcePolicy(limit, ops, fresh_deadline),
+            ops.current_vms_bytes(),
+            ops.current_rss_bytes(),
+            ops.peak_rss_bytes(),
+        )
+
+    monkeypatch.setattr(calibration, "_prepare_linux_resource_boundary", resource_view)
+    monkeypatch.setattr(
+        np.random, "PCG64", lambda *_args, **_kwargs: pytest.fail("scratch startup drew RNG")
+    )
+    validation = calibration._begin_validation_phase(context, completion, manifest)
+    try:
+        assert context.closed
+        assert validation.verified_calibration_floor == floor
+        assert validation.resources.deadline is not deadline
+        for file in (validation.claim_file, validation.result_file):
+            path = validation.store.path / file.name
+            metadata = path.stat()
+            assert stat.S_ISREG(metadata.st_mode)
+            assert metadata.st_mode & 0o777 == 0o600
+            assert (metadata.st_dev, metadata.st_ino) == (file.device, file.inode)
+            assert (os.fstat(file.fd).st_dev, os.fstat(file.fd).st_ino) == (file.device, file.inode)
+        assert not (validation.store.path / validation.paths.seal_name).exists()
+        assert (store.path / paths.seal_name).is_file()
+    finally:
+        validation.close()

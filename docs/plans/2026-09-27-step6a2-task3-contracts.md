@@ -188,13 +188,17 @@ Calibration preflight allows only `AGENTS.md` plus the exact current calibration
 
 Future validation requires the live same-process calibration completion capability AND fresh complete verification of its exact claim, result and candidate bytes. The capability must identify a PASSED calibration with its non-null first-passing floor. FAILED completion is evidence completeness only and cannot unlock validation. A user path is only a locator and must equal the derived result path. Process loss or a PID change destroys authority: intact or perfectly reverified files cannot reconstruct it. No restart/resume path is introduced.
 
+**Slice 4C handoff ruling, 2026-09-28:** an authentic eligible capability is consumed once before fallible validation-startup I/O. A copied, foreign, closed or otherwise invalid capability does not consume the original. After authentic consumption, any startup failure closes the issuing context and cannot be retried. Fresh verification reopens the calibration trio through separately owned no-follow handles, recomputes the complete PASSED result against the original writer-bound expectations, and checks the live capability again through the final handoff. Calibration's historical context, deadline and completion payload are not rewritten. The returned validation context binds the verified first-passing floor and completion lineage in its private identity. Slice 4C does not authorize a validation provider, result writer or counted draw.
+
 After verification, validation cleanliness allows exactly:
 
 - the frozen `AGENTS.md` allowance;
 - the three exact verified calibration paths;
 - the three exact current validation claim/result/candidate paths.
 
-No directory prefix, glob, other result, selection summary, temporary file or sibling evidence path is allowed. The calibration trio may remain untracked and does not count as an intervening commit. If committed, HEAD would violate the review-only ancestry rule and validation refuses. Original identities and bound contents are rechecked through future validation claim and result reservation. The combined calibrate-then-validate invocation, capability consumption and validation execution require their own reviewed milestone; Slice 4B implements none of them.
+No directory prefix, glob, other result, selection summary, temporary file or sibling evidence path is allowed. The calibration trio may remain untracked and does not count as an intervening commit. If committed, HEAD would violate the review-only ancestry rule and validation refuses. Original identities and bound contents are rechecked through future validation claim and result reservation. The combined calibrate-then-validate invocation and validation execution require their own reviewed milestone; Slice 4C implements only private capability consumption and startup.
+
+For Slice 4C startup, the Git cleanliness proof before a validation claim permits only the frozen `AGENTS.md` allowance and the three exact calibration paths. The three derived validation paths must be absent at that point. Once reserved by this same invocation, their exact names are permitted only as its own evidence; an already present or unrelated path refuses. Late calibration checks cover claim, result and candidate identity, link count, extent and bytes after validation claim durability and result reservation.
 
 ## 8. Resource and durability contract
 
@@ -206,6 +210,8 @@ On Linux, before claim or RNG, the controller must:
 - set both soft and hard `resource.RLIMIT_AS` to 2 GiB and verify the installed value; this caps virtual address space, not RSS;
 - start one monotonic two-hour deadline covering preflight, generation, result close, independent verification, candidate writing, file/directory fsync, single close attempts, final evidence checks and the final resource/deadline checks before capability issuance;
 - open and retain no-follow directory handles for the evidence path.
+
+Each counted phase has one deadline. Validation starts its own two-hour monotonic deadline at private startup entry, before fresh trio verification, Git proof, resource revalidation and artifact reservation; that same clock must continue through its later generation and completion. Calibration's completed deadline remains historical and may expire while its same-process capability waits. Validation never restarts or extends that earlier deadline, and final startup cleanup, identity and resource checks are charged to the new validation deadline. The existing 2 GiB address-space cap remains installed and is read back; process-lifetime peak RSS is not reset.
 
 Peak resident memory is measured separately with Linux `getrusage(RUSAGE_SELF).ru_maxrss` converted to bytes, sampled after the largest allocation and every chunk, and recorded as peak RSS. Current RSS plus simultaneously live planned arrays/cache is checked before allocation. The hard address-space cap remains active during verification and completion. Before reading result bytes, require `current_vms + 32 * result_size_bytes + 64 MiB <= 2 GiB`; otherwise fail without authority. The factor is a conservative JSON bytes-plus-object allowance, not a statistical threshold. Result writing also refuses before exceeding that projected verifier budget. Candidate serialization, encoding and bounded rereads require allocation guards too.
 

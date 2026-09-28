@@ -415,39 +415,56 @@ def _phase_context_binding_bytes(
     claim_sha256: str,
     started_at_utc: str,
     original_pid: int | None = None,
+    verified_calibration_floor: tuple[int, float] | None = None,
+    calibration_completion_binding_bytes: bytes | None = None,
 ) -> bytes:
     bound_pid = os.getpid() if original_pid is None else original_pid
     if type(bound_pid) is not int or bound_pid <= 0:
         raise ManifestError("phase context PID is invalid")
-    return _canonical_bytes(
-        {
-            "claim_sha256": claim_sha256,
-            "phase": phase,
-            "original_pid": bound_pid,
-            "paths": paths.as_claim_record(),
-            "proof": {
-                "invocation_commit": proof.invocation_commit,
-                "protected_blobs": dict(proof.protected_blobs),
-                "reviewed_commit": proof.reviewed_commit,
-            },
-            "resources": {
-                "address_space_limit_bytes": resources.address_space_limit_bytes,
-                "deadline_duration_seconds": resources.deadline.duration_seconds,
-                "deadline_started_at": resources.deadline.started_at,
-            },
-            "review": {
-                "allowed_intervening_paths": list(review.allowed_intervening_paths),
-                "attestation_path": review.attestation_path,
-                "protected_blobs": dict(review.protected_blobs),
-                "raw_sha256": review.raw_sha256,
-                "review_record_path": review.review_record_path,
-                "reviewed_at_utc": review.reviewed_at_utc,
-                "reviewed_commit": review.reviewed_commit,
-                "reviewed_tree": review.reviewed_tree,
-            },
-            "started_at_utc": started_at_utc,
+    payload: dict[str, Any] = {
+        "claim_sha256": claim_sha256,
+        "phase": phase,
+        "original_pid": bound_pid,
+        "paths": paths.as_claim_record(),
+        "proof": {
+            "invocation_commit": proof.invocation_commit,
+            "protected_blobs": dict(proof.protected_blobs),
+            "reviewed_commit": proof.reviewed_commit,
+        },
+        "resources": {
+            "address_space_limit_bytes": resources.address_space_limit_bytes,
+            "deadline_duration_seconds": resources.deadline.duration_seconds,
+            "deadline_started_at": resources.deadline.started_at,
+        },
+        "review": {
+            "allowed_intervening_paths": list(review.allowed_intervening_paths),
+            "attestation_path": review.attestation_path,
+            "protected_blobs": dict(review.protected_blobs),
+            "raw_sha256": review.raw_sha256,
+            "review_record_path": review.review_record_path,
+            "reviewed_at_utc": review.reviewed_at_utc,
+            "reviewed_commit": review.reviewed_commit,
+            "reviewed_tree": review.reviewed_tree,
+        },
+        "started_at_utc": started_at_utc,
+    }
+    if phase == "calibration" and (
+        verified_calibration_floor is not None or calibration_completion_binding_bytes is not None
+    ):
+        raise ManifestError("calibration context cannot carry validation lineage")
+    if phase == "validation":
+        if (
+            verified_calibration_floor is None
+            or type(calibration_completion_binding_bytes) is not bytes
+        ):
+            raise ManifestError("validation context lacks bound calibration lineage")
+        payload["calibration_handoff"] = {
+            "verified_floor": list(verified_calibration_floor),
+            "completion_binding_sha256": hashlib.sha256(
+                calibration_completion_binding_bytes
+            ).hexdigest(),
         }
-    )
+    return _canonical_bytes(payload)
 
 
 @dataclass(frozen=True, slots=True)
@@ -473,6 +490,9 @@ class _PhaseContext:
     original_pid: int = field(default_factory=os.getpid)
     completion_attempted: bool = False
     completion: _PhaseCompletion | None = None
+    completion_consumed: bool = False
+    verified_calibration_floor: tuple[int, float] | None = None
+    calibration_completion_binding_bytes: bytes | None = None
 
     def __post_init__(self) -> None:
         if self.issuer is not _PHASE_CONTEXT_ISSUER:
@@ -486,6 +506,8 @@ class _PhaseContext:
             self.claim_sha256,
             self.started_at_utc,
             self.original_pid,
+            self.verified_calibration_floor,
+            self.calibration_completion_binding_bytes,
         )
         if not hmac.compare_digest(current, self.bound_identity_bytes):
             raise ManifestError("phase context binding is invalid at issuance")
@@ -503,6 +525,8 @@ class _PhaseContext:
                 self.claim_sha256,
                 self.started_at_utc,
                 self.original_pid,
+                self.verified_calibration_floor,
+                self.calibration_completion_binding_bytes,
             )
             if not hmac.compare_digest(current_binding, self.bound_identity_bytes):
                 raise ManifestError("phase context binding changed")
@@ -1122,6 +1146,8 @@ class _CountedChunkProvider:
             raise ManifestError("counted provider context was not issued by the counted controller")
         self._context = context
         try:
+            if context.phase == "validation":
+                raise ManifestError("validation counted provider awaits a separate execution slice")
             context.require_active(context.phase)
             if context.provider_issued:
                 raise ManifestError("phase context already issued its counted provider")
@@ -5364,6 +5390,8 @@ def _require_phase_completion(
         context.claim_sha256,
         context.started_at_utc,
         context.original_pid,
+        context.verified_calibration_floor,
+        context.calibration_completion_binding_bytes,
     )
     _require_bound_writer_expected(context)
     if (
@@ -5598,6 +5626,394 @@ def _complete_phase(context: _PhaseContext, manifest: dict[str, Any]) -> _PhaseC
             raise
         if isinstance(exc, OSError):
             raise ManifestError(f"phase completion I/O failed: {exc}") from exc
+        raise
+
+
+def _recheck_calibration_trio(
+    calibration_context: _PhaseContext,
+    completion: _PhaseCompletion,
+    manifest: dict[str, Any],
+    deadline: _Deadline,
+    resources: _ResourceBoundary,
+    *,
+    recompute: bool,
+) -> tuple[int, float] | None:
+    """Independently reopen the exact trio under validation's operational deadline."""
+    ops = calibration_context.store.ops
+    store = _open_or_create_evidence_directory(
+        _ROOT, Path(calibration_context.paths.directory), ops, deadline
+    )
+    opened: list[_EvidenceFile] = []
+    try:
+        _require_phase_completion(calibration_context, completion)
+        if len(store.handles) != len(calibration_context.store.handles):
+            raise ManifestError("calibration directory chain changed")
+        for directory_handle, original_handle in zip(
+            store.handles, calibration_context.store.handles, strict=True
+        ):
+            if (directory_handle.path, directory_handle.device, directory_handle.inode) != (
+                original_handle.path,
+                original_handle.device,
+                original_handle.inode,
+            ):
+                raise ManifestError("calibration directory identity changed")
+        store.recheck()
+        readers: dict[str, _EvidenceFile] = {}
+        for original in (calibration_context.claim_file, calibration_context.result_file):
+            fd = ops.open_existing_file(store.fd, original.name)
+            opened.append(_EvidenceFile(original.name, fd, 0, 0))
+            checked_file = _check_evidence_file(store, original.name, fd)
+            if (checked_file.device, checked_file.inode) != (original.device, original.inode):
+                raise ManifestError("calibration evidence identity changed")
+            readers[original.name] = checked_file
+        candidate_fd = ops.open_existing_file(store.fd, calibration_context.paths.seal_name)
+        opened.append(_EvidenceFile(calibration_context.paths.seal_name, candidate_fd, 0, 0))
+        candidate = _check_evidence_file(store, calibration_context.paths.seal_name, candidate_fd)
+        if (candidate.device, candidate.inode) != (
+            completion.candidate_device,
+            completion.candidate_inode,
+        ):
+            raise ManifestError("calibration candidate identity changed")
+        claim = readers[calibration_context.claim_file.name]
+        result = readers[calibration_context.result_file.name]
+        for item, size in (
+            (claim, len(calibration_context.claim_bytes)),
+            (result, completion.result_size_bytes),
+            (candidate, completion.candidate_size_bytes),
+        ):
+            metadata = ops.fstat(item.fd)
+            if type(metadata.st_size) is not int or metadata.st_size != size:
+                raise ManifestError("calibration evidence extent changed")
+        resources.check_verifier_projection(completion.result_size_bytes)
+        resources.check_planned_allocation(
+            len(calibration_context.claim_bytes) * 2 + completion.candidate_size_bytes * 4
+        )
+        claim_raw = _read_exact_evidence_bytes(
+            ops, deadline, claim.fd, len(calibration_context.claim_bytes), label="calibration claim"
+        )
+        if not hmac.compare_digest(claim_raw, calibration_context.claim_bytes):
+            raise ManifestError("calibration claim bytes changed")
+        result_sha = _rehash_exact_evidence(
+            ops, deadline, result.fd, completion.result_size_bytes, label="calibration result"
+        )
+        if not hmac.compare_digest(result_sha, completion.result_sha256):
+            raise ManifestError("calibration result bytes changed")
+        candidate_raw = _read_exact_evidence_bytes(
+            ops,
+            deadline,
+            candidate.fd,
+            completion.candidate_size_bytes,
+            label="calibration candidate",
+        )
+        if not hmac.compare_digest(
+            hashlib.sha256(candidate_raw).hexdigest(), completion.candidate_sha256
+        ):
+            raise ManifestError("calibration candidate bytes changed")
+        payload = _parse_canonical_json_bytes(candidate_raw, label="calibration candidate")
+        _exact_keys(
+            payload,
+            {
+                "schema",
+                "protocol_version",
+                "manifest_sha256",
+                "phase",
+                "attempt_id",
+                "claim_path",
+                "claim_sha256",
+                "result_path",
+                "result_sha256",
+                "result_size_bytes",
+                "reviewed_commit",
+                "invocation_commit",
+                "review_attestation_sha256",
+                "phase_verdict",
+                "authority",
+                "verifier",
+                "prewrite_snapshot",
+            },
+            "calibration candidate",
+        )
+        paths = calibration_context.paths.as_claim_record()
+        expected_fields = {
+            "schema": "step6a2-completion-candidate-v2",
+            "protocol_version": PROTOCOL_VERSION,
+            "manifest_sha256": completion.manifest_sha256,
+            "phase": "calibration",
+            "attempt_id": completion.attempt_id,
+            "claim_path": paths["claim"],
+            "claim_sha256": completion.claim_sha256,
+            "result_path": paths["result"],
+            "result_sha256": completion.result_sha256,
+            "result_size_bytes": completion.result_size_bytes,
+            "reviewed_commit": calibration_context.review.reviewed_commit,
+            "invocation_commit": calibration_context.proof.invocation_commit,
+            "review_attestation_sha256": calibration_context.review.raw_sha256,
+            "phase_verdict": "PASSED",
+            "authority": "NONE",
+        }
+        if any(
+            type(payload[key]) is not type(value) or payload[key] != value
+            for key, value in expected_fields.items()
+        ):
+            raise ManifestError("calibration candidate contract differs")
+        harness = _mapping(
+            _mapping(manifest["integrity"], "integrity")["protected_paths"],
+            "integrity.protected_paths",
+        )["harness"]
+        verifier = _mapping(payload["verifier"], "calibration candidate verifier")
+        _exact_keys(verifier, {"schema", "harness_sha256"}, "calibration candidate verifier")
+        if verifier != {
+            "schema": "step6a2-result-verifier-v1",
+            "harness_sha256": calibration_context.proof.protected_blobs[harness],
+        }:
+            raise ManifestError("calibration candidate verifier differs")
+        snapshot = _mapping(payload["prewrite_snapshot"], "candidate prewrite snapshot")
+        _exact_keys(
+            snapshot,
+            {
+                "verification_elapsed_seconds",
+                "total_elapsed_seconds",
+                "verification_projected_bytes",
+                "peak_rss_bytes",
+                "resource_verdict",
+                "captured_at_utc",
+            },
+            "candidate prewrite snapshot",
+        )
+        for key in ("verification_elapsed_seconds", "total_elapsed_seconds"):
+            _finite_number(snapshot[key], f"candidate {key}")
+            if snapshot[key] < 0:
+                raise ManifestError("candidate elapsed time is negative")
+        for key in ("verification_projected_bytes", "peak_rss_bytes"):
+            if type(snapshot[key]) is not int or snapshot[key] < 0:
+                raise ManifestError("candidate size or peak is invalid")
+        _check_utc(snapshot["captured_at_utc"], "candidate prewrite time")
+        if (
+            snapshot["resource_verdict"] != "WITHIN_LIMIT"
+            or snapshot["captured_at_utc"] < calibration_context.started_at_utc
+            or snapshot["captured_at_utc"] > completion.completed_at_utc
+            or snapshot["total_elapsed_seconds"] > completion.completed_total_elapsed_seconds
+            or snapshot["peak_rss_bytes"] > completion.completed_peak_rss_bytes
+            or snapshot["verification_projected_bytes"] > resources.address_space_limit_bytes
+        ):
+            raise ManifestError("candidate prewrite snapshot differs from completion")
+        del payload, candidate_raw, claim_raw
+        selected: tuple[int, float] | None = None
+        if recompute:
+            raw = _read_exact_evidence_bytes(
+                ops, deadline, result.fd, completion.result_size_bytes, label="calibration result"
+            )
+            if not hmac.compare_digest(hashlib.sha256(raw).hexdigest(), completion.result_sha256):
+                raise ManifestError("calibration result changed during recomputation")
+            parsed = _parse_canonical_json_bytes(raw, label="calibration result")
+            verified = validate_phase_result(
+                manifest, parsed, _require_bound_writer_expected(calibration_context)
+            )
+            del parsed, raw
+            if (
+                verified.phase != "calibration"
+                or verified.phase_verdict != "PASSED"
+                or verified.selected_floor is None
+                or verified.selected_floor != completion.selected_floor
+            ):
+                raise ManifestError("calibration result is not the completed first passing floor")
+            selected = verified.selected_floor
+            _require_phase_completion(calibration_context, completion)
+        for item, size, digest in (
+            (claim, len(calibration_context.claim_bytes), completion.claim_sha256),
+            (result, completion.result_size_bytes, completion.result_sha256),
+            (candidate, completion.candidate_size_bytes, completion.candidate_sha256),
+        ):
+            late_file = _check_evidence_file(store, item.name, item.fd)
+            if (late_file.device, late_file.inode) != (item.device, item.inode):
+                raise ManifestError("calibration evidence identity changed late")
+            if ops.fstat(item.fd).st_size != size:
+                raise ManifestError("calibration evidence extent changed late")
+            if not hmac.compare_digest(
+                _rehash_exact_evidence(ops, deadline, item.fd, size, label="calibration evidence"),
+                digest,
+            ):
+                raise ManifestError("calibration evidence bytes changed late")
+            post_hash_file = _check_evidence_file(store, item.name, item.fd)
+            if (post_hash_file.device, post_hash_file.inode) != (item.device, item.inode):
+                raise ManifestError("calibration evidence identity changed after hash")
+            if ops.fstat(item.fd).st_size != size:
+                raise ManifestError("calibration evidence extent changed after hash")
+        _require_phase_completion(calibration_context, completion)
+        deadline.remaining()
+        return selected
+    finally:
+        _close_phase_start_resources(store, *opened)
+
+
+def _begin_validation_phase(
+    calibration_context: _PhaseContext,
+    completion: _PhaseCompletion,
+    manifest: dict[str, Any],
+) -> _PhaseContext:
+    """Consume same-process calibration authority and reserve inert validation evidence."""
+    started = time.monotonic()
+    deadline: _Deadline | None = None
+    store: _EvidenceDirectory | None = None
+    claim_file: _EvidenceFile | None = None
+    result_file: _EvidenceFile | None = None
+    consumed = False
+    try:
+        if _platform_name() != "linux":
+            raise ManifestError("counted phases require native Linux")
+        if not isinstance(calibration_context, _PhaseContext):
+            raise ManifestError("calibration context is invalid")
+        ops = calibration_context.store.ops
+        _validate_manifest(manifest)
+        duration = manifest["runtime_limits"]["max_elapsed_seconds"]
+        if type(duration) not in (int, float) or not math.isfinite(duration) or duration <= 0:
+            raise ManifestError("validation deadline duration is invalid")
+        deadline = _Deadline(started, float(duration), time.monotonic)
+        deadline.remaining()
+        _require_phase_completion(calibration_context, completion)
+        if calibration_context.phase != "calibration" or completion.phase != "calibration":
+            raise ManifestError("validation requires calibration completion")
+        if completion.phase_verdict != "PASSED" or completion.selected_floor is None:
+            raise ManifestError("validation requires PASSED calibration with selected floor")
+        if calibration_context.completion_consumed:
+            raise ManifestError("calibration completion was already consumed")
+        object.__setattr__(calibration_context, "completion_consumed", True)
+        consumed = True
+        manifest_sha = hashlib.sha256(_canonical_bytes(manifest)).hexdigest()
+        claim_record = _parse_canonical_json_bytes(
+            calibration_context.claim_bytes, label="calibration claim"
+        )
+        if (
+            manifest_sha != completion.manifest_sha256
+            or claim_record.get("manifest_sha256") != manifest_sha
+            or claim_record.get("artifact_paths") != calibration_context.paths.as_claim_record()
+        ):
+            raise ManifestError("calibration manifest or claim paths differ")
+        limit = manifest["runtime_limits"]["max_peak_rss_bytes"]
+        if ops.get_address_space_limit() != (limit, limit):
+            raise ManifestError("calibration address-space limit changed")
+        evidence_path = calibration_context.store.path
+        resources = _prepare_linux_resource_boundary(manifest, evidence_path, ops, deadline)
+        floor = _recheck_calibration_trio(
+            calibration_context, completion, manifest, deadline, resources, recompute=True
+        )
+        assert floor is not None
+        attestation_path = f"docs/reviews/step6a2/{manifest_sha}/task3.review.json"
+        review = _parse_review_attestation(
+            manifest, _read_tracked_worktree_bytes(_ROOT, attestation_path)
+        )
+        paths = _derive_artifact_paths(manifest, "validation", review.reviewed_commit)
+        if review.raw_sha256 != calibration_context.review.raw_sha256:
+            raise ManifestError("validation review attestation differs from calibration")
+        allowance = tuple(
+            str(value)
+            for value in _sequence(
+                _mapping(manifest["integrity"], "integrity")["allowed_untracked"],
+                "integrity.allowed_untracked",
+            )
+        ) + tuple(calibration_context.paths.as_claim_record().values())
+        proof = _verify_reviewed_git_state(
+            _ROOT, manifest, review, deadline, allowed_untracked=allowance
+        )
+        if proof != calibration_context.proof:
+            raise ManifestError("validation reviewed code differs from calibration")
+        store = _open_or_create_evidence_directory(_ROOT, Path(paths.directory), ops, deadline)
+        _assert_artifacts_absent(store, paths)
+        _recheck_calibration_trio(
+            calibration_context, completion, manifest, deadline, resources, recompute=False
+        )
+        started_at = ops.utc_now()
+        _check_utc(started_at, "validation claim start")
+        claim = {
+            "artifact_paths": paths.as_claim_record(),
+            "attempt_id": f"{review.reviewed_commit}-validation",
+            "invocation_commit": proof.invocation_commit,
+            "manifest_sha256": manifest_sha,
+            "phase": "validation",
+            "protected_blobs": dict(proof.protected_blobs),
+            "protocol_version": PROTOCOL_VERSION,
+            "review_attestation": {"path": review.attestation_path, "sha256": review.raw_sha256},
+            "reviewed_commit": review.reviewed_commit,
+            "schema": "step6a2-phase-claim-v1",
+            "started_at_utc": started_at,
+        }
+        claim_raw = _canonical_bytes(claim)
+        claim_file = _write_immutable_claim(store, paths.claim_name, claim_raw)
+        _recheck_calibration_trio(
+            calibration_context, completion, manifest, deadline, resources, recompute=False
+        )
+        result_file = _reserve_result_file(store, paths.result_name)
+        _recheck_calibration_trio(
+            calibration_context, completion, manifest, deadline, resources, recompute=False
+        )
+        claim_sha = hashlib.sha256(claim_raw).hexdigest()
+        binding = _phase_context_binding_bytes(
+            "validation",
+            paths,
+            review,
+            proof,
+            resources,
+            claim_sha,
+            started_at,
+            verified_calibration_floor=floor,
+            calibration_completion_binding_bytes=completion.payload_binding_bytes,
+        )
+        validation = _PhaseContext(
+            "validation",
+            paths,
+            review,
+            proof,
+            resources,
+            store,
+            claim_file,
+            result_file,
+            claim_sha,
+            claim_raw,
+            started_at,
+            binding,
+            _PHASE_CONTEXT_ISSUER,
+            verified_calibration_floor=floor,
+            calibration_completion_binding_bytes=completion.payload_binding_bytes,
+        )
+        _require_phase_completion(calibration_context, completion)
+        deadline.remaining()
+        calibration_context.close()
+        store.recheck()
+        for evidence, expected_size in (
+            (claim_file, len(claim_raw)),
+            (result_file, 0),
+        ):
+            current = _check_evidence_file(store, evidence.name, evidence.fd)
+            if (current.device, current.inode) != (evidence.device, evidence.inode):
+                raise ManifestError("validation artifact identity changed after handoff")
+            if store.ops.fstat(evidence.fd).st_size != expected_size:
+                raise ManifestError("validation artifact extent changed after handoff")
+        late_claim = _read_exact_evidence_bytes(
+            store.ops, deadline, claim_file.fd, len(claim_raw), label="validation claim"
+        )
+        if not hmac.compare_digest(late_claim, claim_raw):
+            raise ManifestError("validation claim bytes changed after handoff")
+        resources.sample_peak_rss()
+        deadline.remaining()
+        return validation
+    except BaseException as exc:
+        close_failure: BaseException | None = None
+        if store is not None:
+            try:
+                _close_phase_start_resources(store, result_file, claim_file)
+            except ManifestError as close_exc:
+                close_failure = close_exc
+        if consumed:
+            try:
+                calibration_context.close()
+            except ManifestError as close_exc:
+                close_failure = close_exc
+        if close_failure is not None:
+            raise ManifestError(f"validation startup close failed: {close_failure}") from exc
+        if isinstance(exc, ManifestError):
+            raise
+        if isinstance(exc, OSError):
+            raise ManifestError(f"validation startup I/O failed: {exc}") from exc
         raise
 
 

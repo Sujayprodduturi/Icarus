@@ -25,7 +25,7 @@ These IDs are local to this historical plan audit. `DECIDED` means the approved 
 | F9 | Calibration path-swap risk | DECIDED: retained handles and identity checks | Validate the bytes actually opened |
 | F10 | Overbroad clean-tree allowance | DECIDED: exact verified artifact paths only | Prevent unrelated evidence allowances |
 | F11 | CI can succeed while database integration tests skip | OPEN (found 2026-09-27): run `36305873021` passed 1,397 tests with four skips; integration fixtures allow missing database/migrations and CI has no migration step | Do not equate CI success with integration proof; separately require migrated services and fail on missing integration prerequisites in CI |
-| F12 | Completion-seal finalization cannot be inferred from surviving bytes | 4B ACCEPTED at `bcaa900` under operator D29 (2026-09-28): inert candidate bytes plus same-process completion authority preserve strict limits and refuse restart recovery | Implement and verify the exact Slice 4B contract in `../plans/2026-09-28-step6a2-task3-completion.md`. Candidate files alone grant no authority; validation consumption and combined invocation remain later reviewed work. |
+| F12 | Completion-seal finalization cannot be inferred from surviving bytes | DONE — 4B accepted at `bcaa900` under operator D29 (2026-09-28): inert candidate bytes plus same-process completion authority preserve strict limits and refuse restart recovery | Implement and verify the exact Slice 4B contract in `../plans/2026-09-28-step6a2-task3-completion.md`. Candidate files alone grant no authority; validation consumption and combined invocation remain later reviewed work. |
 
 ### Follow-up inspection finding — claim close ownership (2026-09-28)
 
