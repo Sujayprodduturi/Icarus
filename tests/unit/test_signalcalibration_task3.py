@@ -4981,6 +4981,59 @@ def test_validation_writer_streams_one_bound_floor_and_independently_verifies(
     assert context.closed
 
 
+def test_combined_runner_uses_one_scripted_provider_per_entered_phase(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+    full_validation: tuple[dict[str, Any], Any],
+) -> None:
+    calibration_result, _ = full_calibration
+    validation_result, _ = full_validation
+    manifest, context, ops = _writer_fixture(
+        tmp_path, monkeypatch, calibration_result, authentic_manifest=True
+    )
+    results = {"calibration": calibration_result, "validation": validation_result}
+    issued: list[str] = []
+
+    class ScriptedProvider(_ScriptedChunkProvider):
+        def __init__(self, active: calibration._PhaseContext, settings: dict[str, Any]) -> None:
+            assert settings is manifest
+            assert not active.provider_issued
+            object.__setattr__(active, "provider_issued", True)
+            issued.append(active.phase)
+            super().__init__(active, settings)
+            object.__setattr__(self, "chunks", list(results[active.phase]["chunks"]))
+
+    def scripted_events(
+        _manifest: dict[str, Any], phase: str, metric: str, chunk: calibration._CountedChunk
+    ) -> dict[str, Any]:
+        assert _manifest is manifest
+        by_key = {
+            (item["cell_id"], item["chunk_id"], event["metric"]): event
+            for item in results[phase]["chunks"]
+            for event in item["metrics"]
+        }
+        return cast(dict[str, Any], by_key[(chunk.cell_id, chunk.chunk_id, metric)])
+
+    monkeypatch.setattr(calibration, "_CountedChunkProvider", ScriptedProvider)
+    monkeypatch.setattr(calibration, "_build_metric_events", scripted_events)
+    monkeypatch.setattr(calibration, "_platform_name", lambda: "linux")
+    monkeypatch.setattr(calibration, "_begin_linux_phase", lambda *args: context)
+    monkeypatch.setattr(
+        np.random,
+        "PCG64",
+        lambda *_args, **_kwargs: pytest.fail("scripted runner drew reserved RNG"),
+    )
+    report = calibration._run_counted_phases(
+        manifest, cast(Any, ops), calibration._Deadline(0.0, 60.0, lambda: 1.0)
+    )
+
+    assert issued == ["calibration", "validation"]
+    assert report["calibration"]["verdict"] == "PASSED"
+    assert report["validation"]["verdict"] == "PASSED"
+    assert context.closed
+
+
 def test_validation_writer_refuses_changed_bound_floor_before_provider(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

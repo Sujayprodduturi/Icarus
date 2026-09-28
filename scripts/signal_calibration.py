@@ -6034,6 +6034,53 @@ def _manifest_protected_paths(manifest: Mapping[str, Any]) -> tuple[str, ...]:
     )
 
 
+def _counted_phase_report(context: _PhaseContext, completion: _PhaseCompletion) -> dict[str, Any]:
+    if completion.phase_verdict not in {"PASSED", "FAILED"}:
+        raise ManifestError("counted phase completion verdict is invalid")
+    return {
+        "attempt_id": completion.attempt_id,
+        "artifacts": context.paths.as_claim_record(),
+        "verdict": completion.phase_verdict,
+    }
+
+
+def _run_counted_phases(
+    manifest: dict[str, Any], ops: _NativeLinuxOps, deadline: _Deadline
+) -> dict[str, Any]:
+    """Own both live contexts; report only after all required closes succeed."""
+    calibration: _PhaseContext | None = None
+    validation: _PhaseContext | None = None
+    try:
+        calibration = _begin_linux_phase("calibration", manifest, ops, deadline)
+        _write_phase_result(calibration, manifest)
+        calibration_completion = _complete_phase(calibration, manifest)
+        calibration_report = _counted_phase_report(calibration, calibration_completion)
+        validation_report: dict[str, Any] | None = None
+        if calibration_completion.phase_verdict == "PASSED":
+            validation = _begin_validation_phase(calibration, calibration_completion, manifest)
+            _write_phase_result(validation, manifest)
+            validation_completion = _complete_phase(validation, manifest)
+            validation_report = _counted_phase_report(validation, validation_completion)
+        return {
+            "schema": "step6a2-counted-run-v1",
+            "authority": "NONE",
+            "calibration": calibration_report,
+            "validation": validation_report,
+        }
+    finally:
+        close_failures: list[ManifestError] = []
+        for context in (validation, calibration):
+            if context is not None and not context.closed:
+                try:
+                    context.close()
+                except ManifestError as exc:
+                    close_failures.append(exc)
+        if close_failures:
+            raise ManifestError(f"counted run close failed: {close_failures}") from close_failures[
+                0
+            ]
+
+
 def _cli() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -6042,7 +6089,29 @@ def _cli() -> int:
         "validate-selection", help="check the calibration selection gate"
     )
     validation.add_argument("artifact", type=Path)
+    subparsers.add_parser("run-counted", help="run reviewed calibration and held-back validation")
     args = parser.parse_args()
+
+    if args.command == "run-counted":
+        try:
+            if _platform_name() != "linux":
+                raise ManifestError("counted phases require native Linux")
+            started = time.monotonic()
+            manifest = load_manifest()
+            _validate_manifest(manifest)
+            duration = manifest["runtime_limits"]["max_elapsed_seconds"]
+            if type(duration) not in (int, float) or not math.isfinite(duration) or duration <= 0:
+                raise ManifestError("counted deadline duration is invalid")
+            deadline = _Deadline(started, float(duration), time.monotonic)
+            deadline.remaining()
+            preflight_manifest(manifest)
+            deadline.remaining()
+            report = _run_counted_phases(manifest, _NativeLinuxOps(), deadline)
+        except (ManifestError, OSError, ValueError) as exc:
+            print(f"counted run failed: {exc}", file=sys.stderr)
+            return 1
+        print(json.dumps(report, sort_keys=True, separators=(",", ":"), ensure_ascii=True))
+        return 0
 
     manifest = load_manifest()
     allowed = tuple(manifest["integrity"]["allowed_untracked"])
