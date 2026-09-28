@@ -156,6 +156,8 @@ All counts and bounds are recomputed from chunk event IDs using the frozen famil
 
 ## 6. Seal contract
 
+**Implementation hold, 2026-09-28:** the schema below is retained, but the seal's successful finalization point needs an explicit ruling. Identical surviving bytes can follow successful finalization or a post-write deadline/fsync failure; later hashing cannot distinguish that history. Do not implement sealing or validation unlock until this is resolved. Independent result verification proceeds separately under the [Slice 4A plan](2026-09-28-step6a2-task3-verification.md).
+
 The seal schema is `step6a2-completion-seal-v1` with exactly:
 
 ```text

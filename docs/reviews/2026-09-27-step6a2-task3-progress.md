@@ -206,3 +206,13 @@ Final root verification for `12e1a8a`: 1,526 unit passes/four Windows platform s
 ### Slice 3 accepted milestone
 
 Exact Slice 3C code `12e1a8a` passed GitHub Ubuntu CI: 1,530 passed/four existing integration skips (194.21s), Ruff lint/format and mypy clean, including actual read-only descriptor behavior. Root independently fetched completion logs: https://github.com/Sujayprodduturi/Icarus/actions/runs/36313816437. Combined with 1,526 local unit passes/four Windows skips, seven caught fault probes, exact numerical preservation and independent Astra Medium approval, this accepts 3A generation, 3B event/parity recording and 3C durable streaming. Task 3 remains incomplete. Next is Slice 4 independent reopen/verification/sealing, validation unlock and counted CLI, followed by whole-runner exact-commit review and native Linux resource-envelope proof before any reserved draw. Inference remains disabled; F11 remains open. No new operator approval is requested at this implementation milestone.
+
+
+### 2026-09-28 — Slice 4A frozen review
+
+The operator requested continued work with usage awareness (D28). Root and Astra narrowed Slice 4 to independent saved-result verification; a separate persistent-seal commit-point ambiguity is explicitly held open. Sol Medium implemented 4A, and Astra Medium approved exact final script `5538cddeb22c85a85e2adb5aad78ff7e05a810024db2a0e4ff7550036c46c3b2` and tests `d69371065e9845ef9f8b192f9a2436ac76cb8f2e9151f340eff252a2b0d64243`. Root reproduced post-close deadline and descriptor-reuse guards. The first full suite correctly rejected a grown claim but exposed a stale test error-message expectation (1,540 passed/four skips/one failure); its exact expectation was repaired and all three variants passed. The final broad gate is running. See the [4A review](2026-09-28-step6a2-task3-verification-review.md). No seal, unlock, CLI, official draw or inference activation is included.
+
+
+### Slice 4A accepted milestone
+
+Code `e406a7b73f1dded1374e587031ec81999a325abb` is pushed to origin/dev and accepted for independent saved-result verification only. Final root suite: 1,541 passed/four Windows skips, 299.80s; global/explicit static checks clean; exact committed bytes equal reviewed hashes; 3/3 in-memory fault probes caught. Exact Ubuntu CI passed 1,545 tests/four pre-existing integration skips in 272.63s: https://github.com/Sujayprodduturi/Icarus/actions/runs/36383980706. Next: resolve persistent-seal commit-point semantics before implementing sealing or validation unlock; counted CLI and native Linux resource-envelope proof also remain. Task 3 remains incomplete, inference disabled, reserved streams untouched and F11 open.

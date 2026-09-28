@@ -327,6 +327,12 @@ Dated decisions that are not code and not in `goal.yaml`, so they have nowhere e
 |---|---|---|
 | D27 | **Use the wait-what style in every milestone summary.** Start with where the work sits in the original roadmap and why it matters. Explain what changed in plain language, what verification establishes and what it does not, and what comes next. Define necessary terms; avoid leading with internal slice names, commit IDs or test counts. Distinguish nested calibration task numbers from the main signal-test steps. | operator, 2026-09-27 |
 
+### 2026-09-28 — usage awareness
+
+| id | decision | owner |
+|---|---|---|
+| D28 | **Continue the next steps while being mindful of usage limits.** No explicit token budget, reset-credit redemption or reduction in review/safety requirements was requested. D26's medium-effort requirement remains in force. | operator, 2026-09-28 |
+
 ## 7c. Deferred by decision — not forgotten
 
 Things consciously postponed. **Each names the condition that reopens it.** A deferral without a

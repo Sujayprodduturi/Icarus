@@ -25,6 +25,7 @@ These IDs are local to this historical plan audit. `DECIDED` means the approved 
 | F9 | Calibration path-swap risk | DECIDED: retained handles and identity checks | Validate the bytes actually opened |
 | F10 | Overbroad clean-tree allowance | DECIDED: exact verified artifact paths only | Prevent unrelated evidence allowances |
 | F11 | CI can succeed while database integration tests skip | OPEN (found 2026-09-27): run `36305873021` passed 1,397 tests with four skips; integration fixtures allow missing database/migrations and CI has no migration step | Do not equate CI success with integration proof; separately require migrated services and fail on missing integration prerequisites in CI |
+| F12 | Completion-seal finalization cannot be inferred from surviving bytes | OPEN (found 2026-09-28): identical canonical seal bytes may precede successful finalization or a later fsync/deadline failure; independent rehash cannot distinguish that history | Resolve an explicit commit-point contract before any seal writer or validation unlock. Slice 4A verifies saved content only; see `../plans/2026-09-28-step6a2-task3-verification.md` |
 
 ## 7. Current implementation tracking
 
