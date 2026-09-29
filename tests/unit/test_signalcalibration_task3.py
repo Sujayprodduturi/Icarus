@@ -6024,8 +6024,11 @@ def test_native_validation_startup_reserves_real_scratch_evidence(
     monkeypatch.setattr(calibration, "_verify_reviewed_git_state", lambda *_args, **_kwargs: proof)
     monkeypatch.setattr(
         calibration,
-        "validate_phase_result",
-        lambda *_args: calibration.VerifiedPhaseResult("calibration", "PASSED", floor),
+        "_verify_bounded_result",
+        lambda *_args: (
+            calibration.VerifiedPhaseResult("calibration", "PASSED", floor),
+            hashlib.sha256(result_raw).hexdigest(),
+        ),
     )
 
     def resource_view(

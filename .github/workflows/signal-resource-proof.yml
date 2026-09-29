@@ -12,6 +12,7 @@ on:
       - docs/plans/2026-09-26-step6a2-calibration-manifest.json
       - docs/plans/2026-09-26-step6a2-calibration-manifest.sha256
       - tests/unit/test_signalcalibration_envelope.py
+      - tests/unit/test_signalcalibration_task3.py
 
 jobs:
   native-surrogate:
