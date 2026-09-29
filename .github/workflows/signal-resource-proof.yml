@@ -1,0 +1,59 @@
+name: signal-resource-proof
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - .github/workflows/signal-resource-proof.yml
+      - scripts/prove_signalcalibration_envelope.py
+      - scripts/check_signalcalibration_envelope.py
+      - scripts/signal_calibration.py
+      - icarus/engine/signalmetrics.py
+      - docs/plans/2026-09-26-step6a2-calibration-manifest.json
+      - docs/plans/2026-09-26-step6a2-calibration-manifest.sha256
+      - tests/unit/test_signalcalibration_envelope.py
+
+jobs:
+  native-surrogate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 260
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [generated, scripted, validation-fallback]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Full-size non-reserved native resource proof
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run python -m scripts.prove_signalcalibration_envelope --mode ${{ matrix.mode }} 2>&1 | tee resource-proof.log
+      - name: Preserve raw proof log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: signal-resource-${{ matrix.mode }}
+          path: |
+            resource-proof.log
+            resource-proof-report.json
+          if-no-files-found: warn
+
+  verify-envelope:
+    needs: native-surrogate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: signal-resource-*
+          path: resource-proof-reports
+      - name: Verify all three resource witnesses
+        run: uv run python -m scripts.check_signalcalibration_envelope --directory resource-proof-reports --expected-commit "${{ github.sha }}"

@@ -5034,6 +5034,41 @@ def test_combined_runner_uses_one_scripted_provider_per_entered_phase(
     assert context.closed
 
 
+def test_resource_proof_streamed_high_size_calibration_completes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from scripts.prove_signalcalibration_envelope import _high_size_events, _HighSizeProvider
+
+    repo, manifest, _ = _reviewed_repo(tmp_path, authentic_manifest=True)
+    ops = _ControllerOps(repo)
+    ops.short_write = 10_000_000
+    monkeypatch.setattr(calibration, "_ROOT", repo)
+    context = calibration._begin_linux_phase(
+        "calibration", manifest, ops, calibration._Deadline(0.0, 60.0, lambda: 1.0)
+    )
+    monkeypatch.setattr(calibration, "_CountedChunkProvider", _HighSizeProvider)
+    monkeypatch.setattr(calibration, "_build_metric_events", _high_size_events)
+    monkeypatch.setattr(
+        np.random,
+        "SeedSequence",
+        lambda *_args, **_kwargs: pytest.fail("scripted high-size writer drew RNG"),
+    )
+
+    calibration._write_phase_result(context, manifest)
+    completion = calibration._complete_phase(context, manifest)
+
+    assert completion.phase_verdict == "PASSED"
+    assert completion.result_size_bytes > 30_000_000
+    monkeypatch.setattr(calibration, "_platform_name", lambda: "linux")
+    validation = calibration._begin_validation_phase(context, completion, manifest)
+    calibration._write_phase_result(validation, manifest)
+    validated = calibration._complete_phase(validation, manifest)
+    assert validated.phase_verdict == "PASSED"
+    assert validated.result_size_bytes > completion.result_size_bytes
+    assert context.closed
+    validation.close()
+
+
 def test_validation_writer_refuses_changed_bound_floor_before_provider(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
