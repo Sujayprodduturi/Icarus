@@ -1,6 +1,6 @@
 # Step 6a.2 Task 3 — native full-size resource proof
 
-**Status: bounded proof specification; not executed.** This is a separate hold point after the exact whole-runner review. It does not authorize or perform an official calibration/validation draw.
+**Status: executed on 2026-09-29; failed safely.** The [measured native review](../reviews/2026-09-29-step6a2-task3-native-resource-proof.md) records real test-seed validation's verifier-budget refusal. This remains a separate hold point and does not authorize an official calibration/validation draw. A [bounded-reader repair proposal](2026-09-29-step6a2-task3-bounded-verifier.md) is pending decision.
 
 ## Boundary
 

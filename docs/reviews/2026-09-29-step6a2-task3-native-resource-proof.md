@@ -1,0 +1,27 @@
+# Step 6a.2 Task 3 — native resource proof verdict
+
+**Verdict: FAILED SAFE; official counted calibration remains blocked.** This review records a non-reserved, test-only proof on bare Linux. It is not an official calibration or validation result and accepts no statistical floor.
+
+## Exact run and evidence
+
+- Source commit: `8598255d902b200f155403d744b019833e87a500` on `dev`. [Dedicated native run](https://github.com/Sujayprodduturi/Icarus/actions/runs/36534582869) failed; its three matrix jobs retain raw logs and the generated-calibration report. The preceding [attempt](https://github.com/Sujayprodduturi/Icarus/actions/runs/36534364624) refused before generation because its log was untracked in the checkout; `8598255` moved the log outside the checkout without weakening the clean-source guard.
+- Exact-commit [ordinary Linux CI](https://github.com/Sujayprodduturi/Icarus/actions/runs/36534582852) passed 1,634 tests with four existing integration skips, Ruff and mypy. Local Windows verification at `87e48e0` passed 1,626 unit tests with six platform skips, Ruff, format and targeted script mypy.
+- The generated report has SHA-256 `cf52e5a96a74ed705cc0abcec1095ea2a5376e386a4d8e6e77f5c8637f1131aa`. It records systemd PID 1, no container/WSL, ext4 scratch evidence, two CPUs, 8,323,969,024 host RAM bytes, exactly 2,147,483,648 bytes of address-space limit, zero reserved seed draws, 3,610 successful fsyncs, 12 successful closes, and zero fsync/close failures. The two refusal logs are linked from the dedicated run; each says `result write exceeds verifier budget` after scripted calibration and validation startup. Their untimestamped artifact text is identical, SHA-256 `280d8993d449afb4cef9179bde30a7951643373b0f321c644dfdb835e255b93d`; the GitHub job logs provide distinct timestamps.
+
+## Observed outcomes
+
+| Non-reserved mode | Outcome | What it proves |
+|---|---|---|
+| Real generator, test-only calibration seed `2026092911` | Complete 45 × 10,000 calibration; statistical `FAILED`; 41,643,865 result bytes; largest encoded chunk 47,697 bytes; 1,517.51 seconds; peak RSS 508,141,568 bytes; maximum sampled VMS 389,029,888 bytes; verifier projection 1,777,703,712 bytes | Full-size native calibration can write and independently complete within limits. A statistical failure correctly did not authorize validation. This test-seed verdict says nothing about the reserved stream. |
+| Scripted passing calibration, then scripted 37 × 20,000 validation | Calibration completed and issued same-process validation authority. Validation refused before accepting its oversized saved result, about 11 seconds after validation started. | The existing pre-write resource guard works. The scripted calibration result was about 34.8 MB in the local integrated witness, smaller than the real 41.6 MB calibration; it was not a conservative size bound. |
+| Scripted passing calibration, then real generator with validation test seed `2026092912` | Calibration completed and validation generation ran about 41 minutes before the same pre-write refusal. No complete validation report was issued. | The actual test-seed validation result cannot complete under the current file format and verifier budget. This is a blocker, independent of the oversized scripted fixture. |
+
+The VMS figure is the maximum of explicit samples, not a continuous high-water measurement; `RLIMIT_AS` supplies the hard address-space boundary. The writer streams chunks, but its verifier currently reads and parses the entire saved file. Before each write it requires `current VMS + 32 × projected result bytes + 64 MiB <= 2 GiB`. The refusal is this explicit safety check, not an observed operating-system out-of-memory event. The validator also reparses the whole calibration result during the same-process handoff. Reducing the `32×` multiplier or increasing the 2 GiB cap would remove an existing protection without proving actual bounded parsing.
+
+## Decision and hold points
+
+Task 3's native resource acceptance criterion is **not met**. Do not issue a whole-runner approval attestation, draw either reserved synthetic stream, accept a floor, enable product inference, run a new real-data evaluation or enable live trading. Preserve the failing run as evidence; do not call a test-seed statistical failure an official finding.
+
+The recommended next design is a bounded, chunk-at-a-time verifier for the **same single result artifact**, including the initial saved-file verification and validation-startup recheck. It must preserve canonical byte verification, independent count/CP/parity recomputation, secure file identity and rehash checks, exact provenance, fsync/close and private completion authority. It must replace the whole-file projection with a measured conservative bound on live parser/chunk state while keeping the frozen 2 GiB and 7,200-second limits. See the [repair proposal](../plans/2026-09-29-step6a2-task3-bounded-verifier.md). An alternative compact lossless event encoding may be evaluated separately, but merely shrinking a test fixture cannot repair the real validation refusal.
+
+The CI artifact uploader also places the report under nested source/temporary directory paths because it uploads files from two roots. The aggregate checker expects flat artifact paths. Fix that workflow layout during the next proof attempt; this did not cause the current resource refusal because aggregate verification was skipped after the failed jobs.
