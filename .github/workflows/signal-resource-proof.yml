@@ -31,14 +31,14 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          uv run python -m scripts.prove_signalcalibration_envelope --mode ${{ matrix.mode }} 2>&1 | tee resource-proof.log
+          uv run python -m scripts.prove_signalcalibration_envelope --mode ${{ matrix.mode }} 2>&1 | tee "$RUNNER_TEMP/resource-proof.log"
       - name: Preserve raw proof log
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: signal-resource-${{ matrix.mode }}
           path: |
-            resource-proof.log
+            ${{ runner.temp }}/resource-proof.log
             resource-proof-report.json
           if-no-files-found: warn
 
