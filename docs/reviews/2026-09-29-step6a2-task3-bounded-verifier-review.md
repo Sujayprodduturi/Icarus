@@ -19,4 +19,6 @@ Final Windows verification passed **1,637 tests with 10 skips** in 28 minutes 38
 
 ## Remaining hold
 
+The first renewed resource run on `f3132fe` found a separate **proof-fixture defect**. Scripted calibration completed at 34,762,240 bytes, below the earlier 41,643,865-byte generated calibration. Scripted validation was 49,329,557 bytes. The reported 1,313,287-byte maximum chunk came from serializing a synthetic structural-bound example, not from writing that chunk. This cannot establish the scripted-versus-generated size comparison. The fixture repair adds valid `near_zero` parity events to the first 16 replicates of every chunk, preserves the fixed audit IDs, and counts only successfully appended canonical chunk fragments. A focused regression test distinguishes real writer appends from header bytes and failed appends. These fixture changes need their own exact-commit native proof and aggregate comparison; no frozen statistical inputs or resource limits changed.
+
 Commit and push; confirm exact-commit ordinary Linux CI and the three full-size native modes with raw logs, structured reports and aggregate checker. Independently inspect measured RSS/VMS/time and filesystem evidence before an exact-runner whole-system attestation. No official calibration or held-back validation draw is authorized by this review.

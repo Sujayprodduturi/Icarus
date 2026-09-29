@@ -78,6 +78,38 @@ def test_high_size_events_verify_one_frozen_chunk() -> None:
     )
     calibration._verify_parity(manifest, event, cell, "raw", 20_000, 0, 256)
     assert counts.emitted == 256
+    assert len(event["parity"]) >= 16
+
+
+def test_written_chunk_meter_counts_only_successful_real_chunk_appends() -> None:
+    written: list[bytes] = []
+
+    def append(context: Any, data: bytes, offset: int, *, closing_reserve: int) -> int:
+        del context, closing_reserve
+        written.append(data)
+        return offset + len(data)
+
+    meter = proof._WrittenChunkMeter(append)
+    header = b'{"phase":"calibration","chunks":['
+    first = b'{"cell_id":"first","metrics":{}}'
+    second = b',{"cell_id":"second","metrics":{"longer":true}}'
+    offset = meter(None, header, 0, closing_reserve=1)
+    assert meter.max_bytes == 0
+    offset = meter(None, first, offset, closing_reserve=1)
+    assert meter.max_bytes == len(first)
+    offset = meter(None, second, offset, closing_reserve=1)
+    assert offset == sum(map(len, written))
+    assert written == [header, first, second]
+    assert meter.max_bytes == len(second)
+
+    def fail(context: Any, data: bytes, offset: int, *, closing_reserve: int) -> int:
+        del context, data, offset, closing_reserve
+        raise OSError("append failed")
+
+    failed_meter = proof._WrittenChunkMeter(fail)
+    with pytest.raises(OSError, match="append failed"):
+        failed_meter(None, second, 0, closing_reserve=1)
+    assert failed_meter.max_bytes == 0
 
 
 def test_source_provenance_rejects_dirty_protected_bytes(tmp_path: Path) -> None:

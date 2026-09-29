@@ -178,17 +178,18 @@ def _high_size_events(
     cr1["cr1_variance"] = cr1.pop("cr2_variance")
     start, stop = chunk.replicate_start, chunk.replicate_stop_exclusive
     replicates = int(manifest["phases"][phase]["replicates"])
+    fixed = set(calibration.parity_audit_ids(replicates))
+    selected = sorted((fixed & set(range(start, stop))) | set(range(start, min(stop, start + 16))))
     parity = [
         {
             "replicate_id": replicate_id,
-            "triggers": ["ordinary"],
-            "max_abs_outcome": 1.0,
+            "triggers": ["near_zero", "ordinary"] if replicate_id in fixed else ["near_zero"],
+            "max_abs_outcome": 1_000_000.0,
             "batch": interval,
             "scalar": dict(interval),
             "cr1": cr1,
         }
-        for replicate_id in calibration.parity_audit_ids(replicates)
-        if start <= replicate_id < stop
+        for replicate_id in selected
     ]
     ids = list(range(start, stop))
     return {
@@ -201,6 +202,27 @@ def _high_size_events(
         "joint_success_ids": ids,
         "parity": parity,
     }
+
+
+class _WrittenChunkMeter:
+    """Count only chunk bytes that the real result writer successfully appended."""
+
+    def __init__(self, append: Callable[..., int]) -> None:
+        self.append = append
+        self.max_bytes = 0
+
+    def __call__(
+        self,
+        context: calibration._PhaseContext,
+        data: bytes,
+        written: int,
+        *,
+        closing_reserve: int,
+    ) -> int:
+        updated = self.append(context, data, written, closing_reserve=closing_reserve)
+        if data.startswith((b'{"cell_id":', b',{"cell_id":')):
+            self.max_bytes = max(self.max_bytes, len(data))
+        return updated
 
 
 class _MeasuringNativeLinuxOps(calibration._NativeLinuxOps):
@@ -258,10 +280,10 @@ def _run_native_envelope(source_root: Path, mode: str = "generated") -> dict[str
     original_root = calibration._ROOT
     original_provider = calibration._CountedChunkProvider
     original_events = calibration._build_metric_events
-    original_fragment = calibration._json_fragment
+    original_append = calibration._append_phase_bytes
     original_seed_sequence = np.random.SeedSequence
     contexts: list[calibration._PhaseContext] = []
-    max_chunk = {"bytes": 0}
+    meter = _WrittenChunkMeter(original_append)
     with tempfile.TemporaryDirectory(prefix="icarus-resource-proof-") as directory:
         repo = _build_scratch_repo(source_root, Path(directory), manifest)
 
@@ -275,14 +297,8 @@ def _run_native_envelope(source_root: Path, mode: str = "generated") -> dict[str
         def guarded_seed_sequence(entropy: Any, **kwargs: Any) -> Any:
             return _test_only_seed_sequence(original_seed_sequence, reserved, entropy, **kwargs)
 
-        def measured_fragment(value: Any) -> bytes:
-            encoded = original_fragment(value)
-            if isinstance(value, dict) and {"replicate_start", "metrics"}.issubset(value):
-                max_chunk["bytes"] = max(max_chunk["bytes"], len(encoded))
-            return encoded
-
         def write_selected(context: calibration._PhaseContext, *, scripted: bool) -> None:
-            max_chunk["bytes"] = 0
+            meter.max_bytes = 0
             vars(calibration)["_CountedChunkProvider"] = (
                 _HighSizeProvider if scripted else TestOnlyProvider
             )
@@ -293,7 +309,7 @@ def _run_native_envelope(source_root: Path, mode: str = "generated") -> dict[str
 
         vars(calibration)["_ROOT"] = repo
         vars(np.random)["SeedSequence"] = guarded_seed_sequence
-        vars(calibration)["_json_fragment"] = measured_fragment
+        vars(calibration)["_append_phase_bytes"] = meter
         try:
             memory: Any = importlib.import_module("psutil")
             report: dict[str, Any] = {
@@ -325,7 +341,7 @@ def _run_native_envelope(source_root: Path, mode: str = "generated") -> dict[str
             write_selected(first, scripted=mode != "generated")
             first_completion = calibration._complete_phase(first, manifest)
             report["phases"]["calibration"] = _phase_resource_report(
-                first, first_completion, ops, max_chunk["bytes"]
+                first, first_completion, ops, meter.max_bytes
             )
             print("test-only full-size calibration complete", file=sys.stderr, flush=True)
             if first_completion.phase_verdict == "PASSED":
@@ -335,7 +351,7 @@ def _run_native_envelope(source_root: Path, mode: str = "generated") -> dict[str
                 write_selected(second, scripted=mode == "scripted")
                 second_completion = calibration._complete_phase(second, manifest)
                 report["phases"]["validation"] = _phase_resource_report(
-                    second, second_completion, ops, max_chunk["bytes"]
+                    second, second_completion, ops, meter.max_bytes
                 )
                 print("test-only full-size validation complete", file=sys.stderr, flush=True)
             else:
@@ -347,7 +363,7 @@ def _run_native_envelope(source_root: Path, mode: str = "generated") -> dict[str
             vars(np.random)["SeedSequence"] = original_seed_sequence
             vars(calibration)["_CountedChunkProvider"] = original_provider
             vars(calibration)["_build_metric_events"] = original_events
-            vars(calibration)["_json_fragment"] = original_fragment
+            vars(calibration)["_append_phase_bytes"] = original_append
             vars(calibration)["_ROOT"] = original_root
             failures: list[calibration.ManifestError] = []
             for context in reversed(contexts):
