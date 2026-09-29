@@ -32,6 +32,13 @@ jobs:
         run: |
           set -o pipefail
           uv run python -m scripts.prove_signalcalibration_envelope --mode ${{ matrix.mode }} 2>&1 | tee "$RUNNER_TEMP/resource-proof.log"
+      - name: Stage structured proof report
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f resource-proof-report.json ]]; then
+            cp resource-proof-report.json "$RUNNER_TEMP/resource-proof-report.json"
+          fi
       - name: Preserve raw proof log
         if: always()
         uses: actions/upload-artifact@v4
@@ -39,7 +46,7 @@ jobs:
           name: signal-resource-${{ matrix.mode }}
           path: |
             ${{ runner.temp }}/resource-proof.log
-            resource-proof-report.json
+            ${{ runner.temp }}/resource-proof-report.json
           if-no-files-found: warn
 
   verify-envelope:

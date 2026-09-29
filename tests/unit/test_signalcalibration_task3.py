@@ -622,6 +622,16 @@ def _replace_first_chunk(result: dict[str, Any]) -> tuple[dict[str, Any], dict[s
     return changed, chunk
 
 
+def test_complete_phase_result_refuses_trailing_null_chunk(
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    original, context = full_calibration
+    changed = dict(original)
+    changed["chunks"] = [*original["chunks"], None]
+    with pytest.raises(ManifestError, match="extra cells or ranges"):
+        calibration.validate_phase_result(_manifest(), changed, context)
+
+
 @pytest.mark.parametrize(
     "field,bad",
     [
@@ -1959,6 +1969,16 @@ def test_resource_controller_refuses_planned_allocation_and_verifier_projection(
     assert controller.check_verifier_projection(result_size) == (
         ops.current_vms_bytes() + 32 * result_size + 64 * 1024**2
     )
+    with pytest.raises(ManifestError, match="bounded allocation"):
+        controller.check_verifier_projection(calibration._RESULT_FRAGMENT_MAX_BYTES + 1)
+    ops.current_vms_bytes = lambda: (  # type: ignore[method-assign]
+        controller.address_space_limit_bytes
+        - 32 * calibration._RESULT_FRAGMENT_MAX_BYTES
+        - 64 * 1024**2
+        + 1
+    )
+    with pytest.raises(ManifestError, match="address-space budget"):
+        controller.check_verifier_projection(calibration._RESULT_FRAGMENT_MAX_BYTES)
 
 
 def test_resource_controller_refuses_result_write_before_projected_budget(
@@ -1977,6 +1997,59 @@ def test_resource_controller_refuses_result_write_before_projected_budget(
     controller.check_result_write(maximum)
     with pytest.raises(ManifestError, match=r"result.*budget"):
         controller.check_result_write(maximum + 1)
+
+
+def test_bounded_reader_frames_split_utf8_and_rejects_large_or_truncated_fragments() -> None:
+    raw = calibration._json_fragment({"label": '₹"'})
+    ops = SimpleNamespace(pread=lambda _fd, _size, offset: raw[offset : offset + 1])
+    reader = calibration._BoundedResultReader(
+        ops, calibration._Deadline(0.0, 60.0, lambda: 1.0), 7, len(raw)
+    )
+    assert reader.object(label="split") == {"label": '₹"'}
+    assert reader.hexdigest() == hashlib.sha256(raw).hexdigest()
+
+    oversized = b'{"a":"' + b"x" * 12 + b'"}'
+    ops.pread = lambda _fd, _size, offset: oversized[offset : offset + 2]
+    reader = calibration._BoundedResultReader(
+        ops, calibration._Deadline(0.0, 60.0, lambda: 1.0), 7, len(oversized)
+    )
+    with pytest.raises(ManifestError, match="bounded fragment"):
+        reader.object(label="large", maximum=12)
+
+    truncated = b'{"a":'
+    ops.pread = lambda _fd, _size, offset: truncated[offset : offset + 1]
+    reader = calibration._BoundedResultReader(
+        ops, calibration._Deadline(0.0, 60.0, lambda: 1.0), 7, len(truncated)
+    )
+    with pytest.raises(ManifestError, match="ended"):
+        reader.object(label="truncated")
+
+
+def test_frozen_topology_derives_chunk_and_result_extent_caps() -> None:
+    manifest = _manifest()
+    calibration_chunk = calibration._derived_chunk_encoding_bound(manifest, "calibration")
+    validation_chunk = calibration._derived_chunk_encoding_bound(manifest, "validation")
+    assert (calibration_chunk, validation_chunk) == (1_297_158, 1_313_288)
+    assert calibration._derived_envelope_encoding_bounds(manifest, "calibration") == (138, 232_858)
+    assert calibration._derived_envelope_encoding_bounds(manifest, "validation") == (137, 193_503)
+    assert calibration._derived_result_extent_limits(manifest) == (
+        138 + 1_800 * calibration_chunk + 232_858,
+        137 + 2_923 * validation_chunk + 193_503,
+    )
+    assert validation_chunk < calibration._RESULT_FRAGMENT_MAX_BYTES
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [b'{"a":1,"a":2}', b'{"a":NaN}', b'{"a": 1}', b'{"a":"\xff"}'],
+)
+def test_bounded_reader_rejects_noncanonical_or_invalid_json(raw: bytes) -> None:
+    ops = SimpleNamespace(pread=lambda _fd, size, offset: raw[offset : offset + size])
+    reader = calibration._BoundedResultReader(
+        ops, calibration._Deadline(0.0, 60.0, lambda: 1.0), 7, len(raw)
+    )
+    with pytest.raises(ManifestError):
+        reader.object(label="malformed")
 
 
 def test_resource_controller_rechecks_peak_rss(tmp_path: Path) -> None:
@@ -3258,7 +3331,7 @@ def _independent_writer_expected(
         "peak_rss_before_verification_bytes": 64 * 1024 * 1024,
         "peak_rss_source": "getrusage-ru_maxrss-kib",
         "planned_peak_bytes": planned,
-        "maximum_result_bytes": (limit - 128 * 1024 * 1024 - 64 * 1024**2) // 32,
+        "maximum_result_bytes": context.resources.maximum_result_bytes(phase),
         "generation_elapsed_seconds": 1.0,
         "deadline_seconds": 7_200,
         "resource_state": "WITHIN_LIMIT",
@@ -3599,6 +3672,25 @@ def test_finished_verifier_checks_projection_before_result_read(
     assert context.closed is True
 
 
+def test_finished_verifier_accepts_large_result_with_bounded_reader(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, ops, _ = _prepared_verification_fixture(tmp_path, monkeypatch, complete)
+    result_size = len(ops.nodes[context.store.path / context.paths.result_name]["data"])
+    assert result_size > 30_000_000
+    monkeypatch.setattr(ops, "current_vms_bytes", lambda: 1024**3)
+
+    evidence = calibration._verify_finished_phase_result(context, manifest)
+
+    assert evidence.result_size_bytes == result_size
+    assert evidence.phase_verdict == "PASSED"
+    assert evidence.verification_projected_bytes <= 2 * 1024**3
+    assert context.closed is False
+
+
 @pytest.mark.parametrize("mutation", ["grow", "shrink"])
 def test_finished_verifier_reads_only_frozen_result_extent(
     tmp_path: Path,
@@ -3640,17 +3732,17 @@ def test_finished_verifier_detects_post_recomputation_mutation(
     complete, _ = full_calibration
     manifest, context, ops, _ = _prepared_verification_fixture(tmp_path, monkeypatch, complete)
     result_path = context.store.path / context.paths.result_name
-    original_validate = calibration.validate_phase_result
+    original_verify = calibration._verify_bounded_result
 
-    def mutate_after_validate(*args: Any, **kwargs: Any) -> Any:
-        verified = original_validate(*args, **kwargs)
+    def mutate_after_verify(*args: Any, **kwargs: Any) -> Any:
+        verified = original_verify(*args, **kwargs)
         if mutation == "content":
             ops.nodes[result_path]["data"][10] ^= 1
         else:
             ops.nodes[result_path]["ino"] += 1
         return verified
 
-    monkeypatch.setattr(calibration, "validate_phase_result", mutate_after_validate)
+    monkeypatch.setattr(calibration, "_verify_bounded_result", mutate_after_verify)
     with pytest.raises(ManifestError, match=r"changed|identity"):
         calibration._verify_finished_phase_result(context, manifest)
 
@@ -4713,7 +4805,9 @@ def test_phase_writer_resource_guard_fails_before_provider_advance(
         monkeypatch.setattr(
             calibration._ResourceBoundary,
             "check_result_write",
-            lambda _self, _amount: (_ for _ in ()).throw(ManifestError("result write injected")),
+            lambda _self, _amount, _phase: (_ for _ in ()).throw(
+                ManifestError("result write injected")
+            ),
         )
 
     with pytest.raises(ManifestError, match="injected"):
@@ -5515,14 +5609,14 @@ def test_validation_trio_refuses_completion_revoked_during_recomputation(
     _stub_completion_verifier(monkeypatch, context)
     completion = calibration._complete_phase(context, manifest)
     monkeypatch.setattr(calibration, "_platform_name", lambda: "linux")
-    original = calibration.validate_phase_result
+    original = calibration._verify_bounded_result
 
     def revoke(*args: Any, **kwargs: Any) -> Any:
         verified = original(*args, **kwargs)
         object.__setattr__(context, "completion", None)
         return verified
 
-    monkeypatch.setattr(calibration, "validate_phase_result", revoke)
+    monkeypatch.setattr(calibration, "_verify_bounded_result", revoke)
     with pytest.raises(ManifestError, match="completion"):
         calibration._begin_validation_phase(context, completion, manifest)
     assert context.closed
@@ -5530,6 +5624,25 @@ def test_validation_trio_refuses_completion_revoked_during_recomputation(
         manifest, "validation", context.review.reviewed_commit
     )
     assert context.store.path / paths.claim_name not in ops.nodes
+
+
+def test_validation_startup_rechecks_large_calibration_with_bounded_reader(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    full_calibration: tuple[dict[str, Any], Any],
+) -> None:
+    complete, _ = full_calibration
+    manifest, context, ops, _ = _prepared_verification_fixture(tmp_path, monkeypatch, complete)
+    _stub_completion_verifier(monkeypatch, context)
+    completion = calibration._complete_phase(context, manifest)
+    monkeypatch.setattr(calibration, "_platform_name", lambda: "linux")
+    monkeypatch.setattr(ops, "current_vms_bytes", lambda: 1024**3)
+
+    validation = calibration._begin_validation_phase(context, completion, manifest)
+
+    assert validation.phase == "validation"
+    assert context.closed is True
+    validation.close()
 
 
 def test_live_validation_context_issues_one_real_provider_without_drawing(

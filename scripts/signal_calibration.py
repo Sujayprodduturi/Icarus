@@ -20,7 +20,7 @@ import subprocess
 import sys
 import time
 from collections import OrderedDict
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
@@ -229,6 +229,7 @@ class _ResourcePolicy:
     address_space_limit_bytes: int
     ops: Any
     deadline: _Deadline
+    result_extent_limits: tuple[int, int] | None = None
 
 
 @dataclass(slots=True)
@@ -281,24 +282,29 @@ class _ResourceBoundary:
         if planned_bytes > limit - current_vms:
             raise ManifestError("planned allocation exceeds address-space budget")
 
-    def check_verifier_projection(self, result_size_bytes: int) -> int:
-        if type(result_size_bytes) is not int or result_size_bytes < 0:
-            raise ManifestError("result size must be non-negative integer bytes")
+    def check_verifier_projection(self, fragment_bytes: int) -> int:
+        if type(fragment_bytes) is not int or not 0 <= fragment_bytes <= _RESULT_FRAGMENT_MAX_BYTES:
+            raise ManifestError("verifier fragment exceeds its bounded allocation")
         current_vms, _, _ = self._measure()
-        total = current_vms + 32 * result_size_bytes + 64 * 1024**2
+        total = current_vms + 32 * fragment_bytes + 64 * 1024**2
         if total > self.address_space_limit_bytes:
-            raise ManifestError("result verifier projection exceeds address-space budget")
+            raise ManifestError("bounded verifier projection exceeds address-space budget")
         return total
 
-    def maximum_result_bytes(self) -> int:
-        current_vms, _, _ = self._measure()
-        available = max(0, self.address_space_limit_bytes - current_vms - 64 * 1024**2)
-        return available // 32
+    def maximum_result_bytes(self, phase: str = "calibration") -> int:
+        self._measure()
+        if phase not in {"calibration", "validation"}:
+            raise ManifestError("result phase is invalid")
+        if self.policy.result_extent_limits is None:
+            return self.address_space_limit_bytes
+        return self.policy.result_extent_limits[0 if phase == "calibration" else 1]
 
-    def check_result_write(self, projected_result_size_bytes: int) -> None:
+    def check_result_write(
+        self, projected_result_size_bytes: int, phase: str = "calibration"
+    ) -> None:
         if type(projected_result_size_bytes) is not int or projected_result_size_bytes < 0:
             raise ManifestError("result write size must be non-negative integer bytes")
-        if projected_result_size_bytes > self.maximum_result_bytes():
+        if projected_result_size_bytes > self.maximum_result_bytes(phase):
             raise ManifestError("result write exceeds verifier budget")
 
     def sample_peak_rss(self) -> int:
@@ -2964,8 +2970,9 @@ def _prepare_linux_resource_boundary(
         or peak_rss > limit
     ):
         raise ManifestError("process resource measurements are invalid or over limit")
+    extent_limits = _derived_result_extent_limits(manifest)
     return _ResourceBoundary(
-        _ResourcePolicy(limit, ops, deadline),
+        _ResourcePolicy(limit, ops, deadline, extent_limits),
         current_vms,
         current_rss,
         peak_rss,
@@ -4192,14 +4199,18 @@ def _verify_expected_identity(
         or type(runtime["deadline_seconds"]) is not int
     ):
         raise ManifestError("runtime limits differ from frozen manifest")
-    for name in (
-        "peak_rss_before_verification_bytes",
-        "planned_peak_bytes",
-        "maximum_result_bytes",
-    ):
+    for name in ("peak_rss_before_verification_bytes", "planned_peak_bytes"):
         amount = _nonnegative_int(runtime[name], f"runtime {name}")
         if amount > limits["max_peak_rss_bytes"]:
             raise ManifestError(f"runtime {name} exceeds frozen memory limit")
+    maximum_result = _nonnegative_int(
+        runtime["maximum_result_bytes"], "runtime maximum_result_bytes"
+    )
+    if (
+        maximum_result
+        > _derived_result_extent_limits(manifest)[0 if context.phase == "calibration" else 1]
+    ):
+        raise ManifestError("runtime result extent exceeds frozen topology bound")
     elapsed = _finite_number(
         runtime["generation_elapsed_seconds"], "runtime elapsed", nonnegative=True
     )
@@ -4496,72 +4507,25 @@ def _verify_summary(
     return VerifiedPhaseResult(phase, verdict, frozen_selected)
 
 
-def validate_phase_result(
-    manifest: dict[str, Any], result: dict[str, Any], expected_provenance: _ExpectedPhaseContext
-) -> VerifiedPhaseResult:
-    """Purely rederive the complete phase verdict from independently bound evidence."""
-    if not isinstance(expected_provenance, _ExpectedPhaseContext):
-        raise ManifestError("expected context has the wrong type")
-    _validate_manifest(manifest)
-    phase = expected_provenance.phase
+def _recompute_phase_chunks(
+    manifest: dict[str, Any], phase: str, chunks: Iterable[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Consume one ordered chunk at a time and retain only bounded cell summaries."""
     phase_data = manifest["phases"][phase]
-    expected = _parse_canonical_json_bytes(
-        expected_provenance.provenance_bytes, label="expected provenance"
-    )
-    _exact_keys(
-        expected,
-        {
-            "manifest_sha256",
-            "method_version",
-            "selection_artifact_schema",
-            "reviewed_commit",
-            "invocation_commit",
-            "protected_blobs",
-            "review_attestation_sha256",
-            "claim_sha256",
-            "dependencies",
-        },
-        "expected provenance",
-    )
-    if expected["manifest_sha256"] != hashlib.sha256(_canonical_bytes(manifest)).hexdigest():
-        raise ManifestError("manifest bytes do not match expected provenance hash")
-    result = _mapping(result, "phase result")
-    _exact_keys(
-        result,
-        {
-            "schema",
-            "protocol_version",
-            "phase",
-            "attempt",
-            "provenance",
-            "phase_contract",
-            "chunks",
-            "summary",
-            "runtime",
-            "terminal",
-        },
-        "phase result",
-    )
-    if (
-        result["schema"] != "step6a2-calibration-result-v1"
-        or result["protocol_version"] != PROTOCOL_VERSION
-        or result["phase"] != phase
-    ):
-        raise ManifestError("phase result schema, protocol or phase differs")
-    _verify_expected_identity(manifest, result, expected_provenance, expected)
     metrics = manifest["acceptance"]["metrics"]
     cells = phase_data["cells"]
     replicates = phase_data["replicates"]
-    chunks = _sequence(result["chunks"], "phase chunks")
     cell_summaries: list[dict[str, Any]] = []
     cursor = 0
+    source = iter(chunks)
     for cell in cells:
         totals = {metric: [0] * 6 for metric in metrics}
         for chunk_id, start in enumerate(range(0, replicates, 256)):
-            if cursor >= len(chunks):
-                raise ManifestError("phase chunks omit a frozen cell or range")
+            try:
+                chunk = _mapping(next(source), f"chunk {cursor}")
+            except StopIteration as exc:
+                raise ManifestError("phase chunks omit a frozen cell or range") from exc
             stop = min(start + 256, replicates)
-            chunk = _mapping(chunks[cursor], f"chunk {cursor}")
             _exact_keys(
                 chunk,
                 {"cell_id", "chunk_id", "replicate_start", "replicate_stop_exclusive", "metrics"},
@@ -4640,8 +4604,66 @@ def validate_phase_result(
                 ],
             }
         )
-    if cursor != len(chunks):
+    exhausted = object()
+    if next(source, exhausted) is not exhausted:
         raise ManifestError("phase chunks contain extra cells or ranges")
+    return cell_summaries
+
+
+def validate_phase_result(
+    manifest: dict[str, Any], result: dict[str, Any], expected_provenance: _ExpectedPhaseContext
+) -> VerifiedPhaseResult:
+    """Purely rederive the complete phase verdict from independently bound evidence."""
+    if not isinstance(expected_provenance, _ExpectedPhaseContext):
+        raise ManifestError("expected context has the wrong type")
+    _validate_manifest(manifest)
+    phase = expected_provenance.phase
+    expected = _parse_canonical_json_bytes(
+        expected_provenance.provenance_bytes, label="expected provenance"
+    )
+    _exact_keys(
+        expected,
+        {
+            "manifest_sha256",
+            "method_version",
+            "selection_artifact_schema",
+            "reviewed_commit",
+            "invocation_commit",
+            "protected_blobs",
+            "review_attestation_sha256",
+            "claim_sha256",
+            "dependencies",
+        },
+        "expected provenance",
+    )
+    if expected["manifest_sha256"] != hashlib.sha256(_canonical_bytes(manifest)).hexdigest():
+        raise ManifestError("manifest bytes do not match expected provenance hash")
+    result = _mapping(result, "phase result")
+    _exact_keys(
+        result,
+        {
+            "schema",
+            "protocol_version",
+            "phase",
+            "attempt",
+            "provenance",
+            "phase_contract",
+            "chunks",
+            "summary",
+            "runtime",
+            "terminal",
+        },
+        "phase result",
+    )
+    if (
+        result["schema"] != "step6a2-calibration-result-v1"
+        or result["protocol_version"] != PROTOCOL_VERSION
+        or result["phase"] != phase
+    ):
+        raise ManifestError("phase result schema, protocol or phase differs")
+    _verify_expected_identity(manifest, result, expected_provenance, expected)
+    chunks = _sequence(result["chunks"], "phase chunks")
+    cell_summaries = _recompute_phase_chunks(manifest, phase, chunks)
     return _verify_summary(
         manifest,
         result["summary"],
@@ -4659,12 +4681,202 @@ _WRITER_CHUNK_ALLOCATION_BYTES: Final = 64 * 1024**2
 _WRITER_SUMMARY_ALLOCATION_BYTES: Final = 16 * 1024**2
 _WRITER_CLOSING_RESERVE_BYTES: Final = 4 * 1024**2
 _WRITER_FAILURE_MESSAGE_BYTES: Final = 1024
+# The writer refuses a serialized fragment above this cap. The verifier's
+# projection includes JSON temporaries and overlap with the previous chunk.
+_RESULT_FRAGMENT_MAX_BYTES: Final = 4 * 1024**2
+_RESULT_STREAM_READ_BYTES: Final = 64 * 1024
 
 
 def _json_fragment(value: object) -> bytes:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode(
         "utf-8"
     )
+
+
+def _derived_chunk_encoding_bound(manifest: Mapping[str, Any], phase: str) -> int:
+    """Overcount a 256-row chunk with every ID, refusal and parity field present."""
+    phase_data = manifest["phases"][phase]
+    replicates = phase_data["replicates"]
+    rows = min(256, replicates)
+    maximum_id = replicates - 1
+    ids = [maximum_id] * rows
+    # A finite binary64 emitted by Python's JSON encoder takes fewer than 32
+    # characters. Quoted 32-character sentinels overcount every numeric token.
+    number = "9" * 32
+    status = max(("EMITTED", *manifest["refusals"]), key=len)
+
+    def moment(variance_name: str) -> dict[str, Any]:
+        return {
+            "status": status,
+            "mean": number,
+            variance_name: number,
+            "nu": number,
+            "sample_variance": number,
+            "design_effect": number,
+            "effective_n": number,
+            "raw_lower": number,
+            "raw_upper": number,
+            "coverage": False,
+            "lower_miss": False,
+            "upper_miss": False,
+        }
+
+    parity = {
+        "replicate_id": maximum_id,
+        "triggers": ["ordinary", "non_finite", "zero", "near_zero", "t_critical"],
+        "max_abs_outcome": number,
+        "batch": moment("cr2_variance"),
+        "scalar": moment("cr2_variance"),
+        "cr1": moment("cr1_variance"),
+    }
+    events = [
+        {
+            "metric": metric,
+            "emitted_ids": ids,
+            "refusals": [{"reason": reason, "ids": ids} for reason in manifest["refusals"]],
+            "coverage_ids": ids,
+            "lower_miss_ids": ids,
+            "upper_miss_ids": ids,
+            "joint_success_ids": ids,
+            "parity": [parity] * rows,
+        }
+        for metric in manifest["acceptance"]["metrics"]
+    ]
+    record = {
+        "cell_id": max(cell["id"] for cell in phase_data["cells"]),
+        "chunk_id": math.ceil(replicates / 256) - 1,
+        "replicate_start": replicates,
+        "replicate_stop_exclusive": replicates,
+        "metrics": events,
+    }
+    return len(_json_fragment(record)) + 1  # comma before every chunk except the first
+
+
+def _derived_envelope_encoding_bounds(manifest: Mapping[str, Any], phase: str) -> tuple[int, int]:
+    """Overcount the fixed header and largest complete or incomplete closing envelope."""
+    phase_data = manifest["phases"][phase]
+    replicates = phase_data["replicates"]
+    numeric = "9" * 32
+    stamp = "9999-12-31T23:59:59.999999Z"
+    attempt = {"attempt_id": "f" * 40 + "-" + phase, "started_at_utc": stamp}
+    header = len(b'{"attempt":') + len(_json_fragment(attempt)) + len(b',"chunks":[')
+    metric_summaries = []
+    for metric in manifest["acceptance"]["metrics"]:
+        checks = {}
+        for name in manifest["acceptance"]["checks"]:
+            check = {
+                "successes": numeric,
+                "trials": numeric,
+                "bound": numeric,
+                "threshold": numeric,
+                "passed": False,
+            }
+            if name == "emission_lower":
+                check.update({"rate": numeric, "absolute_minimum": numeric})
+            checks[name] = check
+        metric_summaries.append(
+            {
+                "metric": metric,
+                "counts": {
+                    name: numeric
+                    for name in (
+                        "emitted",
+                        "refusal_total",
+                        "coverage_successes",
+                        "lower_tail_misses",
+                        "upper_tail_misses",
+                        "joint_successes",
+                    )
+                },
+                "checks": checks,
+            }
+        )
+    cells = [
+        {"cell_id": cell["id"], "generated": numeric, "metrics": metric_summaries}
+        for cell in phase_data["cells"]
+    ]
+    floors = manifest["candidate_floors"]
+    selected = max(floors, key=lambda floor: len(_json_fragment(floor)))
+    summary = {
+        "cells": cells,
+        "candidate_results": [
+            {"floor": floor, "fixed_refusal_controls_passed": False, "passed": False}
+            for floor in floors
+        ],
+        "selected_floor": selected,
+        "parity_complete": False,
+        "phase_verdict": "INCOMPLETE",
+    }
+    contract = {
+        "master_seed": phase_data["master_seed"],
+        "replicates_per_cell": replicates,
+        "cell_definitions": phase_data["cells"],
+        "candidate_floors": floors,
+        "metrics": manifest["acceptance"]["metrics"],
+        "checks": manifest["acceptance"]["checks"],
+        "family_size": manifest["acceptance"]["family_sizes"][phase],
+    }
+    hashes = {name: "f" * 64 for name in manifest["integrity"]["protected_paths"].values()}
+    provenance = {
+        "manifest_sha256": "f" * 64,
+        "method_version": manifest["method_version"],
+        "selection_artifact_schema": manifest["selection_artifact_schema"],
+        "reviewed_commit": "f" * 40,
+        "invocation_commit": "f" * 40,
+        "protected_blobs": hashes,
+        "review_attestation_sha256": "f" * 64,
+        "claim_sha256": "f" * 64,
+        "dependencies": manifest["versions"],
+    }
+    runtime = {
+        "platform": "linux",
+        "resource_backend": "linux-rlimit-as",
+        "address_space_limit_bytes": numeric,
+        "peak_rss_before_verification_bytes": numeric,
+        "peak_rss_source": "getrusage-ru_maxrss-kib",
+        "planned_peak_bytes": numeric,
+        "maximum_result_bytes": numeric,
+        "generation_elapsed_seconds": numeric,
+        "deadline_seconds": numeric,
+        "resource_state": "WITHIN_LIMIT",
+    }
+    terminal = {
+        "state": "INCOMPLETE",
+        "ended_at_utc": stamp,
+        "failure": {
+            "kind": "\x00" * 128,
+            "message": "\x00" * _WRITER_FAILURE_MESSAGE_BYTES,
+            "cell_id": numeric,
+            "chunk_id": numeric,
+            "replicate_ids": [replicates - 1] * 256,
+        },
+    }
+    suffix = {
+        "phase": phase,
+        "phase_contract": contract,
+        "protocol_version": PROTOCOL_VERSION,
+        "provenance": provenance,
+        "runtime": runtime,
+        "schema": "step6a2-calibration-result-v1",
+        "summary": summary,
+        "terminal": terminal,
+    }
+    return header, len(_json_fragment(suffix)) + 2  # '],' replaces '{', plus final LF
+
+
+def _derived_result_extent_limits(manifest: Mapping[str, Any]) -> tuple[int, int]:
+    limits: list[int] = []
+    for phase in ("calibration", "validation"):
+        phase_data = manifest["phases"][phase]
+        chunk_bound = _derived_chunk_encoding_bound(manifest, phase)
+        if chunk_bound > _RESULT_FRAGMENT_MAX_BYTES:
+            raise ManifestError("frozen chunk encoding exceeds bounded verifier capacity")
+        header_bound, closing_bound = _derived_envelope_encoding_bounds(manifest, phase)
+        if closing_bound > _WRITER_CLOSING_RESERVE_BYTES:
+            raise ManifestError("frozen closing envelope exceeds bounded verifier capacity")
+        chunk_count = len(phase_data["cells"]) * math.ceil(phase_data["replicates"] / 256)
+        limits.append(header_bound + chunk_count * chunk_bound + closing_bound)
+    return limits[0], limits[1]
 
 
 def _phase_result_identity(
@@ -4728,8 +4940,10 @@ def _append_phase_bytes(
     planned = len(data) * 4 + _WRITER_CHUNK_ALLOCATION_BYTES
     context.resources.check_planned_allocation(planned)
     projected = written + len(data) + closing_reserve
-    context.resources.check_result_write(projected)
-    context.resources.check_verifier_projection(projected)
+    context.resources.check_result_write(projected, context.phase)
+    if len(data) > _RESULT_FRAGMENT_MAX_BYTES:
+        raise ManifestError("result fragment exceeds bounded verifier size")
+    context.resources.check_verifier_projection(_RESULT_FRAGMENT_MAX_BYTES)
     _write_all_evidence(context.result_file, data, context.store)
     _check_result_write_extent(context, written + len(data))
     try:
@@ -4751,7 +4965,7 @@ def _runtime_snapshot(
     if not math.isfinite(elapsed) or elapsed < 0.0:
         raise ManifestError("generation elapsed time is invalid")
     peak = context.resources.sample_peak_rss()
-    maximum_result = context.resources.maximum_result_bytes()
+    maximum_result = context.resources.maximum_result_bytes(context.phase)
     limits = _mapping(manifest["runtime_limits"], "runtime_limits")
     return {
         "platform": "linux",
@@ -4895,7 +5109,11 @@ def _write_active_phase_result(
     metrics = tuple(manifest["acceptance"]["metrics"])
     phase_data = manifest["phases"][context.phase]
     replicates = int(phase_data["replicates"])
+    chunk_encoding_bound = _derived_chunk_encoding_bound(manifest, context.phase)
+    header_bound, closing_bound = _derived_envelope_encoding_bounds(manifest, context.phase)
     header = b'{"attempt":' + _json_fragment(attempt) + b',"chunks":['
+    if len(header) > header_bound:
+        raise ManifestError("result header exceeds frozen encoding bound")
     written = 0
     safe_boundary = False
     planned_peak = _WRITER_CHUNK_ALLOCATION_BYTES
@@ -4909,7 +5127,7 @@ def _write_active_phase_result(
             context,
             header,
             written,
-            closing_reserve=_WRITER_CLOSING_RESERVE_BYTES,
+            closing_reserve=closing_bound,
         )
         safe_boundary = True
         first_chunk = True
@@ -4967,6 +5185,8 @@ def _write_active_phase_result(
                     "metrics": events,
                 }
                 encoded = (b"" if first_chunk else b",") + _json_fragment(record)
+                if len(encoded) > chunk_encoding_bound:
+                    raise ManifestError("written chunk exceeds frozen encoding bound")
                 live_encoded_bytes = live_bytes + len(encoded) * 4
                 context.resources.check_planned_allocation(live_encoded_bytes)
                 planned_peak = max(planned_peak, live_encoded_bytes)
@@ -4975,7 +5195,7 @@ def _write_active_phase_result(
                     context,
                     encoded,
                     written,
-                    closing_reserve=_WRITER_CLOSING_RESERVE_BYTES,
+                    closing_reserve=closing_bound,
                 )
                 safe_boundary = True
                 first_chunk = False
@@ -5021,11 +5241,11 @@ def _write_active_phase_result(
             "failure": None,
         }
         suffix = _result_suffix(context, manifest, contract, provenance, summary, runtime, terminal)
-        if len(suffix) > _WRITER_CLOSING_RESERVE_BYTES:
+        if len(suffix) > closing_bound:
             raise ManifestError("complete result suffix exceeds reserved write budget")
         safe_boundary = False
         written = _append_phase_bytes(context, suffix, written, closing_reserve=0)
-        context.resources.check_verifier_projection(written)
+        context.resources.check_verifier_projection(_RESULT_FRAGMENT_MAX_BYTES)
         expected = _ExpectedPhaseContext(
             phase=context.phase,
             provenance_bytes=_canonical_bytes(provenance),
@@ -5067,7 +5287,7 @@ def _write_active_phase_result(
                         },
                     },
                 )
-                if len(suffix) > _WRITER_CLOSING_RESERVE_BYTES:
+                if len(suffix) > closing_bound:
                     raise ManifestError("incomplete result suffix exceeds reserved write budget")
                 safe_boundary = False
                 _append_phase_bytes(context, suffix, written, closing_reserve=0)
@@ -5173,6 +5393,166 @@ def _check_verified_result_extent(
         raise ManifestError("verified result extent changed")
 
 
+class _BoundedResultReader:
+    """Hash and frame one canonical JSON result without retaining the whole file."""
+
+    def __init__(self, ops: Any, deadline: _Deadline, fd: int, extent: int) -> None:
+        if type(extent) is not int or extent < 0:
+            raise ManifestError("bounded result extent is invalid")
+        self.ops = ops
+        self.deadline = deadline
+        self.fd = fd
+        self.extent = extent
+        self.fetched = 0
+        self.consumed = 0
+        self.block = b""
+        self.block_index = 0
+        self.digest = hashlib.sha256()
+
+    def take(self) -> int:
+        if self.block_index == len(self.block):
+            if self.fetched == self.extent:
+                raise ManifestError("bounded result ended before its canonical envelope")
+            self.deadline.remaining()
+            size = min(_RESULT_STREAM_READ_BYTES, self.extent - self.fetched)
+            try:
+                block = self.ops.pread(self.fd, size, self.fetched)
+            except OSError as exc:
+                raise ManifestError(f"bounded result read failed: {exc}") from exc
+            if type(block) is not bytes or not 0 < len(block) <= size:
+                raise ManifestError("bounded result read ended or returned invalid bytes")
+            self.deadline.remaining()
+            self.digest.update(block)
+            self.block = block
+            self.block_index = 0
+            self.fetched += len(block)
+        value = self.block[self.block_index]
+        self.block_index += 1
+        self.consumed += 1
+        return value
+
+    def expect(self, expected: bytes) -> None:
+        for value in expected:
+            if self.take() != value:
+                raise ManifestError("bounded result canonical framing differs")
+
+    def object(self, *, label: str, maximum: int = _RESULT_FRAGMENT_MAX_BYTES) -> dict[str, Any]:
+        raw = bytearray()
+        depth = 0
+        in_string = False
+        escaped = False
+        while True:
+            value = self.take()
+            raw.append(value)
+            if len(raw) > maximum:
+                raise ManifestError(f"{label} exceeds bounded fragment size")
+            if len(raw) == 1 and value != ord("{"):
+                raise ManifestError(f"{label} must begin with a JSON object")
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif value == ord("\\"):
+                    escaped = True
+                elif value == ord('"'):
+                    in_string = False
+            elif value == ord('"'):
+                in_string = True
+            elif value in (ord("{"), ord("[")):
+                depth += 1
+            elif value in (ord("}"), ord("]")):
+                depth -= 1
+                if depth < 0:
+                    raise ManifestError(f"{label} has invalid JSON framing")
+            if depth == 0:
+                return _parse_canonical_json_bytes(bytes(raw) + b"\n", label=label)
+
+    def remainder(self, *, maximum: int) -> bytes:
+        remaining = self.extent - self.consumed
+        if remaining < 0 or remaining > maximum:
+            raise ManifestError("bounded result closing envelope exceeds its limit")
+        raw = bytearray()
+        while self.consumed < self.extent:
+            raw.append(self.take())
+        self.deadline.remaining()
+        return bytes(raw)
+
+    def hexdigest(self) -> str:
+        if self.consumed != self.extent or self.fetched != self.extent:
+            raise ManifestError("bounded result did not consume its frozen extent")
+        return self.digest.hexdigest()
+
+
+def _verify_bounded_result(
+    ops: Any,
+    deadline: _Deadline,
+    fd: int,
+    extent: int,
+    manifest: dict[str, Any],
+    expected_context: _ExpectedPhaseContext,
+) -> tuple[VerifiedPhaseResult, str]:
+    """Recompute one saved phase from canonical fragments and return its full-file hash."""
+    _validate_manifest(manifest)
+    phase = expected_context.phase
+    reader = _BoundedResultReader(ops, deadline, fd, extent)
+    reader.expect(b'{"attempt":')
+    header_bound, closing_bound = _derived_envelope_encoding_bounds(manifest, phase)
+    attempt = reader.object(label="phase attempt", maximum=header_bound)
+    reader.expect(b',"chunks":[')
+    phase_data = manifest["phases"][phase]
+    chunk_count = len(phase_data["cells"]) * math.ceil(phase_data["replicates"] / 256)
+    chunk_bound = _derived_chunk_encoding_bound(manifest, phase)
+
+    def chunks() -> Iterable[dict[str, Any]]:
+        for index in range(chunk_count):
+            if index:
+                reader.expect(b",")
+            yield reader.object(label=f"phase chunk {index}", maximum=chunk_bound)
+        reader.expect(b"]")
+
+    cell_summaries = _recompute_phase_chunks(manifest, phase, chunks())
+    closing = reader.remainder(maximum=closing_bound)
+    if not closing.startswith(b',"phase":'):
+        raise ManifestError("bounded result closing envelope differs")
+    suffix = _parse_canonical_json_bytes(b"{" + closing[1:], label="phase closing envelope")
+    result = {"attempt": attempt, "chunks": [], **suffix}
+    _exact_keys(
+        result,
+        {
+            "schema",
+            "protocol_version",
+            "phase",
+            "attempt",
+            "provenance",
+            "phase_contract",
+            "chunks",
+            "summary",
+            "runtime",
+            "terminal",
+        },
+        "phase result",
+    )
+    if (
+        result["schema"] != "step6a2-calibration-result-v1"
+        or result["protocol_version"] != PROTOCOL_VERSION
+        or result["phase"] != phase
+    ):
+        raise ManifestError("phase result schema, protocol or phase differs")
+    expected = _parse_canonical_json_bytes(
+        expected_context.provenance_bytes, label="expected provenance"
+    )
+    if expected["manifest_sha256"] != hashlib.sha256(_canonical_bytes(manifest)).hexdigest():
+        raise ManifestError("manifest bytes do not match expected provenance hash")
+    _verify_expected_identity(manifest, result, expected_context, expected)
+    verified = _verify_summary(
+        manifest,
+        result["summary"],
+        phase,
+        cell_summaries,
+        expected_context.verified_calibration_floor,
+    )
+    return verified, reader.hexdigest()
+
+
 def _verify_finished_phase_result(
     context: _PhaseContext, manifest: dict[str, Any]
 ) -> _VerifiedPhaseEvidence:
@@ -5201,22 +5581,19 @@ def _verify_finished_phase_result(
         result_size = initial_stat.st_size
         if type(result_size) is not int or result_size < 0:
             raise ManifestError("verification result size is invalid")
-        projected = context.resources.check_verifier_projection(result_size)
+        context.resources.check_result_write(result_size, context.phase)
+        projected = context.resources.check_verifier_projection(_RESULT_FRAGMENT_MAX_BYTES)
         started = context.resources.deadline.clock()
         if not math.isfinite(started):
             raise ManifestError("verification clock is invalid")
-        raw = _read_exact_evidence_bytes(
+        verified, result_sha256 = _verify_bounded_result(
             context.store.ops,
             context.resources.deadline,
             reader.fd,
             result_size,
-            label="result",
+            manifest,
+            expected,
         )
-        result_sha256 = hashlib.sha256(raw).hexdigest()
-        parsed = _parse_canonical_json_bytes(raw, label="phase result")
-        verified = validate_phase_result(manifest, parsed, expected)
-        del parsed
-        del raw
         _check_verified_result_extent(context, reader, result_size)
         rehashed = _rehash_exact_evidence(
             context.store.ops,
@@ -5693,7 +6070,8 @@ def _recheck_calibration_trio(
             metadata = ops.fstat(item.fd)
             if type(metadata.st_size) is not int or metadata.st_size != size:
                 raise ManifestError("calibration evidence extent changed")
-        resources.check_verifier_projection(completion.result_size_bytes)
+        resources.check_result_write(completion.result_size_bytes, "calibration")
+        resources.check_verifier_projection(_RESULT_FRAGMENT_MAX_BYTES)
         resources.check_planned_allocation(
             len(calibration_context.claim_bytes) * 2 + completion.candidate_size_bytes * 4
         )
@@ -5809,16 +6187,16 @@ def _recheck_calibration_trio(
         del payload, candidate_raw, claim_raw
         selected: tuple[int, float] | None = None
         if recompute:
-            raw = _read_exact_evidence_bytes(
-                ops, deadline, result.fd, completion.result_size_bytes, label="calibration result"
+            verified, parsed_sha = _verify_bounded_result(
+                ops,
+                deadline,
+                result.fd,
+                completion.result_size_bytes,
+                manifest,
+                _require_bound_writer_expected(calibration_context),
             )
-            if not hmac.compare_digest(hashlib.sha256(raw).hexdigest(), completion.result_sha256):
+            if not hmac.compare_digest(parsed_sha, completion.result_sha256):
                 raise ManifestError("calibration result changed during recomputation")
-            parsed = _parse_canonical_json_bytes(raw, label="calibration result")
-            verified = validate_phase_result(
-                manifest, parsed, _require_bound_writer_expected(calibration_context)
-            )
-            del parsed, raw
             if (
                 verified.phase != "calibration"
                 or verified.phase_verdict != "PASSED"

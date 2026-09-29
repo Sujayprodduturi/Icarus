@@ -1,6 +1,6 @@
 # Step 6a.2 Task 3 — bounded saved-result verifier proposal
 
-**Status: proposed after native resource refusal; not implemented or approved.** The [native proof](../reviews/2026-09-29-step6a2-task3-native-resource-proof.md) showed that real test-seed validation cannot write its result under the current whole-file verifier budget. No official synthetic stream has been drawn.
+**Status: operator approved; locally verified implementation, native proof pending.** The [native proof](../reviews/2026-09-29-step6a2-task3-native-resource-proof.md) showed that real test-seed validation could not write its result under the former whole-file verifier budget. The operator approved this bounded repair on 2026-09-29. No official synthetic stream has been drawn.
 
 An independent GPT-6 Astra medium-effort read-only architecture consultation recommended bounded single-file verification after comparing compact encoding and multiple-file publication. A follow-up review of this exact proposal and measured record found no P1/P2 issue; it clarified that reported VMS is the maximum of explicit samples, not a continuous high-water mark.
 
