@@ -1,6 +1,6 @@
 # Step 6a.2 Task 3 — native full-size resource proof
 
-**Status: executed on 2026-09-29; failed safely.** The [measured native review](../reviews/2026-09-29-step6a2-task3-native-resource-proof.md) records real test-seed validation's verifier-budget refusal. This remains a separate hold point and does not authorize an official calibration/validation draw. A [bounded-reader repair proposal](2026-09-29-step6a2-task3-bounded-verifier.md) is pending decision.
+**Status: the first proof failed safely; the bounded-reader repair passed a renewed full-size proof at `148bb3f` on 2026-09-29.** The [first measured review](../reviews/2026-09-29-step6a2-task3-native-resource-proof.md) records the former verifier-budget refusal. The [repaired evidence](../reviews/2026-09-29-step6a2-task3-bounded-native-pass.md) records all three native modes and the aggregate pass. Final handover-commit checks and independent attestation remain separate hold points; this does not authorize an official calibration or validation draw.
 
 ## Boundary
 

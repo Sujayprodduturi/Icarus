@@ -1,4 +1,5 @@
 name: signal-resource-proof
+run-name: "signal-resource-proof ${{ github.sha }}"
 
 on:
   push:
