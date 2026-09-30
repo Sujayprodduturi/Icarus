@@ -345,6 +345,12 @@ Dated decisions that are not code and not in `goal.yaml`, so they have nowhere e
 |---|---|---|
 | D30 | **No separate Linux system is available; run the simulator and other supported tests on the current system, and check the handover/state documents properly.** This confirms D24's current-PC choice and authorizes the existing Windows-compatible synthetic simulator/test lane. It does not request an OS migration, approve consuming a reserved stream, or waive the counted runner's reviewed platform/resource/durability contract. Current documentation must distinguish completed local tests from the separate official-calibration restriction. | operator, direct instruction on 2026-09-30 |
 
+### 2026-09-30 - statistical-method continuation
+
+| id | decision | owner |
+|---|---|---|
+| D31 | **Continue the statistical-method design and independent review after the non-reserved failure diagnosis.** The operator replied "Okay, go ahead" after the milestone proposing a better interval-method design and preserving thresholds. This authorizes the current design/development investigation; the newly written concrete research candidate still follows section 1's review-before-build loop. No official method/protocol amendment, reserved stream, real-data evaluation, inference enablement or live path is authorized. | operator, direct reply on 2026-09-30 |
+
 ## 7c. Deferred by decision — not forgotten
 
 Things consciously postponed. **Each names the condition that reopens it.** A deferral without a
