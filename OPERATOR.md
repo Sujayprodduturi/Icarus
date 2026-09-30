@@ -339,6 +339,12 @@ Dated decisions that are not code and not in `goal.yaml`, so they have nowhere e
 |---|---|---|
 | D29 | **Approve the stricter same-process completion approach.** Persisted seal bytes are inert candidate evidence; completion authority is issued privately only after file/directory sync, single-close and final resource/deadline checks succeed under the original two-hour limit. Validation requires that live authority plus fresh complete evidence verification and a passing calibration result. Process loss prevents automatic continuation for that attempt, even with intact files; there is no restart recovery, resume or redraw. This approves implementing the reviewed completion-authority proposal and its exact contract, not an official experiment, attestation, statistical threshold change or live trading. | operator, replying "Go ahead" to the explicit recommendation on 2026-09-28 |
 
+### 2026-09-30 — simulator and tests on the current PC
+
+| id | decision | owner |
+|---|---|---|
+| D30 | **No separate Linux system is available; run the simulator and other supported tests on the current system, and check the handover/state documents properly.** This confirms D24's current-PC choice and authorizes the existing Windows-compatible synthetic simulator/test lane. It does not request an OS migration, approve consuming a reserved stream, or waive the counted runner's reviewed platform/resource/durability contract. Current documentation must distinguish completed local tests from the separate official-calibration restriction. | operator, direct instruction on 2026-09-30 |
+
 ## 7c. Deferred by decision — not forgotten
 
 Things consciously postponed. **Each names the condition that reopens it.** A deferral without a
@@ -861,7 +867,8 @@ say "at entry", and a test pins the drift so it cannot be rediscovered as a surp
 |---|---|---|
 | Local dev | Docker Desktop on Windows | Phase 0 |
 | Deploy | Linux host + private GitHub, via Hermes | Phase 0 |
-| Host | operator-supplied Linux/Ubuntu PC (supersedes AWS `t4g.small`) | 2026-08-02 |
+| Host (historical) | ~~operator-supplied Linux/Ubuntu PC (supersedes AWS `t4g.small`)~~ — superseded by D24/D30's current-PC clarification; no OS migration approved | 2026-08-02; superseded 2026-09-30 |
+| Host (current) | current Windows PC; no separate Linux system; supported local simulator/tests here; official platform/deployment arrangement unresolved | D24, 2026-09-27; D30, 2026-09-30 |
 | Crypto | deferred — equity-delivery first | 2026-08-02 |
 | Broker | Zerodha Kite Connect, ₹500/mo, active | O1 |
 | Equity delivery tax | capital gains (CA confirmation still open, O7) | 2026-07-31 |
