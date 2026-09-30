@@ -31,6 +31,8 @@ Interfaces: validate unique synthetic trade records/axes/pairing; metric adapter
 - [x] Write failing tests for reserved-seed/path barriers, duplicate IDs/bad axis/pairing, outcome-derived wins, candidate-only target isolation, partition counts, full-range/unbounded stubs, exclusive attempt collision and supervisor failure handling.
 - [x] Confirm red, then implement minimal typed adapters, exact span/control addresses and descriptive summaries.
 - [x] Run focused tests, estimator/parity/simulator characterization, Ruff/mypy and independent safety/numerical/code review.
-- [ ] Freeze exact source/protocol/environment hashes in preregistration; run authorized full screen once on Windows under300s supervisor.
-- [ ] Independently recompute saved summaries/check logs; record failed attempts rather than hide/overwrite them.
-- [ ] Update STATE/HANDOVER/TASKS/audit and operator explanation style; commit/push verified work. Report statistical failures plainly; completion is not method acceptance.
+- [x] Freeze exact source/protocol/environment hashes in preregistration; run authorized full screen once on Windows under300s supervisor.
+- [x] Independently recompute saved summaries/check logs; record failed attempts rather than hide/overwrite them.
+- [x] Update STATE/HANDOVER/TASKS/audit and operator explanation style; commit/push verified work. Report statistical failures plainly; completion is not method acceptance.
+
+Completion 2026-09-30: code/reviews/screen complete at7cbd372; source-stamped preregistration preserves the pre-run plan bytes. Later checkbox/documentation completion changes are a subsequent source identity, not a retroactive preregistration. Candidate rejected; see ../reviews/2026-09-30-signal-method-research-build.md.
