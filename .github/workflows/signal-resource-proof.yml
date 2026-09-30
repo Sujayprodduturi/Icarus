@@ -6,6 +6,10 @@ on:
     branches: [dev]
     paths:
       - .github/workflows/signal-resource-proof.yml
+      # Handover edits change the exact source identity required by the review gate.
+      - docs/HANDOVER.md
+      - docs/STATE.md
+      - TASKS.md
       - scripts/prove_signalcalibration_envelope.py
       - scripts/check_signalcalibration_envelope.py
       - scripts/signal_calibration.py
