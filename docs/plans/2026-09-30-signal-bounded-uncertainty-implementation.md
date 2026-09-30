@@ -32,5 +32,5 @@
 - [x] Test192 trades/24groups vs192 independent units, concentration,24 vs119group precision illustration, and precision evaluated before favorable clipping.
 - [x] Run focused and relevant simulator/statistics/portfolio-characterization regressions, strict mypy/Ruff and formatting.
 - [x] Independent numerical plus ponytail/engineering/governance review; primary independently verify at least one numeric value and failure path before acceptance.
-- [ ] Commit verified implementation, reintroduce actual found bugs in isolated byte snapshots to prove regressions fail, restore exact bytes and rerun focused checks.
-- [ ] Update STATE/HANDOVER/TASKS/audit, record evidence/limits/operator approval, commit/push. Task3a and dependent-series inference remain incomplete.
+- [x] Commit verified implementation, reintroduce actual found bugs in isolated byte snapshots to prove regressions fail, restore exact bytes and rerun focused checks.
+- [x] Update STATE/HANDOVER/TASKS/audit, record evidence/limits/operator approval, commit/push. Task3a and dependent-series inference remain incomplete.
