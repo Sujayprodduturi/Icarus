@@ -36,6 +36,19 @@ tolerated.
 - Explain **why**, not just what. A number without its reasoning is not an explanation.
 - Plain English in operator-facing output. Reserve precision for the code and its comments.
 
+### Explanation style - confirmed 2026-09-30
+
+The operator explicitly preferred the ground-up explanation connecting the signal simulator to the uncertainty calculation, and asked that future sessions use the same tone, language and granularity. This is a standing explanation preference.
+
+- Start with the overall purpose and where the current work sits in the original roadmap. Connect it to what the operator already understands.
+- Use plain conversational English, familiar words and concrete trading examples. Assume no statistical or software background; define a necessary technical term immediately.
+- Explain what each part does and why it matters before describing implementation. Separate simulating trade outcomes from deciding how much evidence they provide.
+- Show the sequence from input to outcome when useful. Use a short comparison table for built/tested/proposed/still-unbuilt parts, not a wall of internal task IDs.
+- Distinguish working code, artificial-data checks, real-strategy evidence, independently reviewed proposals and accepted methods. Explain what a test failure invalidates and what it does not.
+- Give numbers with their meaning and denominator. Explain shared market conditions, luck and uncertainty with examples before formulas, method names, seeds or commit hashes.
+- Be patient, respectful and candid; neither oversimplify away limitations nor overwhelm with jargon. Give enough connected explanation for the operator to follow the reasoning once.
+- End with the concrete next action and its purpose. Do not require reading a proposal or looking up references to understand the explanation. Scale length to the question; this preference changes clarity, not a requirement for long answers every time.
+
 ## 2b. Never reference a number without saying what it means
 
 *(Operator instruction, 2026-08-11.)*
@@ -350,6 +363,12 @@ Dated decisions that are not code and not in `goal.yaml`, so they have nowhere e
 | id | decision | owner |
 |---|---|---|
 | D31 | **Continue the statistical-method design and independent review after the non-reserved failure diagnosis.** The operator replied "Okay, go ahead" after the milestone proposing a better interval-method design and preserving thresholds. This authorizes the current design/development investigation; the newly written concrete research candidate still follows section 1's review-before-build loop. No official method/protocol amendment, reserved stream, real-data evaluation, inference enablement or live path is authorized. | operator, direct reply on 2026-09-30 |
+
+### 2026-09-30 - build uncertainty mathematics and explanation preference
+
+| id | decision | owner |
+|---|---|---|
+| D32 | **Build the uncertainty mathematics and record the plain-English explanation style for future sessions.** After the complete-picture explanation, the operator explicitly asked to proceed with building. This authorizes the concrete isolated research candidate/comparison and supported Windows screen in the reviewed design; section 2 records the requested tone, language and granularity. No accepted product method, frozen protocol amendment, reserved draw, real-data strategy test, inference enablement or live path is approved. | operator, direct instruction on 2026-09-30 |
 
 ## 7c. Deferred by decision — not forgotten
 

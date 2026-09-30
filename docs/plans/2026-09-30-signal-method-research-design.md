@@ -1,5 +1,5 @@
 # Signal uncertainty method: bounded research design
-Date: 2026-09-30. Source inspected: `e2cba4d`. Status: proposal for independent review and operator review; no product implementation or protocol amendment approved.
+Date: 2026-09-30. Source inspected: `e2cba4d`. Status: isolated research build/screen approved by operator D32; no product method adoption or protocol amendment approved.
 
 ## 1. Purpose and approved scope
 Icarus is in Phase 1, Task 3a Step 6a: establish trustworthy signal uncertainty before strategy evaluation. The operator approved continuing the method design after the [non-reserved failure diagnosis](../reviews/2026-09-30-test-calibration-failure-diagnosis.md). The goal is coverage that survives dependent, discrete and skewed synthetic outcomes while still conveying useful information. A method agreeing with its formula oracle is necessary but not sufficient.
@@ -95,3 +95,5 @@ Windows official startup remains independently blocked by address-space-limit eq
 
 ## 8. Review record
 Independent safety/governance reviewer (readiness_review, medium effort) approved this proposal for operator review after verifying four retained hashes, every displayed count/width and partitions, source/time identity, temporal/pairing/history boundaries and primary coefficient/domain definitions. Its non-vacuity clarification is incorporated above. Independent numerical reviewer (runner_review, medium effort) approved this as a research proposal, verifying primary coefficients/critical value, trade-weighted normalization, hand-built dense/lag equality, hashes and count partitions. Its source-span, descriptive-family and control-address clarifications are incorporated above; these explicit synthetic conventions still require implementation-plan tests. No screen or method adoption is approved by either reviewer. Operator approval requested is for this concrete isolated research scope; it supplies no official draw, method adoption, inference enablement or live authorization.
+
+Operator D32 explicitly approved building the uncertainty mathematics on 2026-09-30 after the plain-English roadmap explanation. The isolated implementation plan is 2026-09-30-signal-method-research-implementation.md. The older review-stage wording above is dated history; D32 approves the bounded research implementation and Windows screen, with all official/product boundaries retained.
