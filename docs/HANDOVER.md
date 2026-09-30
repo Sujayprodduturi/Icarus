@@ -16,6 +16,12 @@ At exact source `cdf127b0ea32270056d34e2273f3fefc2929e34f`:
 
 The earlier `81fc971` whole-runner approval and `614fa7a` canonical attestation remain dated history. The successful `cdf127b` runs cover that exact source, not the documentation commit recording this follow-up. No renewed canonical attestation has been issued.
 
+## Latest diagnostic and actual next task
+
+The [non-reserved diagnosis](reviews/2026-09-30-test-calibration-failure-diagnosis.md), using unchanged production helpers at source `8086edb`, completed six selected calibration cells x 10,000 replicates on this PC. Cell 28 raw/win coverage was 7,910 / 10,000 and 7,871 / 10,000; every frozen floor requires this failing cell. Independent rare-win cell 1 also fails. All saved summaries and RNG boundary rows were independently checked. This is a diagnostic rejection witness, not a full 45-cell counted verdict or a reserved outcome.
+
+**Next:** independently review an alternative statistical-method design addressing serial dependence plus rare/discrete/skewed outcomes before implementation. Preserve the rejected method and frozen gate; do not lower thresholds or silently replace its manifest. The [Windows design](plans/2026-09-30-windows-calibration-support-design.md) is independently reviewed for investigation only. Hard address-space-cap equivalence and crash-safe claim/directory ordering remain blockers; no native implementation or official invocation is approved. Neither reserved stream nor any real-data evaluation was used.
+
 ## Continue on this PC
 
 1. Check `dev`, live `HEAD`, `origin/dev` and the worktree. Preserve user-owned untracked `AGENTS.md`. Check section 0 of [STATE.md](STATE.md), not older narrative milestones, for the current action.
@@ -27,7 +33,7 @@ The earlier `81fc971` whole-runner approval and `614fa7a` canonical attestation 
 
 The guarded counted runner currently supports **bare native Linux only**, with persistent ext4/xfs/btrfs evidence storage, secure no-follow file handling, real file/directory sync and the frozen resource limits. Windows refuses before claim/RNG. The GitHub job was a test-only proof host, not a designated official evidence host.
 
-There is no such official host available. If the operator later asks to make the official experiment run on this PC, first explain and independently review a Windows resource/durability design and obtain the required platform decision. Do not substitute WSL, Docker, platform monkeypatching or relaxed limits for that design. Local simulator/testing work can continue now.
+There is no such official host available. If the operator later asks to make the official experiment run on this PC, resolve the blockers in the reviewed investigation design, then present a concrete implementation plan and obtain the required platform decision. Do not substitute WSL, Docker, platform monkeypatching or relaxed limits for that design. Local simulator/testing work can continue now.
 
 Before any later official attempt:
 

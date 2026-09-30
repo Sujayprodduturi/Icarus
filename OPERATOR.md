@@ -878,11 +878,7 @@ say "at entry", and a test pins the drift so it cannot be rediscovered as a surp
 
 Tracked in full at the top of `TASKS.md`. Currently blocking:
 
-- **O4 — host details.** 🔴 Blocks Phase 1. The one decisive question: **does the line have a static
-  public IP, and is it behind CGNAT?** Indian residential broadband usually is, which makes a static
-  IP impossible on that line at any price (invariant #6 requires orders to originate from a
-  registered static IP). Also needed: CPU arch, Ubuntu version, RAM/disk, always-on with suspend
-  disabled, shared or dedicated, UPS, remote access preference, timezone, disk encryption.
+- **O4 - host/deployment details.** D24/D30 select the current Windows PC; supported synthetic simulator/tests run here. No separate Linux system or OS migration is approved. Future live-data/deployment setup needs registered static egress IP, CPU, current OS/version, RAM/disk, always-on operation, UPS, remote access and encryption; these do not block local synthetic testing. Stored timestamps remain UTC tz-aware.
 - **F45 — should the concentration cap trim winners?** Blocks nothing today, but has to be settled
   **before 3b**, which is where concentration bites. The cap (D11, 0.25) is checked **at entry
   only**: a name compounding 5× reaches **61% of the book by bar 58**, past the drawdown killswitch
