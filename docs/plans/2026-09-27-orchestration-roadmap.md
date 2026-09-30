@@ -2,6 +2,8 @@
 
 Status: handover synthesis and proposed milestone sequence, not implementation or trading authorization. Existing approved plans, operator decisions and safety invariants remain governing. Detailed implementation stays one reviewed task at a time.
 
+**Current-status pointer (2026-09-30):** This roadmap's session-start facts and immediate checklist are dated history. The counted synthetic runner has since passed exact-source CI, full-size native test-only proof and independent whole-runner review. Read [STATE.md](../STATE.md) and the [current handover](../HANDOVER.md) for the present hold points: renew the attestation after the handover commit, verify the native host, and obtain a separate operator decision before a one-shot reserved draw. No official stream or strategy-performance result exists.
+
 ## End goal and current evidence
 
 The goal is autonomous equity-first trading with bounded learning: observe outcomes, propose one explicit change, count the evaluation, validate, version, canary, promote or reject, monitor and roll back. Strategy entry/exit timing and execution timing are separate hypotheses. Research never holds broker credentials or reaches broker endpoints. Numeric validation and hard risk limits remain outside the learner's control.

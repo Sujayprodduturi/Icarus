@@ -12,6 +12,8 @@ Legend: `[ ]` todo · `[x]` done (AC demonstrated, tests green) · `MUST`/`SHOUL
 > today, what happens next, what is blocked on the operator, and which numbers may not be quoted.
 > This file is the phase checklist; `STATE.md` is the position on it.
 
+**2026-09-30 handover:** The Step 6a.2 Task 3 counted synthetic runner has passed exact-source CI, full-size native test-only proof and independent whole-runner review. The [current handover](docs/HANDOVER.md) explains why this documentation commit requires a renewed exact-commit attestation, plus the separate native-host and operator decision before any one-shot official calibration. The reserved streams remain untouched; no strategy performance result or live path exists. The older progress counts below are dated history.
+
 **Current work is the post-backtest repair plan**, not the numbered list below. The ranked findings
 and the ordered step list live in `docs/reviews/2026-08-09-post-backtest-audit.md` §6 and §6c;
 decisions live in `OPERATOR.md` §7b/§7c. Step **2a** (units in the strategy vocabulary — finding F1)

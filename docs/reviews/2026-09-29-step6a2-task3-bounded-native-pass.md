@@ -1,6 +1,6 @@
 # Step 6a.2 Task 3 — bounded verifier native resource evidence
 
-**Status:** the full-size, non-reserved native proof and ordinary Linux CI passed at code commit `148bb3f6faac5dae08d1ed31a0c8e0343aea6ae4`. This is test-only resource evidence, not an official calibration or accepted statistical floor. The final documentation commit needs its own exact-commit CI and native proof before independent whole-runner attestation.
+**Status of this measured run:** the full-size, non-reserved native proof and ordinary Linux CI passed at code commit `148bb3f6faac5dae08d1ed31a0c8e0343aea6ae4`. Later exact source `81fc971` also passed [native proof](https://github.com/Sujayprodduturi/Icarus/actions/runs/36561344390), [CI](https://github.com/Sujayprodduturi/Icarus/actions/runs/36561344466), and [independent whole-runner review](2026-09-29-step6a2-task3-whole-runner-review.md), attested at `614fa7a`. The subsequent [2026-09-30 handover](../HANDOVER.md) changes invocation ancestry and requires renewed exact-commit attestation. All these runs are test-only resource evidence, not official calibration or an accepted statistical floor.
 
 ## Exact-source evidence
 
@@ -21,4 +21,4 @@ Downloaded structured-report SHA-256 values: generated `b017b71bdbdbefeddd142bf8
 
 ## Boundary
 
-The generated statistical failures are expected possible outcomes of test seeds. They do not imply anything about the held-back reserved streams or product performance. The first official calibration draw remains locked pending final handover-commit verification, independent exact-runner review attestation, and a separate operator decision. No real market data, lockbox, broker, live order or product inference was used.
+The generated statistical failures are expected possible outcomes of test seeds. They do not imply anything about the held-back reserved streams or product performance. The first official calibration draw remains locked pending renewed attestation for the current handover commit, an eligible native host, and a separate operator decision. No real market data, lockbox, broker, live order or product inference was used.
