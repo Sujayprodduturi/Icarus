@@ -370,6 +370,12 @@ Dated decisions that are not code and not in `goal.yaml`, so they have nowhere e
 |---|---|---|
 | D32 | **Build the uncertainty mathematics and record the plain-English explanation style for future sessions.** After the complete-picture explanation, the operator explicitly asked to proceed with building. This authorizes the concrete isolated research candidate/comparison and supported Windows screen in the reviewed design; section 2 records the requested tone, language and granularity. No accepted product method, frozen protocol amendment, reserved draw, real-data strategy test, inference enablement or live path is approved. | operator, direct instruction on 2026-09-30 |
 
+### 2026-09-30 - bounded uncertainty research build
+
+| id | decision | owner |
+|---|---|---|
+| D33 | **Build the reviewed bounded independent-group research component and its deterministic tests.** The operator said Yes do it after the concrete proposal explaining justified independence/support, conservative intervals and insufficient-evidence refusals. This authorizes its pure research helper, deterministic verification and reviews; no stochastic screen, product adoption, new data floor, reserved stream, real-data evaluation or live path. | operator, direct reply on2026-09-30 |
+
 ## 7c. Deferred by decision — not forgotten
 
 Things consciously postponed. **Each names the condition that reopens it.** A deferral without a

@@ -1,7 +1,7 @@
 # Next uncertainty research: explicit assumptions and bounded independent groups
 
 Date: 2026-09-30. Inspected source: ada6a7d5c6dab32bf18cb016147bfe856b3056e8.
-Status: concrete next research proposal; independent mathematical/governance reviews completed after the clarifications recorded below. No implementation, new stochastic screen, product method, protocol amendment or data floor approved.
+Status: concrete next research proposal; independent mathematical/governance reviews completed after the clarifications recorded below. Operator D33 subsequently approved this pure helper and deterministic tests; see the implementation plan. No new stochastic screen, product method, protocol amendment or data floor approved.
 
 ## Operator purpose and current position
 
@@ -93,3 +93,5 @@ Even a perfect implementation will often report insufficient evidence, particula
 ## Review and authorization status
 
 User continuation authorizes this design investigation; implementation of this new concrete assumption contract awaits the operator's plain-English review. Independent medium-effort numerical and governance reviewers approved the proposal for operator review subject to two exact clarifications now incorporated: individual-trade support rather than group-mean-only support, and structural singleton checks distinct from floating numerical degeneration. Primary independently reproduced all five displayed widths and the119-group requirement. No data/RNG evaluation or implementation occurred in this design session. Both reviewers subsequently re-read the corrected contract and approved it for operator review/docs-only commit, with no remaining proposal blocker. This is a documentation-only session: existing code suites were not rerun unchanged; deterministic analytical calculations were reproduced and protected code/config diff was empty. All previous research samples remain exposed development evidence; the original reserved streams are untouched and never repurposed. Keep inference disabled and the official Windows resource/durable-claim restrictions unchanged.
+
+Approval addendum2026-09-30: operator explicitly approved building the presented component (D33). Prior awaiting-review wording is history. The concrete plan is2026-09-30-signal-bounded-uncertainty-implementation.md; numerical choices use exact fractions and conservative Decimal arithmetic, without new dependencies or broader inference authorization.
