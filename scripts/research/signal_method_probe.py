@@ -425,13 +425,25 @@ def worker(destination: Path) -> None:
     _json(destination / "result.json", result)
 
 
+def _python_launch() -> tuple[str, dict[str, str] | None]:
+    # CPython 3.12 Windows venv redirector spawns another process. Use its own
+    # multiprocessing workaround so Popen owns the actual worker; checked 2026-09-30.
+    # https://github.com/python/cpython/blob/v3.12.10/Lib/multiprocessing/popen_spawn_win32.py
+    if os.name == "nt" and sys.prefix != sys.base_prefix:
+        environment = os.environ.copy()
+        environment["__PYVENV_LAUNCHER__"] = sys.executable
+        return str(vars(sys)["_base_executable"]), environment
+    return sys.executable, None
+
+
 def supervise(destination: Path, command: list[str] | None = None) -> None:
     began = time.monotonic()
     protocol = _protocol()
     reserve(destination, protocol)
     _ledger(destination, "STARTED")
+    executable, environment = _python_launch()
     arguments = command or [
-        sys.executable,
+        executable,
         "-m",
         "scripts.research.signal_method_probe",
         "--worker",
@@ -442,7 +454,12 @@ def supervise(destination: Path, command: list[str] | None = None) -> None:
     try:
         with (destination / "worker.log").open("w", encoding="utf-8") as log:
             process = subprocess.Popen(
-                arguments, cwd=PROJECT, stdout=log, stderr=subprocess.STDOUT, text=True
+                arguments,
+                cwd=PROJECT,
+                stdout=log,
+                stderr=subprocess.STDOUT,
+                text=True,
+                env=environment if command is None else None,
             )
             try:
                 code = process.wait(timeout=max(0.0, DEADLINE - (time.monotonic() - began)))

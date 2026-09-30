@@ -172,3 +172,33 @@ def test_spawn_sees_preregister_and_ledger_then_reaps(
     with pytest.raises(RuntimeError):
         probe.supervise(run, ["unused"])
     assert events == ["killed", "joined"]
+
+
+def test_worker_launch_owns_real_interpreter_and_venv() -> None:
+    import json
+    import os
+    import subprocess
+    import sys
+
+    import numpy as np
+    import scipy
+
+    executable, environment = probe._python_launch()
+    command = (
+        "import json,os,sys,numpy,scipy;"
+        "print(json.dumps([os.getpid(),os.getppid(),sys.prefix,"
+        "numpy.__version__,scipy.__version__]))"
+    )
+    child = subprocess.Popen(
+        [executable, "-c", command], env=environment, stdout=subprocess.PIPE, text=True
+    )
+    try:
+        output, _ = child.communicate(timeout=10)
+    finally:
+        if child.poll() is None:
+            child.kill()
+            child.wait()
+    assert child.returncode == 0
+    identity = json.loads(output)
+    assert identity[:2] == [child.pid, os.getpid()]
+    assert identity[2:] == [sys.prefix, np.__version__, scipy.__version__]
