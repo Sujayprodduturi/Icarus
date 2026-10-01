@@ -398,6 +398,12 @@ Dated decisions that are not code and not in `goal.yaml`, so they have nowhere e
 |---|---|---|
 | D39 | **Approve the recommended practical-method design direction:** prepare a separately preregistered diagnostic uncertainty method with explicit market assumptions, difficult artificial-condition validation and weak-evidence refusals. Approval follows the real-data evidence-policy milestone explanation and covers design/review; no estimator implementation, experiment, adoption, real-data evaluation, reserved draw, accepted floor, task-order change, threshold change, lockbox or live/broker path. Portfolio promotion requirements remain unchanged. | operator, direct Approved reply on2026-10-01 |
 
+### 2026-10-01 - calendar uncertainty implementation approved
+
+| # | Decision | Decided by |
+|---|---|---|
+| D40 | **Implement the reviewed calendar ratio subsampling calculator and deterministic tests on invented records.** Approval follows the concrete design milestone. Covers isolated research arithmetic, typed refusals, reviews and current-PC verification. No sampled stress/confirmation experiment, product adoption, accepted floor, real-data evaluation, reserved stream, inference enablement, lockbox, task-order or threshold change, broker/live path. | operator, direct yes implement reply on2026-10-01 |
+
 ## 7c. Deferred by decision — not forgotten
 
 Things consciously postponed. **Each names the condition that reopens it.** A deferral without a
