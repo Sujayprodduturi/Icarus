@@ -386,6 +386,12 @@ Dated decisions that are not code and not in `goal.yaml`, so they have nowhere e
 
 | D37 | **Implement the reviewed combined persistent-market and extreme-return uncertainty proposal.** The operator explicitly said Implement after the plain-English explanation and two independent final design reviews. This approves the isolated class-free Gaussian-factor whole-group moment calculator, narrow shared validation/finishing helpers, deterministic tests and independent reviews. Original all-trade raw/paired-excess mean and conservative arithmetic remain required. No stochastic screen, real-data evaluation, product adoption, accepted floor, reserved stream, inference enablement, lockbox or live path. | operator, direct reply on2026-10-01 |
 
+### 2026-10-01 - milestone cadence reaffirmed
+
+| # | Decision | Decided by |
+|---|---|---|
+| D38 | **Continue the next tasks and stop to explain only at major milestones, using the established simple, plain-English format.** Reaffirms D23/D26/D27 and section2. Routine preparation/review proceeds within approved scope; this does not authorize real-data runs, method adoption, reserved draws, task-dependency or threshold changes, broker integration or live orders. | operator, direct instruction on2026-10-01 |
+
 ## 7c. Deferred by decision — not forgotten
 
 Things consciously postponed. **Each names the condition that reopens it.** A deferral without a

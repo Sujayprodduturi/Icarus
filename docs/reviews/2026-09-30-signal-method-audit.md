@@ -11,6 +11,10 @@ Date: 2026-09-30; updated2026-10-01 for D37 completed research build. Scope: cur
 | P1 | Windows official resource and durable-claim equivalence unestablished | OPEN | [Reviewed investigation design](../plans/2026-09-30-windows-calibration-support-design.md): official startup still refuses before claim/RNG. Current-PC research does not establish those barriers. |
 | R1 | CI integration skips do not prove datastore integration | OPEN | Historical Task-3 audit F11 retains this requirement; four Linux integration skips and six Windows platform skips remain disclosed. No new integration claim. |
 
+## 2026-10-01 real-data policy follow-up
+
+The [real-data evidence proposal](../plans/2026-10-01-signal-real-evidence-policy.md) makes the assumption/accounting and stress-design boundary explicit. Astra and source/governance review support the direction; final written review approved operator presentation. Market-selected counts, random weights and overlapping holding paths add applicability barriers. No method/floor is adopted and M1-M4 remain OPEN. F48 charge exactness, full benchmark certificates, mandatory atomic signal-trial persistence and source/time eligibility remain prerequisites. Original step dependencies are unchanged.
+
 ## Historical runner-audit correction
 Task-3 historical audit F13 described the first native whole-file-reader memory failure as open. The bounded-reader repair subsequently passed exact-source native proof/CI at `81fc971` and again at `cdf127b`, as independently verified in the [current Windows/remote evidence record](2026-09-30-windows-simulator-check.md). That original memory failure is resolved for those sources; it is not the current Windows platform blocker. This correction does not extend the old official attestation to later ancestry.
 
