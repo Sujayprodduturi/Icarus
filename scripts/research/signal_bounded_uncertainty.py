@@ -693,31 +693,59 @@ def _persistent_model(
 ) -> tuple[Fraction, dict[str, int]]:
     if type(model) is not PersistentModelContract:
         raise _Invalid(RefusalReason.UNKNOWN_PERSISTENT_MODEL)
-    declarations = (
-        model.stationary_gaussian_start,
-        model.independent_gaussian_innovations,
-        model.known_persistence_bound,
-        model.whole_local_map,
-        model.independent_local_noise,
-        model.marginal_preservation,
-        model.geometry,
+    r = _stationary_local_model(
+        source.fixture,
+        model.fixture,
+        model.provenance,
+        model.persistence_bound,
+        (
+            model.stationary_gaussian_start,
+            model.independent_gaussian_innovations,
+            model.known_persistence_bound,
+            model.whole_local_map,
+            model.independent_local_noise,
+            model.marginal_preservation,
+            model.geometry,
+        ),
     )
+    _partition(source, model.classes, ranges)
+    return r, _latent_map(
+        tuple(g.identifier for g in source.groups), model.latent_axis, model.indices
+    )
+
+
+def _stationary_local_model(
+    source_fixture: str,
+    fixture: str,
+    provenance: str,
+    persistence_bound: Numeric,
+    declarations: tuple[Declaration, ...],
+) -> Fraction:
+    """Support-neutral declared stationary Gaussian/local-output premises."""
     if any(item is not Declaration.FIXTURE_DECLARED for item in declarations):
         raise _Invalid(RefusalReason.UNKNOWN_PERSISTENT_MODEL)
-    if model.fixture != source.fixture or not _valid_text(model.provenance):
+    if fixture != source_fixture or not _valid_text(provenance):
         raise _Invalid(RefusalReason.UNKNOWN_PERSISTENT_MODEL)
-    r = _fraction(model.persistence_bound)
+    r = _fraction(persistence_bound)
     if not 0 <= r < 1:
         raise _Invalid(RefusalReason.UNKNOWN_PERSISTENT_MODEL)
-    _partition(source, model.classes, ranges)
-    if not _valid_text(model.latent_axis) or type(model.indices) is not tuple:
+    return r
+
+
+def _latent_map(
+    group_ids: tuple[str, ...],
+    latent_axis: str,
+    points: tuple[LatentIndex, ...],
+) -> dict[str, int]:
+    """Validate complete coordinates without any support or class premise."""
+    if not _valid_text(latent_axis) or type(points) is not tuple:
         raise _Invalid(RefusalReason.INVALID_LATENT_MAP)
-    if len(model.indices) > 4096:
+    if len(points) > 4096:
         raise _Invalid(RefusalReason.TECHNICAL_LIMIT)
-    groups = {g.identifier for g in source.groups}
+    groups = set(group_ids)
     seen: set[int] = set()
     indices: dict[str, int] = {}
-    for point in model.indices:
+    for point in points:
         if (
             type(point) is not LatentIndex
             or not _valid_text(point.group_id)
@@ -727,14 +755,14 @@ def _persistent_model(
             or point.index < 0
             or point.index in seen
             or point.index.bit_length() > 4096
-            or point.axis != model.latent_axis
+            or point.axis != latent_axis
         ):
             raise _Invalid(RefusalReason.INVALID_LATENT_MAP)
         indices[point.group_id] = point.index
         seen.add(point.index)
     if set(indices) != groups:
         raise _Invalid(RefusalReason.INVALID_LATENT_MAP)
-    return r, indices
+    return indices
 
 
 def _log_upper(argument: Fraction, context: Context) -> Decimal:

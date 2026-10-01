@@ -1,6 +1,6 @@
 # Combined persistent-market and extreme-return uncertainty proposal
 
-Date: 2026-10-01. Status: independently reviewed design ready for operator presentation; operator implementation approval pending. Research only, deterministic tests only. Existing source: d1070d2; independent moment implementation: f0bab2f.
+Date: 2026-10-01. Status: independently reviewed design ready for operator presentation; operator D37 approved implementation with Implement; build in progress. Research only, deterministic tests only. Existing source: d1070d2; independent moment implementation: f0bab2f.
 
 ## What this adds, in plain English
 
@@ -72,3 +72,5 @@ No RNG screen, official/reserved-stream draws, real-data evaluation, strategy ve
 Two medium-effort read-only reviewers independently approved the direct proof and lean scope during design exploration: combined_moment_math and combined_moment_scope. Both checked the scalar theorem; primary reproduced their arithmetic rather than accepting messages alone. Both reviewers read the final written proposal and approved it for operator presentation with no blocker. Mathematical review clarified reproducible zero-moment inputs and the separate linear-plus-noise example; scope review required preservation of refusal precedence on multiply-invalid old inputs. Primary incorporated and checked all changes. This is proposal approval, not operator implementation approval or real-data certification.
 
 Documentation verification: all local Markdown links in the five changed documents resolve; ranked-audit checker15 passed in0.08s; whitespace check passed; tracked-file numstat agrees with CR-insensitive numstat, preserving existing line endings. No product source was changed and no new broad code-test result is claimed.
+
+Operator approval addendum2026-10-01: D37 approves the concrete isolated implementation and deterministic verification. Earlier proposal-stage approval statements are retained as dated design history. No held boundary was expanded.

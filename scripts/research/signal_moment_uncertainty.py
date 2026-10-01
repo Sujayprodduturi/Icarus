@@ -1,4 +1,4 @@
-"""Original-mean Chebyshev reference for trusted independent artificial group laws.
+"""Original-mean Chebyshev references for trusted artificial group laws.
 
 No finite support, empirical moment fitting, real-data certification, or broker path.
 Declarations are trusted premises, never authenticated from the observed sample.
@@ -8,9 +8,11 @@ from dataclasses import dataclass
 from decimal import ROUND_CEILING, ROUND_FLOOR, Context, Decimal, DecimalException, localcontext
 from enum import StrEnum
 from fractions import Fraction
+from itertools import pairwise
 from math import isfinite
 from typing import ClassVar
 
+from scripts.research import signal_bounded_uncertainty as bounded
 from scripts.research.signal_bounded_uncertainty import (
     Declaration as Declaration,
 )
@@ -32,6 +34,8 @@ from scripts.research.signal_bounded_uncertainty import (
 
 
 class Reason(StrEnum):
+    UNKNOWN_PERSISTENT_MODEL = "unknown_persistent_model"
+    INVALID_LATENT_MAP = "invalid_latent_map"
     INVALID_INPUT = "invalid_input"
     INVALID_COHORT = "invalid_cohort"
     REAL_DATA_FORBIDDEN = "real_data_forbidden"
@@ -185,6 +189,8 @@ def _validate(
     source: MomentSourceContract,
     observations: tuple[Observation, ...],
     request: MomentRequest,
+    *,
+    require_independence: bool = True,
 ) -> tuple[
     tuple[MomentGroupContract, ...],
     tuple[Fraction, ...],
@@ -197,7 +203,7 @@ def _validate(
         raise _Invalid(Reason.INVALID_INPUT)
     if source.scope is not Scope.SYNTHETIC_FIXTURE:
         raise _Invalid(Reason.REAL_DATA_FORBIDDEN)
-    if source.independence is not Declaration.FIXTURE_DECLARED:
+    if require_independence and source.independence is not Declaration.FIXTURE_DECLARED:
         raise _Invalid(Reason.UNKNOWN_INDEPENDENCE)
     if (
         source.geometry is not Declaration.FIXTURE_DECLARED
@@ -321,79 +327,241 @@ def estimate(
     """
     try:
         groups, means, centers, moments, alpha, width = _validate(source, observations, request)
-        weights = tuple(Fraction(g.count, len(observations)) for g in groups)
-        mean = _sum(tuple(_checked(w * y) for w, y in zip(weights, means, strict=True)))
-        variance = _sum(
-            tuple(_checked(w**2 * moment) for w, moment in zip(weights, moments, strict=True))
-        )
-        squared_radius = _checked(variance / alpha)
-        with localcontext(Context(prec=100, Emin=-999999, Emax=999999)) as context:
-            argument = _decimal(squared_radius, context, ROUND_CEILING)
-            radius = context.sqrt(argument)
-            # Decimal.sqrt rounds nearest even regardless of requested rounding.
-            # Certify the REPRESENTED enclosure against the exact rational target.
-            if _checked(Fraction(radius) ** 2) < squared_radius:
-                radius = context.next_plus(radius)
-            if (
-                not radius.is_finite()
-                or (variance > 0 and radius <= 0)
-                or _checked(Fraction(radius) ** 2) < squared_radius
-            ):
-                raise _Invalid(Reason.NUMERICAL_RESOLUTION)
-            full_width = context.multiply(radius, Decimal(2))
-            if Fraction(full_width) < 2 * Fraction(radius):
-                raise _Invalid(Reason.NUMERICAL_RESOLUTION)
-        diagnostics = _Diagnostics(
-            mean,
-            variance,
-            tuple(g.identifier for g in groups),
-            tuple(g.count for g in groups),
-            weights,
-            means,
-            centers,
-            moments,
-            tuple(g.law_identity for g in groups),
-            tuple(g.provenance for g in groups),
-            len(observations),
-            len(groups),
-            alpha,
-            width,
-            request.metric,
-            source.fixture,
-            source.provenance,
-            radius,
-            full_width,
-        )
-        if Fraction(full_width) > width:
-            return MomentInsufficientEvidence(
-                **{
-                    field: getattr(diagnostics, field)
-                    for field in diagnostics.__dataclass_fields__
-                    if field != "authority"
-                }
-            )
-        lo_exact = _checked(mean - Fraction(radius))
-        hi_exact = _checked(mean + Fraction(radius))
-        # Size precision from bounded exact operands, so legal large observations
-        # and tiny radii do not collapse into a zero-width decimal interval.
-        precision = 100 + max(
-            abs(value.numerator).bit_length() + value.denominator.bit_length()
-            for value in (lo_exact, hi_exact)
-        )
-        with localcontext(Context(prec=precision, Emin=-999999, Emax=999999)) as context:
-            lower = _decimal(lo_exact, context, ROUND_FLOOR)
-            upper = _decimal(hi_exact, context, ROUND_CEILING)
-        if Fraction(lower) > lo_exact or Fraction(upper) < hi_exact:
+        return _finish(source, observations, request, groups, means, centers, moments, alpha, width)
+    except _Invalid as error:
+        return MomentRefusal(error.reason)
+    except (DecimalException, OverflowError):
+        return MomentRefusal(Reason.NUMERICAL_RESOLUTION)
+
+
+def _finish(
+    source: MomentSourceContract,
+    observations: tuple[Observation, ...],
+    request: MomentRequest,
+    groups: tuple[MomentGroupContract, ...],
+    means: tuple[Fraction, ...],
+    centers: tuple[Fraction, ...],
+    moments: tuple[Fraction, ...],
+    alpha: Fraction,
+    width: Fraction,
+    cross_variance: Fraction = Fraction(0),
+) -> MomentEstimate | MomentInsufficientEvidence:
+    weights = tuple(Fraction(g.count, len(observations)) for g in groups)
+    mean = _sum(tuple(_checked(w * y) for w, y in zip(weights, means, strict=True)))
+    variance = _sum(
+        tuple(_checked(w**2 * moment) for w, moment in zip(weights, moments, strict=True))
+    )
+    variance = _checked(variance + cross_variance)
+    squared_radius = _checked(variance / alpha)
+    with localcontext(Context(prec=100, Emin=-999999, Emax=999999)) as context:
+        argument = _decimal(squared_radius, context, ROUND_CEILING)
+        radius = context.sqrt(argument)
+        # Decimal.sqrt rounds nearest even regardless of requested rounding.
+        # Certify the REPRESENTED enclosure against the exact rational target.
+        if _checked(Fraction(radius) ** 2) < squared_radius:
+            radius = context.next_plus(radius)
+        if (
+            not radius.is_finite()
+            or (variance > 0 and radius <= 0)
+            or _checked(Fraction(radius) ** 2) < squared_radius
+        ):
             raise _Invalid(Reason.NUMERICAL_RESOLUTION)
-        return MomentEstimate(
+        full_width = context.multiply(radius, Decimal(2))
+        if Fraction(full_width) < 2 * Fraction(radius):
+            raise _Invalid(Reason.NUMERICAL_RESOLUTION)
+    diagnostics = _Diagnostics(
+        mean,
+        variance,
+        tuple(g.identifier for g in groups),
+        tuple(g.count for g in groups),
+        weights,
+        means,
+        centers,
+        moments,
+        tuple(g.law_identity for g in groups),
+        tuple(g.provenance for g in groups),
+        len(observations),
+        len(groups),
+        alpha,
+        width,
+        request.metric,
+        source.fixture,
+        source.provenance,
+        radius,
+        full_width,
+    )
+    if Fraction(full_width) > width:
+        return MomentInsufficientEvidence(
             **{
                 field: getattr(diagnostics, field)
                 for field in diagnostics.__dataclass_fields__
                 if field != "authority"
-            },
-            lower=lower,
-            upper=upper,
+            }
         )
+    lo_exact = _checked(mean - Fraction(radius))
+    hi_exact = _checked(mean + Fraction(radius))
+    # Size precision from bounded exact operands, so legal large observations
+    # and tiny radii do not collapse into a zero-width decimal interval.
+    precision = 100 + max(
+        abs(value.numerator).bit_length() + value.denominator.bit_length()
+        for value in (lo_exact, hi_exact)
+    )
+    with localcontext(Context(prec=precision, Emin=-999999, Emax=999999)) as context:
+        lower = _decimal(lo_exact, context, ROUND_FLOOR)
+        upper = _decimal(hi_exact, context, ROUND_CEILING)
+    if Fraction(lower) > lo_exact or Fraction(upper) < hi_exact:
+        raise _Invalid(Reason.NUMERICAL_RESOLUTION)
+    return MomentEstimate(
+        **{
+            field: getattr(diagnostics, field)
+            for field in diagnostics.__dataclass_fields__
+            if field != "authority"
+        },
+        lower=lower,
+        upper=upper,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class GaussianMomentModelContract:
+    """Class-free law: whole raw/benchmark vectors use one factor and local noise.
+
+    marginal_preservation declares the moments' actual laws match these outputs;
+    local noise is mutually independent and independent of the entire factor path.
+    """
+
+    fixture: str
+    provenance: str
+    latent_axis: str
+    indices: tuple[bounded.LatentIndex, ...]
+    persistence_bound: Numeric
+    stationary_gaussian_start: Declaration = Declaration.UNKNOWN
+    independent_gaussian_innovations: Declaration = Declaration.UNKNOWN
+    known_persistence_bound: Declaration = Declaration.UNKNOWN
+    whole_local_map: Declaration = Declaration.UNKNOWN
+    independent_local_noise: Declaration = Declaration.UNKNOWN
+    marginal_preservation: Declaration = Declaration.UNKNOWN
+    geometry: Declaration = Declaration.UNKNOWN
+
+
+@dataclass(frozen=True, slots=True)
+class PersistentMomentResult:
+    calculation: MomentEstimate | MomentInsufficientEvidence
+    diagonal_variance: Fraction
+    cross_variance_upper: Fraction
+    persistence_bound: Fraction
+    indices: tuple[tuple[str, int], ...]
+    active_gaps: tuple[int, ...]
+    model_provenance: str
+    latent_axis: str
+    premise: ClassVar[str] = "TRUSTED_STATIONARY_GAUSSIAN_AR_LOCAL_MAP_ONLY"
+
+
+def _sqrt_upper(value: Fraction, context: Context) -> Decimal:
+    argument = _decimal(value, context, ROUND_CEILING)
+    result = context.sqrt(argument)
+    if Fraction(result) ** 2 < value:
+        result = context.next_plus(result)
+    if not result.is_finite() or (value > 0 and result <= 0) or Fraction(result) ** 2 < value:
+        raise _Invalid(Reason.NUMERICAL_RESOLUTION)
+    return result
+
+
+def _cross_variance(
+    active: tuple[tuple[int, Fraction], ...],
+    r: Fraction,
+) -> tuple[Fraction, tuple[int, ...]]:
+    gaps = tuple(b[0] - a[0] for a, b in pairwise(active))
+    if not r or len(active) < 2:
+        return Fraction(0), gaps
+    # Preflight all exact decays before constructing any exponent-sized integer.
+    if sum(d * (r.numerator.bit_length() + r.denominator.bit_length()) for d in gaps) > 262144:
+        raise _Invalid(Reason.TECHNICAL_LIMIT)
+    with localcontext(Context(prec=100, Emin=-999999, Emax=999999)) as context:
+        context.rounding = ROUND_CEILING
+        previous = active[0][0]
+        carry = Decimal(0)
+        cross = Decimal(0)
+        for index, squared_coefficient in active:
+            if carry:
+                decay = r ** (index - previous)
+                represented_decay = _decimal(decay, context, ROUND_CEILING)
+                carry = context.multiply(carry, represented_decay)
+                if decay <= 0 or represented_decay <= 0 or carry <= 0:
+                    raise _Invalid(Reason.NUMERICAL_RESOLUTION)
+            coefficient = _sqrt_upper(squared_coefficient, context)
+            term = context.multiply(Decimal(2), context.multiply(coefficient, carry))
+            if carry and term <= 0:
+                raise _Invalid(Reason.NUMERICAL_RESOLUTION)
+            cross = context.add(cross, term)
+            carry = context.add(carry, coefficient)
+            if not carry.is_finite() or not cross.is_finite():
+                raise _Invalid(Reason.NUMERICAL_RESOLUTION)
+            previous = index
+        return _checked(Fraction(cross)), gaps
+
+
+def estimate_persistent(
+    source: MomentSourceContract,
+    observations: tuple[Observation, ...],
+    request: MomentRequest,
+    model: GaussianMomentModelContract,
+) -> PersistentMomentResult | MomentRefusal:
+    """Chebyshev with Gaussian L2 covariance; no independence declaration forged.
+
+    Conditioning removes cross-group local noise. Scalar Gebelein bounds each
+    remaining covariance by r**actual_gap * sqrt(M_g*M_h). Checked 2026-10-01:
+    https://fa.ewi.tudelft.nl/~veraar/research/papers/Gebelein.pdf Eq (1.1).
+    """
+    try:
+        groups, means, centers, moments, alpha, width = _validate(
+            source, observations, request, require_independence=False
+        )
+        if type(model) is not GaussianMomentModelContract:
+            raise _Invalid(Reason.UNKNOWN_PERSISTENT_MODEL)
+        r = bounded._stationary_local_model(
+            source.fixture,
+            model.fixture,
+            model.provenance,
+            _fraction(model.persistence_bound),
+            (
+                model.stationary_gaussian_start,
+                model.independent_gaussian_innovations,
+                model.known_persistence_bound,
+                model.whole_local_map,
+                model.independent_local_noise,
+                model.marginal_preservation,
+                model.geometry,
+            ),
+        )
+        indices = bounded._latent_map(
+            tuple(g.identifier for g in groups), model.latent_axis, model.indices
+        )
+        terms = tuple(
+            _checked(Fraction(g.count, len(observations)) ** 2 * moment)
+            for g, moment in zip(groups, moments, strict=True)
+        )
+        active = tuple(
+            sorted(
+                (indices[g.identifier], term) for g, term in zip(groups, terms, strict=True) if term
+            )
+        )
+        cross, gaps = _cross_variance(active, r)
+        calculation = _finish(
+            source, observations, request, groups, means, centers, moments, alpha, width, cross
+        )
+        return PersistentMomentResult(
+            calculation,
+            _sum(terms),
+            cross,
+            r,
+            tuple(sorted(indices.items())),
+            gaps,
+            model.provenance,
+            model.latent_axis,
+        )
+    except bounded._Invalid as error:
+        return MomentRefusal(Reason(error.reason.value))
     except _Invalid as error:
         return MomentRefusal(error.reason)
     except (DecimalException, OverflowError):
