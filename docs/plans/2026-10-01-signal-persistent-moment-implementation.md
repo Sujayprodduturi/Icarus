@@ -1,5 +1,5 @@
 # Combined Gaussian-factor moment implementation
-Date:2026-10-01. Operator D37 approved the [reviewed proposal](2026-10-01-signal-persistent-moment-proposal.md). Build verification in progress; [evidence](../reviews/2026-10-01-signal-persistent-moment-build.md) controls completion.
+Date:2026-10-01. Operator D37 approved the [reviewed proposal](2026-10-01-signal-persistent-moment-proposal.md). Authorized isolated implementation complete at source3d0dd81; [evidence](../reviews/2026-10-01-signal-persistent-moment-build.md) controls completion.
 
 ## Bounded unit and acceptance
 - Add GaussianMomentModelContract and estimate_persistent to the existing moment research module, with PersistentMomentResult retaining the original calculation plus explicit dependence/model diagnostics.

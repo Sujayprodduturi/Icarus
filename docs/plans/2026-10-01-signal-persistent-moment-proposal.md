@@ -1,6 +1,6 @@
 # Combined persistent-market and extreme-return uncertainty proposal
 
-Date: 2026-10-01. Status: independently reviewed design ready for operator presentation; operator D37 approved implementation with Implement; build in progress. Research only, deterministic tests only. Existing source: d1070d2; independent moment implementation: f0bab2f.
+Date: 2026-10-01. Status: independently reviewed design ready for operator presentation; operator D37 approved implementation with Implement; isolated build complete at source3d0dd81. Research only, deterministic tests only. Existing source: d1070d2; independent moment implementation: f0bab2f.
 
 ## What this adds, in plain English
 
@@ -74,3 +74,5 @@ Two medium-effort read-only reviewers independently approved the direct proof an
 Documentation verification: all local Markdown links in the five changed documents resolve; ranked-audit checker15 passed in0.08s; whitespace check passed; tracked-file numstat agrees with CR-insensitive numstat, preserving existing line endings. No product source was changed and no new broad code-test result is claimed.
 
 Operator approval addendum2026-10-01: D37 approves the concrete isolated implementation and deterministic verification. Earlier proposal-stage approval statements are retained as dated design history. No held boundary was expanded.
+
+Completion addendum2026-10-01: [build evidence](../reviews/2026-10-01-signal-persistent-moment-build.md) records the implemented class-free reference, independent reviews,1940 passing default Windows tests/10 skips,150-source static checks and three caught/restored post-commit guard defects followed by293 passing research tests. Real-data eligibility and Task3a remain unresolved.
