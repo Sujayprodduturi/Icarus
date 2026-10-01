@@ -1,0 +1,12 @@
+# Independent tail-moment implementation brief
+Date: 2026-10-01. Operator D36 approved the reviewed proposal and deterministic build.
+Spec: [extreme-return moment proposal](2026-10-01-signal-tail-moment-proposal.md).
+
+1. Write failing deterministic tests for the new pure independent whole-group API, including all premise/cohort/numerical refusal cases.
+2. Implement the typed immutable moment contract and original raw/paired-excess means in scripts/research/signal_moment_uncertainty.py. Reuse existing member/observation/enum conventions, without fake support declarations or product integration. Existing bounded APIs remain unchanged.
+3. Compute original count weights and V exactly; certify the upward square-root radius by exact rational squaring, compare conservative absolute full width, round endpoints outward. Validate zero-moment group-average consistency after all source/premise checks. Keep legitimate extreme observations.
+4. Independently check formulas and exact finite-law coverage; run focused and relevant Windows regressions and all-source static checks. Run ordered simplicity then engineering review, inspect independent numerical evidence, fix actual findings red-first.
+5. Commit source; check justified deliberate defects after commit and restore exact bytes; update state/handover/build records and push.
+
+Scope: deterministic artificial-law mathematics only. No RNG, real-data trial, accepted product floor, new dependency, frozen gate/manifest, lockbox, inference or broker path. Persistent/dependent-tail composition remains later work. Resource caps are technical implementation limits, not market thresholds.
+Progress: implementation and independent numerical plus ordered simplicity/engineering reviews approved. New44 tests and260 focused research tests passed. Primary verified three formula geometries,32 exact finite-law atoms and directed numerical checks. Windows relevant regression632 passed; broader available suite1612 passed, excluding unchanged slow Task3 runner and datastore integration. All149-source mypy/Ruff/format checks passed. Source commit and post-commit guard checks remain pending; no complete fresh full-suite claim.
