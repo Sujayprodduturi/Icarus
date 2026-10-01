@@ -1,5 +1,5 @@
 # Persistent-dependence uncertainty research proposal
-Date: 2026-10-01. Status: concrete next proposal; implementation requires operator approval. Scope: a deterministic pure synthetic-law reference, not product adoption or real-market certification.
+Date: 2026-10-01. Status: operator D35 approved review and proceeding; narrow implementation complete at `f7c72f5`. See [build evidence](../reviews/2026-10-01-signal-persistent-uncertainty-build.md). Scope: a deterministic pure synthetic-law reference, not product adoption or real-market certification.
 
 ## Why this is next
 The simulator records trades. The completed independent/fixed-class references judge bounded outcomes when exact independence premises are declared. The failing serial profile instead carries a shock forward recursively: its influence decays but never vanishes at a finite gap. This proposal explicitly accounts for the remaining dependence rather than declaring spaced observations independent.
