@@ -392,6 +392,12 @@ Dated decisions that are not code and not in `goal.yaml`, so they have nowhere e
 |---|---|---|
 | D38 | **Continue the next tasks and stop to explain only at major milestones, using the established simple, plain-English format.** Reaffirms D23/D26/D27 and section2. Routine preparation/review proceeds within approved scope; this does not authorize real-data runs, method adoption, reserved draws, task-dependency or threshold changes, broker integration or live orders. | operator, direct instruction on2026-10-01 |
 
+### 2026-10-01 - practical uncertainty design direction approved
+
+| # | Decision | Decided by |
+|---|---|---|
+| D39 | **Approve the recommended practical-method design direction:** prepare a separately preregistered diagnostic uncertainty method with explicit market assumptions, difficult artificial-condition validation and weak-evidence refusals. Approval follows the real-data evidence-policy milestone explanation and covers design/review; no estimator implementation, experiment, adoption, real-data evaluation, reserved draw, accepted floor, task-order change, threshold change, lockbox or live/broker path. Portfolio promotion requirements remain unchanged. | operator, direct Approved reply on2026-10-01 |
+
 ## 7c. Deferred by decision — not forgotten
 
 Things consciously postponed. **Each names the condition that reopens it.** A deferral without a

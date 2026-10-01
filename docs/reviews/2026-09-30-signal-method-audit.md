@@ -15,6 +15,10 @@ Date: 2026-09-30; updated2026-10-01 for D37 completed research build. Scope: cur
 
 The [real-data evidence proposal](../plans/2026-10-01-signal-real-evidence-policy.md) makes the assumption/accounting and stress-design boundary explicit. Astra and source/governance review support the direction; final written review approved operator presentation. Market-selected counts, random weights and overlapping holding paths add applicability barriers. No method/floor is adopted and M1-M4 remain OPEN. F48 charge exactness, full benchmark certificates, mandatory atomic signal-trial persistence and source/time eligibility remain prerequisites. Original step dependencies are unchanged.
 
+## 2026-10-01 practical-method design follow-up
+
+Operator D39 approved the practical-method design direction. The [calendar ratio subsampling candidate](../plans/2026-10-01-signal-calendar-subsampling-design.md) is now independently reviewed for operator presentation: original trade mean, variable counts, synchronous stocks and complete holding footprints. Primary and both reviewers reproduced its deterministic arithmetic example. It is an uncalibrated asymptotic research candidate, not a method acceptance. Whole-component zero-count refusal has no asserted emission or conditional-coverage guarantee. No implementation, sampled study, real-data inference, accepted floor or task dependency change; M1-M4 remain OPEN.
+
 ## Historical runner-audit correction
 Task-3 historical audit F13 described the first native whole-file-reader memory failure as open. The bounded-reader repair subsequently passed exact-source native proof/CI at `81fc971` and again at `cdf127b`, as independently verified in the [current Windows/remote evidence record](2026-09-30-windows-simulator-check.md). That original memory failure is resolved for those sources; it is not the current Windows platform blocker. This correction does not extend the old official attestation to later ancestry.
 

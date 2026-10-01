@@ -1,6 +1,6 @@
 # TASKS.md — Project Icarus build checklist
 
-**2026-10-01 policy milestone:** [Real-data evidence proposal](docs/plans/2026-10-01-signal-real-evidence-policy.md) prepared with Astra/source consultation; final written review approved operator presentation. No task status/dependency, method, threshold or authorization changes. Settle the major practical-method research choice before the next bounded design/build; Task3a Step6 and M1-M4 remain open.
+**2026-10-01 policy milestone:** [Real-data evidence proposal](docs/plans/2026-10-01-signal-real-evidence-policy.md) prepared with Astra/source consultation; final written review approved operator presentation. No task status/dependency, method, threshold or authorization changes. D39 settles the practical-method design direction; [calendar ratio candidate](docs/plans/2026-10-01-signal-calendar-subsampling-design.md) is reviewed for the next deterministic implementation milestone decision; Task3a Step6 and M1-M4 remain open.
 
 Phase-by-phase tasks for Claude Code. **Build in order.** Each task lists acceptance criteria (AC) and a verification step (V). A task is done only when AC pass and V is demonstrated. Phases 0–3 are build-ready; Phases 4–5 are at requirements level (detail them after Phase-1 evidence).
 
