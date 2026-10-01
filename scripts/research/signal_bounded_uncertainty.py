@@ -4,6 +4,7 @@ Assumption declarations are research inputs, not an independence detector.
 No claim of nominal coverage conditional on data-dependent emission is made.
 """
 
+import itertools
 from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import (
@@ -52,6 +53,9 @@ class RefusalReason(StrEnum):
     UNKNOWN_INDEPENDENCE = "unknown_independence"
     UNKNOWN_CLASS_INDEPENDENCE = "unknown_class_independence"
     INVALID_CLASS_PARTITION = "invalid_class_partition"
+    UNKNOWN_PERSISTENT_MODEL = "unknown_persistent_model"
+    INVALID_LATENT_MAP = "invalid_latent_map"
+    EXHAUSTED_DEPENDENCE_BUDGET = "exhausted_dependence_budget"
     UNKNOWN_SUPPORT = "unknown_support"
     OUTCOME_DEPENDENT_GEOMETRY = "outcome_dependent_geometry"
     INVALID_INPUT = "invalid_input"
@@ -189,6 +193,55 @@ class DependenceResult:
     penalized_range_effective_groups: Fraction | None
     class_provenance: str
     premise: ClassVar[str] = "FIXTURE_DECLARED_WITHIN_CLASS_JOINT_INDEPENDENCE"
+
+
+@dataclass(frozen=True, slots=True)
+class LatentIndex:
+    group_id: str
+    index: int
+    axis: str
+
+
+@dataclass(frozen=True, slots=True)
+class PersistentModelContract:
+    fixture: str
+    provenance: str
+    latent_axis: str
+    indices: tuple[LatentIndex, ...]
+    classes: tuple[IndependentClass, ...]
+    persistence_bound: Numeric
+    stationary_gaussian_start: Declaration = Declaration.UNKNOWN
+    independent_gaussian_innovations: Declaration = Declaration.UNKNOWN
+    known_persistence_bound: Declaration = Declaration.UNKNOWN
+    whole_local_map: Declaration = Declaration.UNKNOWN
+    independent_local_noise: Declaration = Declaration.UNKNOWN
+    marginal_preservation: Declaration = Declaration.UNKNOWN
+    geometry: Declaration = Declaration.UNKNOWN
+
+
+@dataclass(frozen=True, slots=True)
+class ClassAllowance:
+    identifier: str
+    indices: tuple[int, ...]
+    active_indices: tuple[int, ...]
+    gaps: tuple[int, ...]
+    q: Fraction
+    log_sum_upper: Decimal
+    delta_upper: Decimal
+    radius_upper: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class PersistentResult:
+    calculation: BoundedEstimate | InsufficientEvidence | StructurallyKnown
+    original_q: Fraction
+    classes: tuple[ClassAllowance, ...]
+    dependence_upper: Decimal
+    residual_budget_lower: Fraction
+    total_radius_upper: Decimal
+    model_provenance: str
+    latent_axis: str
+    premise: ClassVar[str] = "TRUSTED_STATIONARY_GAUSSIAN_AR_LOCAL_MAP_ONLY"
 
 
 class _Invalid(Exception):
@@ -355,21 +408,27 @@ def _validate_classes(
         raise _Invalid(RefusalReason.UNKNOWN_CLASS_INDEPENDENCE)
     if contract.geometry is not Declaration.FIXTURE_DECLARED:
         raise _Invalid(RefusalReason.OUTCOME_DEPENDENT_GEOMETRY)
-    if (
-        contract.fixture != source.fixture
-        or not _valid_text(contract.provenance)
-        or type(contract.classes) is not tuple
-        or not contract.classes
-    ):
+    if contract.fixture != source.fixture or not _valid_text(contract.provenance):
         raise _Invalid(RefusalReason.INVALID_CLASS_PARTITION)
-    if len(contract.classes) > 4096:
+    return _partition(source, contract.classes, ranges)
+
+
+def _partition(
+    source: SourceContract,
+    classes: tuple[IndependentClass, ...],
+    ranges: tuple[tuple[Fraction, Fraction], ...],
+) -> int:
+    """Validate full immutable coverage without asserting a probability premise."""
+    if type(classes) is not tuple or not classes:
+        raise _Invalid(RefusalReason.INVALID_CLASS_PARTITION)
+    if len(classes) > 4096:
         raise _Invalid(RefusalReason.TECHNICAL_LIMIT)
     groups = sorted(group.identifier for group in source.groups)
     random_groups = {group for group, (lo, hi) in zip(groups, ranges, strict=True) if lo != hi}
     seen_classes: set[str] = set()
     seen_groups: set[str] = set()
     active_classes = 0
-    for item in contract.classes:
+    for item in classes:
         if (
             type(item) is not IndependentClass
             or not _valid_text(item.identifier)
@@ -436,64 +495,110 @@ def _bounded(
         context.rounding = ROUND_CEILING
         square_upper = context.divide(context.multiply(q_upper, log_upper), Decimal(2))
         radius = context.next_plus(context.sqrt(square_upper))
-        width = diagnostics.support_upper - diagnostics.support_lower
-        width_lower = _decimal(width, context, ROUND_FLOOR)
-        context.rounding = ROUND_CEILING
-        normalized_width = context.divide(context.multiply(Decimal(2), radius), width_lower)
-        precision_lower = _decimal(diagnostics.desired_precision, context, ROUND_FLOOR)
-        fields = (
-            diagnostics.mean,
-            diagnostics.support_lower,
-            diagnostics.support_upper,
-            diagnostics.q,
-            diagnostics.weight_effective_groups,
-            diagnostics.range_effective_groups,
-            diagnostics.observations,
-            diagnostics.groups,
-            diagnostics.alpha,
-            diagnostics.desired_precision,
-            diagnostics.metric,
-            diagnostics.fixture,
-            diagnostics.provenance,
+        return _finish(diagnostics, radius, context)
+
+
+def _finish(
+    diagnostics: _Diagnostics,
+    radius: Decimal,
+    context: Context,
+) -> BoundedEstimate | InsufficientEvidence | Refusal:
+    width = diagnostics.support_upper - diagnostics.support_lower
+    width_lower = _decimal(width, context, ROUND_FLOOR)
+    context.rounding = ROUND_CEILING
+    normalized_width = context.divide(context.multiply(Decimal(2), radius), width_lower)
+    precision_lower = _decimal(diagnostics.desired_precision, context, ROUND_FLOOR)
+    fields = (
+        diagnostics.mean,
+        diagnostics.support_lower,
+        diagnostics.support_upper,
+        diagnostics.q,
+        diagnostics.weight_effective_groups,
+        diagnostics.range_effective_groups,
+        diagnostics.observations,
+        diagnostics.groups,
+        diagnostics.alpha,
+        diagnostics.desired_precision,
+        diagnostics.metric,
+        diagnostics.fixture,
+        diagnostics.provenance,
+    )
+    if normalized_width > precision_lower:
+        return InsufficientEvidence(*fields, radius=radius, normalized_width=normalized_width)
+    mean_lower = _decimal(diagnostics.mean, context, ROUND_FLOOR)
+    mean_upper = _decimal(diagnostics.mean, context, ROUND_CEILING)
+    if not all(v.is_finite() and v > 0 for v in (radius, width_lower)):
+        return Refusal(RefusalReason.NUMERICAL_RESOLUTION)
+    # Reject arithmetic whose unit of resolution is as large as the radius.
+    if (
+        max(
+            context.subtract(context.next_plus(mean_upper), mean_upper),
+            context.subtract(mean_lower, context.next_minus(mean_lower)),
         )
-        if normalized_width > precision_lower:
-            return InsufficientEvidence(*fields, radius=radius, normalized_width=normalized_width)
-        mean_lower = _decimal(diagnostics.mean, context, ROUND_FLOOR)
-        mean_upper = _decimal(diagnostics.mean, context, ROUND_CEILING)
-        if not all(v.is_finite() and v > 0 for v in (q_upper, log_upper, radius, width_lower)):
-            return Refusal(RefusalReason.NUMERICAL_RESOLUTION)
-        # Reject arithmetic whose unit of resolution is as large as the radius.
-        if (
-            max(
-                context.subtract(context.next_plus(mean_upper), mean_upper),
-                context.subtract(mean_lower, context.next_minus(mean_lower)),
-            )
-            >= radius
-        ):
-            return Refusal(RefusalReason.NUMERICAL_RESOLUTION)
-        context.rounding = ROUND_FLOOR
-        untrimmed_lower = context.subtract(mean_lower, radius)
-        context.rounding = ROUND_CEILING
-        untrimmed_upper = context.add(mean_upper, radius)
-        reported_width = context.subtract(untrimmed_upper, untrimmed_lower)
-        actual_ratio = context.divide(reported_width, width_lower)
-        if (
-            not all(v.is_finite() for v in (untrimmed_lower, untrimmed_upper, actual_ratio))
-            or actual_ratio > precision_lower
-        ):
-            return Refusal(RefusalReason.NUMERICAL_RESOLUTION)
-        a_lower = _decimal(diagnostics.support_lower, context, ROUND_FLOOR)
-        b_upper = _decimal(diagnostics.support_upper, context, ROUND_CEILING)
-        return BoundedEstimate(
-            *fields,
-            radius=radius,
-            normalized_width=normalized_width,
-            untrimmed_lower=untrimmed_lower,
-            untrimmed_upper=untrimmed_upper,
-            lower=max(untrimmed_lower, a_lower),
-            upper=min(untrimmed_upper, b_upper),
-            reported_width=reported_width,
-        )
+        >= radius
+    ):
+        return Refusal(RefusalReason.NUMERICAL_RESOLUTION)
+    context.rounding = ROUND_FLOOR
+    untrimmed_lower = context.subtract(mean_lower, radius)
+    context.rounding = ROUND_CEILING
+    untrimmed_upper = context.add(mean_upper, radius)
+    reported_width = context.subtract(untrimmed_upper, untrimmed_lower)
+    actual_ratio = context.divide(reported_width, width_lower)
+    if (
+        not all(v.is_finite() for v in (untrimmed_lower, untrimmed_upper, actual_ratio))
+        or actual_ratio > precision_lower
+    ):
+        return Refusal(RefusalReason.NUMERICAL_RESOLUTION)
+    a_lower = _decimal(diagnostics.support_lower, context, ROUND_FLOOR)
+    b_upper = _decimal(diagnostics.support_upper, context, ROUND_CEILING)
+    return BoundedEstimate(
+        *fields,
+        radius=radius,
+        normalized_width=normalized_width,
+        untrimmed_lower=untrimmed_lower,
+        untrimmed_upper=untrimmed_upper,
+        lower=max(untrimmed_lower, a_lower),
+        upper=min(untrimmed_upper, b_upper),
+        reported_width=reported_width,
+    )
+
+
+def _aggregate(
+    source: SourceContract,
+    values: tuple[Fraction, ...],
+    counts: tuple[int, ...],
+    ranges: tuple[tuple[Fraction, Fraction], ...],
+    metric: Metric,
+    a: Fraction,
+    precision: Fraction,
+) -> _Diagnostics | StructurallyKnown:
+    n = len(values)
+    weights = tuple(Fraction(count, n) for count in counts)
+    mean = sum(values, Fraction()) / n
+    support_lower = sum((w * lo for w, (lo, _) in zip(weights, ranges, strict=True)), Fraction())
+    support_upper = sum((w * hi for w, (_, hi) in zip(weights, ranges, strict=True)), Fraction())
+    if all(lo == hi for lo, hi in ranges):
+        if mean != support_lower:
+            raise _Invalid(RefusalReason.SUPPORT_VIOLATION)
+        known = StructurallyKnown(mean, n, len(counts), metric, source.fixture, source.provenance)
+        return known
+    q = sum(((w * (hi - lo)) ** 2 for w, (lo, hi) in zip(weights, ranges, strict=True)), Fraction())
+    concentration = sum((w * w for w in weights), Fraction())
+    return _Diagnostics(
+        mean,
+        support_lower,
+        support_upper,
+        q,
+        1 / concentration,
+        (support_upper - support_lower) ** 2 / q,
+        n,
+        len(counts),
+        a,
+        precision,
+        metric,
+        source.fixture,
+        source.provenance,
+    )
 
 
 def _estimate(
@@ -520,50 +625,18 @@ def _estimate(
         active_classes = (
             _validate_classes(source, dependence, ranges) if dependence is not None else 1
         )
-        n = len(values)
-        weights = tuple(Fraction(count, n) for count in counts)
-        mean = sum(values, Fraction()) / n
-        support_lower = sum(
-            (w * lo for w, (lo, _) in zip(weights, ranges, strict=True)), Fraction()
-        )
-        support_upper = sum(
-            (w * hi for w, (_, hi) in zip(weights, ranges, strict=True)), Fraction()
-        )
-        if all(lo == hi for lo, hi in ranges):
-            if mean != support_lower:
-                return Refusal(RefusalReason.SUPPORT_VIOLATION)
-            known = StructurallyKnown(
-                mean, n, len(counts), metric, source.fixture, source.provenance
-            )
-            return _dependence_result(known, dependence, Fraction(), active_classes, Fraction())
-        q = sum(
-            ((w * (hi - lo)) ** 2 for w, (lo, hi) in zip(weights, ranges, strict=True)), Fraction()
-        )
-        concentration = sum((w * w for w in weights), Fraction())
-        diagnostics = _Diagnostics(
-            mean,
-            support_lower,
-            support_upper,
-            q,
-            1 / concentration,
-            (support_upper - support_lower) ** 2 / q,
-            n,
-            len(counts),
-            a,
-            precision,
-            metric,
-            source.fixture,
-            source.provenance,
-        )
-        calculation = _bounded(diagnostics, q_multiplier=active_classes)
+        aggregate = _aggregate(source, values, counts, ranges, metric, a, precision)
+        if isinstance(aggregate, StructurallyKnown):
+            return _dependence_result(aggregate, dependence, Fraction(), active_classes, Fraction())
+        calculation = _bounded(aggregate, q_multiplier=active_classes)
         if isinstance(calculation, Refusal):
             return calculation
         return _dependence_result(
             calculation,
             dependence,
-            q,
+            aggregate.q,
             active_classes,
-            support_upper - support_lower,
+            aggregate.support_upper - aggregate.support_lower,
         )
     except _Invalid as error:
         return Refusal(error.reason)
@@ -611,3 +684,209 @@ def estimate_dependence(
     )
     assert isinstance(result, (DependenceResult, Refusal))
     return result
+
+
+def _persistent_model(
+    source: SourceContract,
+    model: PersistentModelContract,
+    ranges: tuple[tuple[Fraction, Fraction], ...],
+) -> tuple[Fraction, dict[str, int]]:
+    if type(model) is not PersistentModelContract:
+        raise _Invalid(RefusalReason.UNKNOWN_PERSISTENT_MODEL)
+    declarations = (
+        model.stationary_gaussian_start,
+        model.independent_gaussian_innovations,
+        model.known_persistence_bound,
+        model.whole_local_map,
+        model.independent_local_noise,
+        model.marginal_preservation,
+        model.geometry,
+    )
+    if any(item is not Declaration.FIXTURE_DECLARED for item in declarations):
+        raise _Invalid(RefusalReason.UNKNOWN_PERSISTENT_MODEL)
+    if model.fixture != source.fixture or not _valid_text(model.provenance):
+        raise _Invalid(RefusalReason.UNKNOWN_PERSISTENT_MODEL)
+    r = _fraction(model.persistence_bound)
+    if not 0 <= r < 1:
+        raise _Invalid(RefusalReason.UNKNOWN_PERSISTENT_MODEL)
+    _partition(source, model.classes, ranges)
+    if not _valid_text(model.latent_axis) or type(model.indices) is not tuple:
+        raise _Invalid(RefusalReason.INVALID_LATENT_MAP)
+    if len(model.indices) > 4096:
+        raise _Invalid(RefusalReason.TECHNICAL_LIMIT)
+    groups = {g.identifier for g in source.groups}
+    seen: set[int] = set()
+    indices: dict[str, int] = {}
+    for point in model.indices:
+        if (
+            type(point) is not LatentIndex
+            or not _valid_text(point.group_id)
+            or point.group_id not in groups
+            or point.group_id in indices
+            or type(point.index) is not int
+            or point.index < 0
+            or point.index in seen
+            or point.index.bit_length() > 4096
+            or point.axis != model.latent_axis
+        ):
+            raise _Invalid(RefusalReason.INVALID_LATENT_MAP)
+        indices[point.group_id] = point.index
+        seen.add(point.index)
+    if set(indices) != groups:
+        raise _Invalid(RefusalReason.INVALID_LATENT_MAP)
+    return r, indices
+
+
+def _log_upper(argument: Fraction, context: Context) -> Decimal:
+    rounded = _decimal(argument, context, ROUND_CEILING)
+    return context.next_plus(context.ln(rounded))
+
+
+def _persistent_classes(
+    source: SourceContract,
+    model: PersistentModelContract,
+    r: Fraction,
+    indices: dict[str, int],
+    counts: tuple[int, ...],
+    ranges: tuple[tuple[Fraction, Fraction], ...],
+    alpha: Fraction,
+    context: Context,
+) -> tuple[tuple[ClassAllowance, ...], Decimal, Fraction, Decimal]:
+    groups = sorted(g.identifier for g in source.groups)
+    n = sum(counts)
+    terms = {
+        g: (Fraction(c, n) * (hi - lo)) ** 2
+        for g, c, (lo, hi) in zip(groups, counts, ranges, strict=True)
+    }
+    # Preflight ALL exact powers before allocating any power-sized integer.
+    layouts = []
+    total_bits = 0
+    for item in sorted(model.classes, key=lambda c: tuple(sorted(c.group_ids))):
+        full = tuple(sorted(indices[g] for g in item.group_ids))
+        active = tuple(sorted(indices[g] for g in item.group_ids if terms[g]))
+        gaps = tuple(b - a for a, b in itertools.pairwise(active))
+        if r:
+            total_bits += sum(
+                2 * d * (r.numerator.bit_length() + r.denominator.bit_length()) for d in gaps
+            )
+            if total_bits > 262144:
+                raise _Invalid(RefusalReason.TECHNICAL_LIMIT)
+        q = sum((terms[g] for g in item.group_ids), Fraction())
+        layouts.append((item.identifier, full, active, gaps, q))
+    allowances = []
+    dependence = Decimal(0)
+    for identifier, full, active, gaps, q in layouts:
+        log_sum = Decimal(0)
+        if r:
+            for gap in gaps:
+                x = r ** (2 * gap)
+                if not 0 < x < 1:
+                    raise _Invalid(RefusalReason.NUMERICAL_RESOLUTION)
+                # Gaussian KL/Markov identity and event-TV Pinsker, checked 2026-10-01.
+                # https://www.stat.berkeley.edu/~aditya/resources/STAT212aSEP11Lecture3.pdf
+                term = _log_upper(1 / (1 - x), context)
+                context.rounding = ROUND_CEILING
+                log_sum = context.add(log_sum, term)
+        if log_sum:
+            delta = min(
+                Decimal(1),
+                context.multiply(Decimal("0.5"), context.next_plus(context.sqrt(log_sum))),
+            )
+        else:
+            delta = Decimal(0)
+        context.rounding = ROUND_CEILING
+        dependence = context.add(dependence, delta)
+        allowances.append(
+            ClassAllowance(identifier, full, active, gaps, q, log_sum, delta, Decimal(0))
+        )
+    residual = alpha - Fraction(dependence)
+    if residual <= 0:
+        raise _Invalid(RefusalReason.EXHAUSTED_DEPENDENCE_BUDGET)
+    k = sum(bool(c.active_indices) for c in allowances)
+    total_radius = Decimal(0)
+    if k:
+        log_arg = Fraction(2 * k) / residual
+        log = _log_upper(log_arg, context)
+        radii = []
+        for c in allowances:
+            radius = Decimal(0)
+            if c.q:
+                q_upper = _decimal(c.q, context, ROUND_CEILING)
+                square = context.divide(context.multiply(q_upper, log), Decimal(2))
+                radius = context.next_plus(context.sqrt(square))
+                if not radius.is_finite() or radius <= 0:
+                    raise _Invalid(RefusalReason.NUMERICAL_RESOLUTION)
+            context.rounding = ROUND_CEILING
+            total_radius = context.add(total_radius, radius)
+            radii.append(
+                ClassAllowance(
+                    c.identifier,
+                    c.indices,
+                    c.active_indices,
+                    c.gaps,
+                    c.q,
+                    c.log_sum_upper,
+                    c.delta_upper,
+                    radius,
+                )
+            )
+        allowances = radii
+    return tuple(allowances), dependence, residual, total_radius
+
+
+def estimate_persistent(
+    source: SourceContract,
+    observations: Sequence[Observation],
+    model: PersistentModelContract,
+    *,
+    metric: Metric,
+    alpha: Numeric,
+    desired_precision: Numeric,
+) -> PersistentResult | Refusal:
+    """Stationary Gaussian-law reference; no global or class independence is asserted."""
+    try:
+        a, precision = _fraction(alpha), _fraction(desired_precision)
+        if not 0 < a < 1 or not 0 < precision <= 1:
+            return Refusal(RefusalReason.INVALID_INPUT)
+        values, counts, ranges = _validate(
+            source, observations, metric, require_global_independence=False
+        )
+        r, indices = _persistent_model(source, model, ranges)
+        aggregate = _aggregate(source, values, counts, ranges, metric, a, precision)
+        with localcontext(Context(prec=80, Emax=999999, Emin=-999999)) as context:
+            classes, dependence, residual, radius = _persistent_classes(
+                source,
+                model,
+                r,
+                indices,
+                counts,
+                ranges,
+                a,
+                context,
+            )
+            if isinstance(aggregate, StructurallyKnown):
+                calculation: (
+                    BoundedEstimate | InsufficientEvidence | StructurallyKnown | Refusal
+                ) = aggregate
+                q = Fraction()
+            else:
+                calculation = _finish(aggregate, radius, context)
+                q = aggregate.q
+        if isinstance(calculation, Refusal):
+            return calculation
+        return PersistentResult(
+            calculation,
+            q,
+            classes,
+            dependence,
+            residual,
+            radius,
+            model.provenance,
+            model.latent_axis,
+        )
+    except _Invalid as error:
+        return Refusal(error.reason)
+    except DecimalException:
+        return Refusal(RefusalReason.NUMERICAL_RESOLUTION)
+    except (TypeError, ValueError, OverflowError):
+        return Refusal(RefusalReason.INVALID_INPUT)

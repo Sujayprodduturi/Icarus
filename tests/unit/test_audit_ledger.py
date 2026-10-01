@@ -24,8 +24,8 @@ import pytest
 
 REVIEWS = Path(__file__).resolve().parents[2] / "docs" / "reviews"
 
-# `| F12 | what it is | status | why it ranks here |` — the four-column shape of the §6 table.
-_ROW = re.compile(r"^\| (F\d+b?) \| (.+?) \| (.+?) \| (.+?) \|\s*$", re.M)
+# `| F12 / M1 / P1 / R1 | finding | status | next action |` — the four-column shape of the §6 table.
+_ROW = re.compile(r"^\| ([A-Z]+\d+b?) \| (.+?) \| (.+?) \| (.+?) \|\s*$", re.M)
 
 # Vocabulary declared in the table's own header line.
 _STATUSES = (
@@ -55,9 +55,12 @@ def _rows(path: Path) -> list[tuple[str, str, str, str]]:
     would be noise on every run until somebody deleted the check.
     """
     body = path.read_text(encoding="utf-8")
-    start = body.index("## 6. Ranked fix list")
-    end = body.index("\n## ", start + 1)
-    return _ROW.findall(body[start:end])
+    heading = re.search(r"^## (?:6\. )?Ranked fix list[^\n]*$", body, re.M)
+    assert heading is not None, f"{path.name}: missing ranked fix list"
+    end = body.find("\n## ", heading.end())
+    rows = _ROW.findall(body[heading.end() : end if end != -1 else len(body)])
+    assert rows, f"{path.name}: no findings in ranked fix list"
+    return rows
 
 
 @pytest.mark.parametrize("path", _audits(), ids=lambda p: p.name)
@@ -98,3 +101,36 @@ def test_finding_ids_are_unique_within_the_ranked_list(path: Path) -> None:
     ids = [fid for fid, *_ in _rows(path)]
     duplicates = sorted({i for i in ids if ids.count(i) > 1})
     assert not duplicates, f"{path.name}: duplicate finding ids in the ranked list: {duplicates}"
+
+
+@pytest.mark.parametrize("heading", ["## 6. Ranked fix list", "## Ranked fix list"])
+@pytest.mark.parametrize("trailer", ["", "\n## Other section\n| M1 | outside | OPEN | ignored |\n"])
+def test_ranked_parser_reads_all_namespaces_only_in_its_section(
+    tmp_path: Path, heading: str, trailer: str
+) -> None:
+    path = tmp_path / "audit.md"
+    path.write_bytes(
+        (
+            heading + "\n"
+            "| M1 | model | OPEN | next model |\n"
+            "| P1 | platform | BLOCKS | host |\n"
+            "| R1 | integration | DEFERRED | datastore |\n"
+            "| F12b | legacy | CLOSED | fixed |\n" + trailer
+        ).encode()
+    )
+    assert _rows(path) == [
+        ("M1", "model", "OPEN", "next model"),
+        ("P1", "platform", "BLOCKS", "host"),
+        ("R1", "integration", "DEFERRED", "datastore"),
+        ("F12b", "legacy", "CLOSED", "fixed"),
+    ]
+
+
+@pytest.mark.parametrize(
+    "body", ["# No ranked section\n", "## Ranked fix list\n| ID | Finding | Status | Why |\n"]
+)
+def test_ranked_parser_refuses_missing_or_empty_finding_lists(tmp_path: Path, body: str) -> None:
+    path = tmp_path / "audit.md"
+    path.write_bytes(body.encode())
+    with pytest.raises(AssertionError):
+        _rows(path)

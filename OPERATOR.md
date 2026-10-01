@@ -381,6 +381,7 @@ Dated decisions that are not code and not in `goal.yaml`, so they have nowhere e
 | id | decision | owner |
 |---|---|---|
 | D34 | **Build the reviewed dependence-aware bounded uncertainty extension and deterministic tests.** The operator explicitly said The proposal is approved after the plain-English explanation and independent review of the fixed jointly-independent-class contract. This covers its isolated research implementation, deterministic proof/refusal checks and reviews; no stochastic screen, real-data evaluation, accepted product floor, reserved stream, inference enablement or live path. | operator, direct reply on2026-10-01 |
+| D35 | **Review the persistent-dependence proposal with a capable sub-agent and proceed with its justified recommendations.** This approves the isolated pure artificial-model calculator, deterministic tests and independent checks described in the 2026-10-01 proposal. No stochastic screen, real-data evaluation, product adoption, accepted floor, reserved stream, inference enablement or live path. | operator, direct instruction on2026-10-01 |
 
 ## 7c. Deferred by decision — not forgotten
 
