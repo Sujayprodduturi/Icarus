@@ -376,6 +376,12 @@ Dated decisions that are not code and not in `goal.yaml`, so they have nowhere e
 |---|---|---|
 | D33 | **Build the reviewed bounded independent-group research component and its deterministic tests.** The operator said Yes do it after the concrete proposal explaining justified independence/support, conservative intervals and insufficient-evidence refusals. This authorizes its pure research helper, deterministic verification and reviews; no stochastic screen, product adoption, new data floor, reserved stream, real-data evaluation or live path. | operator, direct reply on2026-09-30 |
 
+### 2026-10-01 - dependence-aware uncertainty research build
+
+| id | decision | owner |
+|---|---|---|
+| D34 | **Build the reviewed dependence-aware bounded uncertainty extension and deterministic tests.** The operator explicitly said The proposal is approved after the plain-English explanation and independent review of the fixed jointly-independent-class contract. This covers its isolated research implementation, deterministic proof/refusal checks and reviews; no stochastic screen, real-data evaluation, accepted product floor, reserved stream, inference enablement or live path. | operator, direct reply on2026-10-01 |
+
 ## 7c. Deferred by decision — not forgotten
 
 Things consciously postponed. **Each names the condition that reopens it.** A deferral without a

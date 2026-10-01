@@ -40,9 +40,18 @@ class Declaration(StrEnum):
     OUTCOME_DEPENDENT = "outcome_dependent"
 
 
+class WithinClassIndependence(StrEnum):
+    UNKNOWN = "unknown"
+    JOINT_FIXTURE_DECLARED = "joint_fixture_declared"
+    PAIRWISE_ONLY = "pairwise_only"
+    OBSERVED = "observed"
+
+
 class RefusalReason(StrEnum):
     REAL_DATA_FORBIDDEN = "real_data_forbidden"
     UNKNOWN_INDEPENDENCE = "unknown_independence"
+    UNKNOWN_CLASS_INDEPENDENCE = "unknown_class_independence"
+    INVALID_CLASS_PARTITION = "invalid_class_partition"
     UNKNOWN_SUPPORT = "unknown_support"
     OUTCOME_DEPENDENT_GEOMETRY = "outcome_dependent_geometry"
     INVALID_INPUT = "invalid_input"
@@ -151,6 +160,37 @@ class StructurallyKnown:
     authority: ClassVar[str] = "SYNTHETIC_RESEARCH_ONLY"
 
 
+@dataclass(frozen=True, slots=True)
+class IndependentClass:
+    identifier: str
+    group_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class DependenceContract:
+    fixture: str
+    provenance: str
+    classes: tuple[IndependentClass, ...]
+    joint_independence: WithinClassIndependence = WithinClassIndependence.UNKNOWN
+    geometry: Declaration = Declaration.UNKNOWN
+
+
+@dataclass(frozen=True, slots=True)
+class DependenceResult:
+    """The calculation's q/range diagnostics retain their unpenalized meanings.
+
+    penalized_q governs the actual radius; penalized concentration is separate.
+    """
+
+    calculation: BoundedEstimate | InsufficientEvidence | StructurallyKnown
+    original_q: Fraction
+    active_classes: int
+    penalized_q: Fraction
+    penalized_range_effective_groups: Fraction | None
+    class_provenance: str
+    premise: ClassVar[str] = "FIXTURE_DECLARED_WITHIN_CLASS_JOINT_INDEPENDENCE"
+
+
 class _Invalid(Exception):
     def __init__(self, reason: RefusalReason) -> None:
         self.reason = reason
@@ -190,12 +230,14 @@ def _validate(
     source: SourceContract,
     observations: Sequence[Observation],
     metric: Metric,
+    *,
+    require_global_independence: bool = True,
 ) -> tuple[tuple[Fraction, ...], tuple[int, ...], tuple[tuple[Fraction, Fraction], ...]]:
     if type(source) is not SourceContract or not isinstance(metric, Metric):
         raise _Invalid(RefusalReason.INVALID_INPUT)
     if source.scope is not Scope.SYNTHETIC_FIXTURE:
         raise _Invalid(RefusalReason.REAL_DATA_FORBIDDEN)
-    if source.independence is not Declaration.FIXTURE_DECLARED:
+    if require_global_independence and source.independence is not Declaration.FIXTURE_DECLARED:
         raise _Invalid(RefusalReason.UNKNOWN_INDEPENDENCE)
     if source.support is not Declaration.FIXTURE_DECLARED:
         raise _Invalid(RefusalReason.UNKNOWN_SUPPORT)
@@ -302,6 +344,73 @@ def _validate(
     return tuple(values), tuple(counts[key] for key in keys), tuple(ranges[key] for key in keys)
 
 
+def _validate_classes(
+    source: SourceContract,
+    contract: DependenceContract,
+    ranges: tuple[tuple[Fraction, Fraction], ...],
+) -> int:
+    if type(contract) is not DependenceContract:
+        raise _Invalid(RefusalReason.INVALID_CLASS_PARTITION)
+    if contract.joint_independence is not WithinClassIndependence.JOINT_FIXTURE_DECLARED:
+        raise _Invalid(RefusalReason.UNKNOWN_CLASS_INDEPENDENCE)
+    if contract.geometry is not Declaration.FIXTURE_DECLARED:
+        raise _Invalid(RefusalReason.OUTCOME_DEPENDENT_GEOMETRY)
+    if (
+        contract.fixture != source.fixture
+        or not _valid_text(contract.provenance)
+        or type(contract.classes) is not tuple
+        or not contract.classes
+    ):
+        raise _Invalid(RefusalReason.INVALID_CLASS_PARTITION)
+    if len(contract.classes) > 4096:
+        raise _Invalid(RefusalReason.TECHNICAL_LIMIT)
+    groups = sorted(group.identifier for group in source.groups)
+    random_groups = {group for group, (lo, hi) in zip(groups, ranges, strict=True) if lo != hi}
+    seen_classes: set[str] = set()
+    seen_groups: set[str] = set()
+    active_classes = 0
+    for item in contract.classes:
+        if (
+            type(item) is not IndependentClass
+            or not _valid_text(item.identifier)
+            or item.identifier in seen_classes
+            or type(item.group_ids) is not tuple
+            or not item.group_ids
+        ):
+            raise _Invalid(RefusalReason.INVALID_CLASS_PARTITION)
+        if len(item.group_ids) > 4096:
+            raise _Invalid(RefusalReason.TECHNICAL_LIMIT)
+        seen_classes.add(item.identifier)
+        for group in item.group_ids:
+            if not _valid_text(group) or group not in groups or group in seen_groups:
+                raise _Invalid(RefusalReason.INVALID_CLASS_PARTITION)
+            seen_groups.add(group)
+        active_classes += int(any(group in random_groups for group in item.group_ids))
+    if seen_groups != set(groups):
+        raise _Invalid(RefusalReason.INVALID_CLASS_PARTITION)
+    return active_classes
+
+
+def _dependence_result(
+    calculation: BoundedEstimate | InsufficientEvidence | StructurallyKnown,
+    contract: DependenceContract | None,
+    q: Fraction,
+    active_classes: int,
+    support_width: Fraction,
+) -> BoundedEstimate | InsufficientEvidence | StructurallyKnown | DependenceResult:
+    if contract is None:
+        return calculation
+    penalized_q = active_classes * q
+    return DependenceResult(
+        calculation,
+        q,
+        active_classes,
+        penalized_q,
+        support_width**2 / penalized_q if penalized_q else None,
+        contract.provenance,
+    )
+
+
 def _decimal(value: Fraction, context: Context, rounding: str) -> Decimal:
     context.rounding = rounding
     return context.divide(Decimal(value.numerator), Decimal(value.denominator))
@@ -309,10 +418,16 @@ def _decimal(value: Fraction, context: Context, rounding: str) -> Decimal:
 
 def _bounded(
     diagnostics: _Diagnostics,
+    *,
+    q_multiplier: int = 1,
 ) -> BoundedEstimate | InsufficientEvidence | Refusal:
     # A fresh context isolates precision, exponent limits, traps and flags.
     with localcontext(Context(prec=80, Emax=999999, Emin=-999999)) as context:
-        q_upper = _decimal(diagnostics.q, context, ROUND_CEILING)
+        # Fixed jointly independent classes permit arbitrary cross-class dependence.
+        # The disjoint-class Holder bound multiplies exact Q by active class count K.
+        # Janson proper-cover Theorem 2.1, checked 2026-10-01:
+        # https://api.newton.ac.uk/website/v0/events/preprints/NI02024
+        q_upper = _decimal(q_multiplier * diagnostics.q, context, ROUND_CEILING)
         argument_upper = _decimal(2 / diagnostics.alpha, context, ROUND_CEILING)
         # Python Decimal ln/sqrt are correctly rounded HALF_EVEN. Moving one
         # representable value upward encloses the exact value, monotonically.
@@ -381,20 +496,30 @@ def _bounded(
         )
 
 
-def estimate(
+def _estimate(
     source: SourceContract,
     observations: Sequence[Observation],
     *,
     metric: Metric,
     alpha: Numeric,
     desired_precision: Numeric,
-) -> BoundedEstimate | StructurallyKnown | InsufficientEvidence | Refusal:
+    dependence: DependenceContract | None = None,
+) -> BoundedEstimate | StructurallyKnown | InsufficientEvidence | Refusal | DependenceResult:
     """Return conditional-assumption research math; refuse unsupported input."""
     try:
         a, precision = _fraction(alpha), _fraction(desired_precision)
         if not 0 < a < 1 or not 0 < precision <= 1:
             return Refusal(RefusalReason.INVALID_INPUT)
-        values, counts, ranges = _validate(source, observations, metric)
+        values, counts, ranges = _validate(
+            source,
+            observations,
+            metric,
+            require_global_independence=dependence is None,
+        )
+        # Complete partitions and joint premises are checked even for known outcomes.
+        active_classes = (
+            _validate_classes(source, dependence, ranges) if dependence is not None else 1
+        )
         n = len(values)
         weights = tuple(Fraction(count, n) for count in counts)
         mean = sum(values, Fraction()) / n
@@ -407,9 +532,10 @@ def estimate(
         if all(lo == hi for lo, hi in ranges):
             if mean != support_lower:
                 return Refusal(RefusalReason.SUPPORT_VIOLATION)
-            return StructurallyKnown(
+            known = StructurallyKnown(
                 mean, n, len(counts), metric, source.fixture, source.provenance
             )
+            return _dependence_result(known, dependence, Fraction(), active_classes, Fraction())
         q = sum(
             ((w * (hi - lo)) ** 2 for w, (lo, hi) in zip(weights, ranges, strict=True)), Fraction()
         )
@@ -429,10 +555,59 @@ def estimate(
             source.fixture,
             source.provenance,
         )
-        return _bounded(diagnostics)
+        calculation = _bounded(diagnostics, q_multiplier=active_classes)
+        if isinstance(calculation, Refusal):
+            return calculation
+        return _dependence_result(
+            calculation,
+            dependence,
+            q,
+            active_classes,
+            support_upper - support_lower,
+        )
     except _Invalid as error:
         return Refusal(error.reason)
     except DecimalException:
         return Refusal(RefusalReason.NUMERICAL_RESOLUTION)
     except (TypeError, ValueError, OverflowError):
         return Refusal(RefusalReason.INVALID_INPUT)
+
+
+def estimate(
+    source: SourceContract,
+    observations: Sequence[Observation],
+    *,
+    metric: Metric,
+    alpha: Numeric,
+    desired_precision: Numeric,
+) -> BoundedEstimate | StructurallyKnown | InsufficientEvidence | Refusal:
+    """Original globally-independent research route; its contract is unchanged."""
+    result = _estimate(
+        source, observations, metric=metric, alpha=alpha, desired_precision=desired_precision
+    )
+    assert not isinstance(result, DependenceResult)
+    return result
+
+
+def estimate_dependence(
+    source: SourceContract,
+    observations: Sequence[Observation],
+    dependence: DependenceContract,
+    *,
+    metric: Metric,
+    alpha: Numeric,
+    desired_precision: Numeric,
+) -> DependenceResult | Refusal:
+    """Use trusted within-class JOINT independence, not source global independence."""
+    if type(dependence) is not DependenceContract:
+        return Refusal(RefusalReason.INVALID_CLASS_PARTITION)
+    result = _estimate(
+        source,
+        observations,
+        metric=metric,
+        alpha=alpha,
+        desired_precision=desired_precision,
+        dependence=dependence,
+    )
+    assert isinstance(result, (DependenceResult, Refusal))
+    return result
