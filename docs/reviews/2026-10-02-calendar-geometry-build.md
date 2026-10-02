@@ -36,3 +36,46 @@ confirmation remain unchanged. M1-M4/Task3a remain OPEN; inference stays disable
 The next research decision requires actual-law score covariance/count analysis
 and a single justified candidate/resource protocol, with a new exposed version.
 No new experiment or real-market simulator is enabled by this component.
+
+Reviewed geometry source was committed at4fe7a94 before defect checks. Three
+deliberate mutations (calendar centering weight, observed-count weight, silently
+accepting negative variance) were caught. Exact source bytes/hash were restored;
+then168 focused tests passed10.68seconds. Primary independently decoded/recounted
+every saved development metric without importing the production counter/decoder:
+all52 counts,9216 paths,26624 metrics and5910528 words match. These checks neither
+consume confirmation nor turn the failed interval into an accepted method.
+
+## Additional mathematical consultation, no implementation or new draw
+
+The [mathematical review appendix](2026-10-02-calendar-geometry-math-review.md)
+also independently verifies exact raw/paired score and score/count covariance
+formulas for the frozen known laws, with54 covariance,2 complete-noise variance
+and162 joint-moment checks. Covariance support is not an independence certificate;
+score variance is not ratio variance and win/other ratio cases remain unresolved.
+
+For the simplest P1 law, a separate exact finite-ratio calculation uses binomial
+count conditioning and Boolean edge moments. The primary independently checked
+it against all shared-sign atoms at n1..7; the reviewer derived the polynomials,
+checked54 fixed-count cases and matched all four n64/128 rational outputs.
+At n128 the exact raw bias is approximately-0.0000258603512375 and standard
+deviation0.00117877932334; exact win bias-0.000646508780937 and standard deviation
+0.0345091511559. These are model moments, not confidence endpoints or a fix.
+
+Primary independent reaggregation also reproduces the exposed P1n128 raw bias
+-0.0000283207322570, sample SD0.00120894064714 and median full width0.00349087249423;
+P7n128 sample SD0.00469966992781 and median width0.0101346827792. These descriptive
+values match the independent diagnosis and do not become new acceptance criteria.
+Exact-moment scripts/results are retained under var/verification/2026-10-02/calendar-geometry.
+
+## Final verification
+
+The fresh complete default Windows suite finished at final implementation bytes:
+2108 passed,10 skipped in1992.00seconds (33m11s), process exit0. Final source
+hashes match the reviewed/restored files. The first suite's2056/10 result remains
+separate evidence; this later run includes the completed diagnostic and latest
+runner safeguards. No production golden or unavailable datastore/platform proof
+is claimed. The existing synthetic portfolio/reference regression is green.
+
+State, handover, task and ranked audit records are updated. All implementation
+and artificial research work described here is complete. Remaining research
+requirements, failed calibration and real-market data boundaries stay explicit.
