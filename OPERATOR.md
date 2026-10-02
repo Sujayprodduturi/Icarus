@@ -406,6 +406,8 @@ Dated decisions that are not code and not in `goal.yaml`, so they have nowhere e
 
 | D41 | **Review and implement the artificial-calendar runner with sub-agents; continue authorized artificial-data checks and research after exact-source, resource and phase gates pass. Stop before running the simulator on real market data.** The operator explicitly asks for the best reviewed solution and no routine implementation stop. This does not authorize broker/live paths, official reserved streams, product adoption, changed statistical thresholds or real-market evaluation. | operator, direct instruction on2026-10-02 |
 
+| D42 | **Use sub-agents sparingly.** Primary performs the main analysis and verification; use a focused independent review where it materially checks mathematics or safety, without routinely dispatching multiple overlapping agents. This changes review usage, not the required rigor or real-data/live boundaries. | operator, direct instruction on2026-10-02: "Don't use sub-agents too much" |
+
 ## 7c. Deferred by decision — not forgotten
 
 Things consciously postponed. **Each names the condition that reopens it.** A deferral without a
