@@ -408,6 +408,8 @@ Dated decisions that are not code and not in `goal.yaml`, so they have nowhere e
 
 | D42 | **Use sub-agents sparingly.** Primary performs the main analysis and verification; use a focused independent review where it materially checks mathematics or safety, without routinely dispatching multiple overlapping agents. This changes review usage, not the required rigor or real-data/live boundaries. | operator, direct instruction on2026-10-02: "Don't use sub-agents too much" |
 
+| D43 | **Proceed with the reviewed next implementation and use the resources needed.** Approves the pure calendar-score/insufficiency helper after its reviewed design milestone and authorizes planning appropriate resource budgets for continued artificial research on this PC. Record a concrete new experiment budget before its draws and verify actual feasibility; do not retroactively edit the failed v1 protocol or treat resource permission as statistical/real-data/live authorization. D42's sparing review preference remains. | operator, direct instruction on2026-10-02: "Use whatever resources you need and go ahead" |
+
 ## 7c. Deferred by decision — not forgotten
 
 Things consciously postponed. **Each names the condition that reopens it.** A deferral without a
