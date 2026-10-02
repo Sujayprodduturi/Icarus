@@ -404,6 +404,8 @@ Dated decisions that are not code and not in `goal.yaml`, so they have nowhere e
 |---|---|---|
 | D40 | **Implement the reviewed calendar ratio subsampling calculator and deterministic tests on invented records.** Approval follows the concrete design milestone. Covers isolated research arithmetic, typed refusals, reviews and current-PC verification. No sampled stress/confirmation experiment, product adoption, accepted floor, real-data evaluation, reserved stream, inference enablement, lockbox, task-order or threshold change, broker/live path. | operator, direct yes implement reply on2026-10-01 |
 
+| D41 | **Review and implement the artificial-calendar runner with sub-agents; continue authorized artificial-data checks and research after exact-source, resource and phase gates pass. Stop before running the simulator on real market data.** The operator explicitly asks for the best reviewed solution and no routine implementation stop. This does not authorize broker/live paths, official reserved streams, product adoption, changed statistical thresholds or real-market evaluation. | operator, direct instruction on2026-10-02 |
+
 ## 7c. Deferred by decision — not forgotten
 
 Things consciously postponed. **Each names the condition that reopens it.** A deferral without a

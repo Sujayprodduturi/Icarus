@@ -1,5 +1,8 @@
 # STATE.md — where Icarus actually is, today
 
+**2026-10-02 continuation:** Operator D41 authorizes reviewed artificial-calendar implementation and artificial-data continuation after source/resource/phase gates, stopping before real market data. Runner implementation and77 deterministic tests are built; final review/regression and study results are in progress. Read [current build evidence](reviews/2026-10-02-calendar-runner-build.md) and its linked reviews. The dated pre-draw resource amendment preserves statistical rules. No sampled-study outcome, method adoption, accepted floor, real-data evaluation, official draw or M1-M4 closure is claimed. This direction supersedes the older approval-wait paragraphs below.
+
+
 **Last updated: 2026-10-01.** This file is the **session entry point**: it records the current build position, next action and held boundaries. The [current handover](HANDOVER.md) gives the next-session checklist. Older sections below retain dated history; section 0 controls the current action.
 
 **Keep it current.** If a session ends and this file still describes the session's starting state,
