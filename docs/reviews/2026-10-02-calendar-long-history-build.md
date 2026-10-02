@@ -26,4 +26,10 @@ The probe has a between-family90-second check, not a hard supervisor-enforced ti
 
 ## Remaining work
 
+## Post-commit verification at bb423a7
+
+Primary deliberately removed strict version-type validation, then separately changed strict wins to include zero outcomes. Each targeted test failed (exit1). Exact reviewed source bytes were restored in `finally`; SHA-256 again matched `b6cf2087c5d830a004b5696d6599c2d64d00c73394464b5030cd39d5d16f6052`. Restored253 research/synthetic-golden regressions passed6.63s and Git showed no source diff. These are intentional test defects, not additional actual implementation bugs. Retained local evidence: `var/verification/2026-10-02/calendar-geometry/evidence-primary-postcommit.txt`, `evidence-restored.txt`; source commit `bb423a7a44b6b14bfd515af3a69a16f7a579e558`.
+
+## Next unit
+
 Next is a separately reviewed, pre-draw long-history protocol and supervised bounded sampled runner, including complete source manifests, durable claim/terminal failure records, measured disk throughput and independent saved-file replay. Needed resources are already authorized by D43; repeat permission requests about resource magnitude are unnecessary. Preserve the old failure and unopened confirmation. Real-market applicability, sparse selected confidence, costs/tax/benchmark/trial/source dependencies remain open. Task3a/M1-M4 remain open and inference stays disabled.

@@ -51,4 +51,8 @@ The reviewed pure finite-window diagnostic is complete at4fe7a94:50 new tests,16
 
 ## 2026-10-02 calendar-score implementation
 
+### Later long-history evidence milestone
+
+Operator-authorized review-and-proceed unit completed at `bb423a7`: [reviewed lossless layout/replay](2026-10-02-calendar-long-history-build.md),56 new tests/253 relevant regressions, strict global checks, one final ordered approval and exact old-builder parity. All nine deterministic long geometries complete locally. One-byte payload reduces illustrative confirmation from14GiB to~7.002GiB, still above the frozen3GiB cap. In-memory runtime/RSS snapshots do not prove a supervised sampled runner or durable disk throughput. Next is a new reviewed pre-draw protocol/resource budget and durable bounded runner; no old-study rescue or real-data applicability claim. M1-M4 remain OPEN.
+
 D43-authorized [pure helper](2026-10-02-calendar-score-build.md) complete at0b9eba3:52 new tests,514 relevant regressions/synthetic golden,164-source strict static checks, one ordered independent approval,225 primary exact cases and reproduced257-state count oracle. Sparse maximum-width/joint-coverage fields are unavailable rather than misleading; only emitted-miss control is retained. Three intentional test defects caught and exact restoration followed by221 passing regressions. These close implementation of the conditional reference only; M1-M4 stay OPEN. Needed resources are authorized for a new reviewed experiment design, but full evidence/runtime/source-adapter feasibility remains unproved. No old-candidate rescue, new draw, held-confirmation read or market inference.
