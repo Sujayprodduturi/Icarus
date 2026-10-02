@@ -32,3 +32,7 @@ The conservative proposal's long-history path payload lower bound is14GiB before
 Next: a bounded design for retaining/verifying long-history evidence on this PC and measuring its actual runtime, or a sharper justified method if the conservative history burden is impractical. The operator has authorized required resources, so do not ask again merely because the new budget differs from v1. Record any resource amendment before its own draws and preserve all statistical/safety boundaries. Practical sparse/market applicability and M1-M4 remain open; inference stays disabled.
 
 The previous2108-pass/10-skip full Windows suite remains historical evidence; this build freshly ran the relevant514-test regression and global static checks. No fresh full-suite or datastore/OS proof is claimed.
+
+## Post-commit safeguard verification
+
+Source committed at `0b9eba3`. Three bounded intentional defects were then applied serially to the new helper only: round the radius inward, ignore pre-data history eligibility, and claim a sparse joint-coverage lower bound. Each selected test run failed with pytest exit1; the exact source bytes were restored in a `finally` block after every case and matched the approved source hash. `score-mutations.json` retains the results. The restored calendar/reference/runner/geometry/portfolio regression then passed221 tests in8.91s. These are deliberate test-strength checks, not newly discovered implementation defects. No test mutation or source change remains.
