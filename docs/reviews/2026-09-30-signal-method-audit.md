@@ -36,3 +36,5 @@ No frozen gate/manifest edit, official draw, accepted floor, real-data trial, lo
 ## 2026-10-02 authorized runner continuation
 
 D41 authorizes reviewed artificial-calendar implementation and artificial-data continuation after exact-source/resource/phase gates, stopping before real market data. [Current build evidence](2026-10-02-calendar-runner-build.md) retains failures, independent reviews and verification. Operational resource amendment is pre-draw and leaves statistical rules unchanged. M1-M4 remain OPEN; no accepted method/floor, official streams, real trial or product inference is enabled.
+
+The authorized development study is now independently VERIFIED COMPLETE FAILURE: all46 formal calendar cells under-cover, baseline426/512 and formalrange299/512..437/512. All six sparse cells emit0/512. Confirmation stays sealed/undrawn. This strengthens M1/M2 evidence; M1-M4 remain OPEN. Next is the reviewed deterministic finite-window/count-weight diagnosis, with no new screen or changed failed-method rules.
