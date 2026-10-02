@@ -410,6 +410,8 @@ Dated decisions that are not code and not in `goal.yaml`, so they have nowhere e
 
 | D43 | **Proceed with the reviewed next implementation and use the resources needed.** Approves the pure calendar-score/insufficiency helper after its reviewed design milestone and authorizes planning appropriate resource budgets for continued artificial research on this PC. Record a concrete new experiment budget before its draws and verify actual feasibility; do not retroactively edit the failed v1 protocol or treat resource permission as statistical/real-data/live authorization. D42's sparing review preference remains. | operator, direct instruction on2026-10-02: "Use whatever resources you need and go ahead" |
 
+| D44 | **Use the storage needed on this PC, and delete generated artificial test histories after their tests and independent result checks are complete. Real-market data may be retained.** Keep compact results, source/generator identities, hashes, trial/audit records and cleanup provenance; raw artificial payloads are temporary rather than a permanent archive. Future artificial runners must implement this lifecycle, including explicit cleanup after verification. Storage planning and finite operational disk guards are not a renewed operator-permission barrier. This does not authorize real-data evaluation, a reserved-stream rerun, changed statistical gates or live orders. | operator, direct instruction on2026-10-02 |
+
 ## 7c. Deferred by decision — not forgotten
 
 Things consciously postponed. **Each names the condition that reopens it.** A deferral without a
