@@ -1,5 +1,14 @@
 # Icarus handover — 2026-10-04
 
+**Verifier/full-workload checkpoint2026-10-04:** Unit1 independent saved-fixture verifier is built at source946d5fdefd663c7d47ba36fa6448f41662bff93bf7b5b0f02982bbd40f8cd4a5. [Build/results](reviews/2026-10-04-calendar-score-verifier-build.md), [ordered code/math review](reviews/2026-10-04-calendar-score-verifier-code-review.md).57 focused tests,396 related calendar/portfolio-synthetic-golden/audit regressions and strict170-source mypy/global Ruff/310-file format checks pass. Review caught and fixed post-write receipt integrity: inert durable candidate then exclusive success publication; failed writes cannot publish success.
+
+**Measured blocker:** Actual supervised cold verifier completed all10 full-size histories/28 metrics, but eligibility=false. Conservative1.2932477s/set exceeds0.6591796875s/set; twofold validation-verification projection23.5429h versus12h. Child-only cold work0.8196814s also exceeds the gate. Fixture creation0.5920309s is recorded separately; startup/final pre-result checks are included in conservative timing. No budget/statistical criterion changed. This is a one-set projection, not a sustained phase or Windows power-loss/peak-memory proof.
+
+**Saved verification/cleanup:** Primary and reviewer independently reproduced all10 histories/28 results and confirmed the failed timing. D44 raw-only identity/hash-bound cleanup is complete; [compact evidence](reviews/2026-10-04-calendar-score-verifier-benchmark.json) retains results/sources/receipts/cleanup. Raw replay is now unavailable.
+
+**Actual next task:** one reviewed exact-output verifier optimization proposal, then bounded implementation and fresh full-workload timing. Preserve this failed measurement. Unit1 deterministic implementation is complete; its runtime condition remains failed. Units2-3 (once-only claims/reviewer-held validation key/sampled integration) remain OPEN/UNBUILT. No experimental draw/key/reservation or method adoption; goal inference=false, Task3a/M1-M4/F48 OPEN. Real-market/official streams/lockbox/old confirmation remain held. Earlier notices below are dated history; this checkpoint controls restart.
+
+
 ## Start here in the next session
 
 **Lifecycle design checkpoint2026-10-04:** [Full design/first-unit plan](plans/2026-10-04-calendar-score-sampled-lifecycle.md) and [focused review](reviews/2026-10-04-calendar-score-sampled-lifecycle-review.md) define independent verification, once-only attempt reservation before any study key, reviewer-held validation key and reviewer-only approval channel, live phase authority and raw-only verified cleanup. Review's reservation-before-key issue corrected. No lifecycle code, key or experimental draw created this turn.

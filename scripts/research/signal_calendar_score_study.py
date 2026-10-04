@@ -743,6 +743,8 @@ def read_canonical_records(
 
 SOURCE_PATHS = (
     PROTOCOL_PATH,
+    "scripts/research/signal_calendar_score_verify.py",
+    "docs/plans/2026-10-04-calendar-score-sampled-lifecycle.md",
     "scripts/research/signal_calendar_score_study.py",
     "scripts/research/signal_calendar_evidence.py",
     "scripts/research/signal_calendar_laws.py",

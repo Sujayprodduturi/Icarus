@@ -82,6 +82,8 @@ class ReferenceResult:
     excess: Fraction
     rows: tuple[dict[str, object], ...]
     words: int
+
+
 @dataclass(frozen=True, slots=True)
 class VerificationReceipt:
     binding: dict[str, str]
@@ -90,10 +92,14 @@ class VerificationReceipt:
     words: int
     payload_bytes: int
     seconds: float
-def reference_path(profile_id: str, n: int, payload: bytes,
-                   identity: dict[str, object]) -> ReferenceResult: ...
-def verify_fixture(root: Path, *, expected_manifest: str,
-                   expected_paths: tuple[tuple[str, int, int], ...]) -> VerificationReceipt: ...
+
+
+def reference_path(
+    profile_id: str, n: int, payload: bytes, identity: dict[str, object]
+) -> ReferenceResult: ...
+def verify_fixture(
+    root: Path, *, expected_manifest: str, expected_paths: tuple[tuple[str, int, int], ...]
+) -> VerificationReceipt: ...
 ```
 The implementation replaces these declaration-only ellipses with tested logic. Path geometry, coefficient scale and score exponent come from the frozen spec; no caller can tune thresholds or accept absent evidence. Frozen dataclasses prevent field reassignment, not mutation of contained dictionaries. Validate and canonical-serialize/copy dictionaries at boundaries; live tokens retain immutable canonical digest fields, never caller-owned mutable references. Public serialized dictionaries carry no authority.
 ### Task1: exact independent path reconstruction
@@ -118,14 +124,16 @@ Fixture helpers are test-local: construct identities literally from the frozen p
 
 - [ ] Write RED tests for schema/phase/identity mismatch; missing/duplicate/reordered/trailing rows or bytes; bad size/offset/hash/count/endpoints; noncanonical JSON/rationals; source drift; successful child with failed close; partial writes and missing terminal. Assert stable refusal and absence of success receipt.
 ```python
-@pytest.mark.parametrize("damage", ["duplicate", "reorder", "truncate",
-                                  "trailing", "wrong_digest", "wrong_endpoint"])
+@pytest.mark.parametrize(
+    "damage", ["duplicate", "reorder", "truncate", "trailing", "wrong_digest", "wrong_endpoint"]
+)
 def test_corruption_never_receipts_success(tmp_path, damage):
     root = full_test_fixture(tmp_path)
     corrupt_fixture(root, damage)
     with pytest.raises(VerificationError):
-        verify_fixture(root, expected_manifest=fixture_manifest(root),
-                       expected_paths=fixture_path_order())
+        verify_fixture(
+            root, expected_manifest=fixture_manifest(root), expected_paths=fixture_path_order()
+        )
     assert not (root / "verified.json").exists()
 ```
 Corruption helpers operate only temporary test-domain fixtures. Complete index schema and fixed expected sequence come from contracts above; reduced geometry cannot be called production feasibility proof.
