@@ -78,3 +78,11 @@ Saved-file reviewer verification and targeted raw cleanup are recorded below whe
 ## Independent saved verification and D44 cleanup
 
 Reviewer independently rebuilt all10 complete histories,1388952 words and28 endpoints/results without importing production calculation modules; all source/canonical/hash/truth/rounding/projection checks pass. Both verification receipts bind raw SHA816a0ae0a31c0cf97bf3fd1aa309b063551951305b4dfaac78370db22759afc2. Primary checked exact file identity/hash immediately before deleting only231492-byte preflight-payload.bin, then durably recorded DELETED_VERIFIED_RAW at2026-10-04T07:04:45.380373+00:00. Compact index/manifest/results/claim/terminal/audit/verification/cleanup receipts remain locally; [compact committed provenance](2026-10-04-calendar-score-study-preflight.json) preserves results and receipts. Raw replay is now unavailable; the prior successful all-byte verification is a completed dated check. Probe-only cleanup had already removed33554432 verified bytes. No real data, old-study artifacts or held roots were deleted.
+
+## Commit and post-commit defect checks
+
+Protocol commit363ca74; implementation/feasibility checkpoint commitd10dd78f52e7f55209c87accb02f23023a2a8d49. Ordered simplicity/engineering review approved the exact source before commit; no push requested.
+
+After commit, primary saved an exact-byte source snapshot and ran two bounded deliberate defects: changing excess centering to adjusted-a and accepting a zero-byte write. Each intended test failed with exit1; the source was restored in finally and compared byte-for-byte with the snapshot. No actual remaining implementation defect is claimed. Restored source SHA6f8e6d0f929bcd45d56a4a1f6b0b3f1c87ca9f7be095ed23d05d25560d37ac79 and test SHA5c08618d2240668de92ce52b65bd6fe997074b057ea94975b1d62d70ca08658f match the independent approval. Final restored calendar/new-study/synthetic-golden regression:292 passed in8.27s, exit0; retained ignored logs post-commit-defect-checks.log and primary-restored-regression.log. No experimental words or source changes remain.
+
+This final follow-up changes verification/handover documentation only and is exempt from a new code-review pass under OPERATOR section1. It does not extend source approval to modified code or enable inference/sampling.
