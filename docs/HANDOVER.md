@@ -2,6 +2,8 @@
 
 ## Start here in the next session
 
+**Repository visibility update2026-10-04:** operator requested public visibility because the private GitHub Actions monthly allowance was exhausted. Authenticated `gh repo edit Sujayprodduturi/Icarus --visibility public --accept-visibility-change-consequences` completed successfully, and GitHub readback confirms PUBLIC at https://github.com/Sujayprodduturi/Icarus. No push or workflow rerun occurred in this follow-up; local protocol/build/verification commits remain recorded below. This settings/documentation change does not alter research gates.
+
 This section is the current restart point. The dated notices below are history; their older "next" instructions do not override this section. This session completed the reviewed protocol and deterministic preflight feasibility checkpoint. No sampled study or real-market evaluation occurred; current continuation below controls the next work.
 
 **Purpose:** build the signal simulator that takes every eligible strategy trade, then judge whether the results show a repeatable advantage. The simulator core is built and tested on artificial fixtures. The complete real-market signal-test runner is still unfinished. We are in Phase1/Task3a; no live-order path exists.

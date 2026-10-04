@@ -2,6 +2,8 @@
 
 ## Current restart — 2026-10-04
 
+**Repository visibility — operator request2026-10-04:** changed `Sujayprodduturi/Icarus` from PRIVATE to PUBLIC using authenticated admin access; GitHub readback confirms PUBLIC. Operator reported the private Actions monthly allowance exhausted. No billing-quota or workflow-success claim is made by this visibility check. Research gates and next task below are unchanged. This follow-up is documentation-only, exempt from a new source-review/test pass.
+
 **Latest completed unit:** the independently reviewed calendar-score study protocol and supervised deterministic preflight are built; [build/results](reviews/2026-10-04-calendar-score-study-build.md), [ordered source and saved-file review](reviews/2026-10-04-calendar-score-study-code-review.md).42 new tests;292 relevant calendar/synthetic-golden regressions; strict168-source mypy and Ruff/168-file format checks pass. All ten full geometries were generated/saved/replayed in the public zero-key test domain; both primary and reviewer independently verified all231492 bytes/28 results. D44 verified raw cleanup is complete; compact results, sources, receipts and hashes remain.
 
 - **Measured gate fails:** twofold projections are development7.87h versus6h, validation31.48h versus12h, validation replay31.84h versus12h. Resource eligibility=false; experimental draws=0. Storage and sampled RSS fit. Measurements are projections, not a sustained phase or hard peak-memory/power-loss proof.
