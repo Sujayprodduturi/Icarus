@@ -1,0 +1,1492 @@
+"""Frozen calendar-score v2 contracts and supervised deterministic preflight.
+
+This synthetic-only module cannot start development or validation sampling.  It
+measures the exact generator/evaluator/replay geometry and deterministic disk I/O;
+all experimental-stream construction refuses.  RSS limits are monitored cancellation
+limits, not hard address-space caps, and Windows power-loss equivalence is not claimed.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import importlib.metadata
+import json
+import math
+import os
+import secrets
+import stat
+import subprocess
+import sys
+import threading
+import time
+from collections.abc import Iterator, Mapping
+from dataclasses import asdict, dataclass, replace
+from fractions import Fraction
+from functools import lru_cache
+from pathlib import Path
+from typing import Any, Protocol
+
+import psutil  # type: ignore[import-untyped]
+from scripts.research import signal_calendar_evidence as evidence
+from scripts.research import signal_calendar_laws as laws
+from scripts.research import signal_calendar_score as score
+
+PROJECT = Path(__file__).resolve().parents[2]
+MODULE = "scripts.research.signal_calendar_score_study"
+PROTOCOL_PATH = "docs/plans/2026-10-04-calendar-score-study-protocol.md"
+PROTOCOL_SHA256 = "130569a78811e9ad4f9dcdb915410b3c350e137a78bc70974eb81ac4daf13b71"
+EXPERIMENT_NAMESPACE = "icarus/calendar-score-research/v2"
+PREFLIGHT_NAMESPACE = "icarus/calendar-score-research/test-preflight/v2"
+TEST_NAMESPACE = "icarus/calendar-score-research/test-fixture/v2"
+STREAM_IDENTIFIER = "sha256-counter-u64x4-big-endian/v2"
+EXPERIMENT_ROOT = PROJECT / "var/research/calendar_score_v2"
+PHASE_REPLICATES = {"development": 8192, "validation": 32768}
+PHASE_DEADLINES = {"development": 21600.0, "validation": 43200.0}
+VERIFY_DEADLINE = 43200.0
+PREFLIGHT_DEADLINE = 600.0
+PHASE_CAPS = {"development": 3 * 1024**3, "validation": 12 * 1024**3}
+PHASE_BOUNDED_ESTIMATES = {"development": 2584248320, "validation": 10286661632}
+FREE_RESERVE = 20 * 1024**3
+WORKER_RSS_CAP = 2 * 1024**3
+PARENT_RSS_CAP = 512 * 1024**2
+MAX_BUFFER = 16 * 1024**2
+MAX_RECORD = 256 * 1024
+PATH_METADATA_CAP = 8192
+PHASE_RECORDS_CAP = 16 * 1024**2
+SYNC_PATHS = 256
+SYNC_BYTES = 16 * 1024**2
+ETA = Fraction(1, 1760)
+
+
+class StudyError(RuntimeError):
+    """A fail-safe study gate or evidence contract was violated."""
+
+
+@dataclass(frozen=True, slots=True)
+class StudySpec:
+    profile_id: str
+    n: int
+    classes: int
+    formal: bool
+
+
+SPECS = (
+    StudySpec("P1", 2048, 2, True),
+    StudySpec("P2", 2048, 2, True),
+    StudySpec("P3", 16384, 9, True),
+    StudySpec("P4", 8192, 5, True),
+    StudySpec("P5", 32768, 2, True),
+    StudySpec("P6", 32768, 2, True),
+    StudySpec("P7", 131072, 40, True),
+    StudySpec("E+", 2048, 2, True),
+    StudySpec("E-", 2048, 2, True),
+    StudySpec("L1", 2048, 2, False),
+)
+
+
+def spec(profile_id: str) -> StudySpec:
+    for item in SPECS:
+        if item.profile_id == profile_id:
+            return item
+    raise StudyError("unknown_profile")
+
+
+def _metrics(item: StudySpec) -> tuple[score.Metric, ...]:
+    if item.profile_id in ("E+", "E-"):
+        return score.Metric.RAW, score.Metric.SYNTHETIC_EXCESS
+    return score.Metric.RAW, score.Metric.WIN, score.Metric.SYNTHETIC_EXCESS
+
+
+def phase_totals(phase: str) -> tuple[int, int]:
+    if phase not in PHASE_REPLICATES:
+        raise StudyError("invalid_phase")
+    replicates = PHASE_REPLICATES[phase]
+    return len(SPECS) * replicates, sum(len(_metrics(item)) for item in SPECS) * replicates
+
+
+def statement_count() -> int:
+    formal_metrics = sum(len(_metrics(item)) for item in SPECS if item.formal)
+    formal_families = sum(item.formal for item in SPECS)
+    effects = sum(len(_metrics(item)) for item in SPECS if item.profile_id in ("E+", "E-"))
+    return 3 * formal_metrics + formal_families + effects
+
+
+def _support(item: StudySpec, metric: score.Metric) -> tuple[Fraction, Fraction]:
+    profile = laws.profile(item.profile_id)
+    jumps = tuple(value for value, probability in profile.jump_atoms if probability > 0)
+    if metric is score.Metric.WIN:
+        return Fraction(0), Fraction(1)
+    if metric is score.Metric.RAW:
+        center = profile.delta - profile.a / 3
+        radius = (
+            abs(profile.a)
+            + abs(profile.gamma)
+            + max(profile.volatility_low, profile.volatility_high)
+        )
+    else:
+        center = profile.delta - profile.a / 3 - laws.BENCHMARK_CONSTANT
+        radius = (
+            abs(profile.a - laws.BENCHMARK_PREVIOUS)
+            + abs(profile.gamma - laws.BENCHMARK_FORWARD)
+            + max(profile.volatility_low, profile.volatility_high)
+        )
+    return center - radius + min(jumps), center + radius + max(jumps)
+
+
+def targets(item: StudySpec) -> tuple[score.Target, ...]:
+    return tuple(
+        score.Target(
+            metric,
+            *_support(item, metric),
+            Fraction(1, 5) if metric is score.Metric.WIN else Fraction(1, 50),
+        )
+        for metric in _metrics(item)
+    )
+
+
+def truths(item: StudySpec) -> dict[str, Fraction]:
+    exact = {truth.metric.value: truth.theta for truth in laws.analytical_truths(item.profile_id)}
+    expected = {metric.value for metric in _metrics(item)}
+    if set(exact) != expected:
+        raise StudyError("truth_manifest_mismatch")
+    return exact
+
+
+def _model(item: StudySpec) -> score.Model:
+    declared = score.Declaration.FIXTURE_DECLARED
+    return score.Model(
+        item.n,
+        item.classes,
+        item.formal,
+        score.Scope.SYNTHETIC,
+        declared,
+        declared,
+        declared,
+        declared,
+    )
+
+
+def adequacy(item: StudySpec) -> score.Adequacy:
+    return score.assess(_model(item), targets(item), tail_exponent=5)
+
+
+@lru_cache(maxsize=64)
+def exact_cutoff(n: int, p: Fraction, *, lower: bool, eta: Fraction = ETA) -> int:
+    if (
+        type(n) is not int
+        or not 0 < n <= 32768
+        or type(p) is not Fraction
+        or not 0 < p < 1
+        or p.denominator > 200
+        or type(lower) is not bool
+        or type(eta) is not Fraction
+        or not 0 < eta < 1
+        or max(eta.numerator.bit_length(), eta.denominator.bit_length()) > 32
+    ):
+        raise StudyError("invalid_binomial_contract")
+    a, d = p.numerator, p.denominator
+    c = d - a
+    denominator = d**n
+    total = 0
+    if lower:
+        term = a**n
+        for k in range(n, -1, -1):
+            total += term
+            if total * eta.denominator > denominator * eta.numerator:
+                return k + 1
+            if k:
+                term, remainder = divmod(term * k * c, (n - k + 1) * a)
+                if remainder:
+                    raise StudyError("binomial_recurrence")
+        return 0
+    term = c**n
+    for k in range(n + 1):
+        total += term
+        if total * eta.denominator > denominator * eta.numerator:
+            return k - 1
+        if k < n:
+            term, remainder = divmod(term * (n - k) * a, (k + 1) * c)
+            if remainder:
+                raise StudyError("binomial_recurrence")
+    return n
+
+
+def accepts_exact_binomial(
+    k: int, n: int, p: Fraction, *, lower: bool, eta: Fraction = ETA
+) -> bool:
+    if type(k) is not int or not 0 <= k <= n:
+        raise StudyError("invalid_binomial_count")
+    cutoff = exact_cutoff(n, p, lower=lower, eta=eta)
+    return k >= cutoff if lower else k <= cutoff
+
+
+class WordSource(Protocol):
+    words_consumed: int
+
+    def next_word(self) -> int: ...
+
+
+class CounterStream:
+    """Frozen counter-mode SHA-256 word stream; every lane is consumed once."""
+
+    def __init__(
+        self,
+        *,
+        namespace: str,
+        phase: str,
+        profile_id: str,
+        n: int,
+        replicate: int,
+        root: bytes,
+    ) -> None:
+        if (
+            type(namespace) is not str
+            or namespace not in (EXPERIMENT_NAMESPACE, PREFLIGHT_NAMESPACE, TEST_NAMESPACE)
+            or type(phase) is not str
+            or (namespace == EXPERIMENT_NAMESPACE and phase not in PHASE_REPLICATES)
+            or (namespace == PREFLIGHT_NAMESPACE and phase != "test_preflight")
+            or (namespace == TEST_NAMESPACE and phase != "test_fixture")
+            or type(profile_id) is not str
+            or type(n) is not int
+            or n <= 0
+            or type(replicate) is not int
+            or replicate < 0
+            or type(root) is not bytes
+            or len(root) != 32
+        ):
+            raise StudyError("invalid_stream_identity")
+        if namespace == EXPERIMENT_NAMESPACE:
+            raise StudyError("unclaimed_experimental_stream")
+        identity = [
+            namespace,
+            laws.GENERATOR_VERSION,
+            STREAM_IDENTIFIER,
+            phase,
+            f"{profile_id}:{n}",
+            replicate,
+            root.hex(),
+        ]
+        self.prefix = (
+            json.dumps(identity, separators=(",", ":"), ensure_ascii=True, allow_nan=False) + "\n"
+        ).encode("utf8")
+        self.words_consumed = 0
+        self._counter = 0
+        self._lanes: tuple[int, ...] = ()
+        self._lane = 0
+
+    def next_word(self) -> int:
+        if self._lane == len(self._lanes):
+            if self._counter >= 1 << 64:
+                raise StudyError("counter_overflow")
+            digest = hashlib.sha256(self.prefix + self._counter.to_bytes(8, "big")).digest()
+            self._lanes = tuple(
+                int.from_bytes(digest[start : start + 8], "big") for start in (0, 8, 16, 24)
+            )
+            self._counter += 1
+            self._lane = 0
+        value = self._lanes[self._lane]
+        self._lane += 1
+        self.words_consumed += 1
+        return value
+
+
+def uniform(source: WordSource, denominator: int) -> int:
+    if type(denominator) is not int or not 1 <= denominator <= 1 << 64:
+        raise StudyError("invalid_uniform_denominator")
+    limit = (1 << 64) // denominator * denominator
+    for _ in range(1024):
+        word = source.next_word()
+        if type(word) is not int or not 0 <= word < 1 << 64:
+            raise StudyError("invalid_stream_word")
+        if word < limit:
+            return word % denominator
+    raise StudyError("rejection_limit")
+
+
+def source_length(item: StudySpec) -> int:
+    profile = laws.profile(item.profile_id)
+    return item.n + max(profile.volatility_memory, 1) + profile.hold
+
+
+@lru_cache(maxsize=16)
+def _jump_partition(profile_id: str) -> tuple[int, tuple[int, ...]]:
+    profile = laws.profile(profile_id)
+    denominator = math.lcm(*(probability.denominator for _, probability in profile.jump_atoms))
+    edge = 0
+    edges = []
+    for _, probability in profile.jump_atoms:
+        edge += probability.numerator * (denominator // probability.denominator)
+        edges.append(edge)
+    if edge != denominator:
+        raise StudyError("jump_probability_partition")
+    return denominator, tuple(edges)
+
+
+def _jump_index(source: WordSource, profile: laws.LawProfile) -> int:
+    denominator, edges = _jump_partition(profile.identifier)
+    draw = uniform(source, denominator)
+    for index, edge in enumerate(edges):
+        if draw < edge:
+            return index
+    raise StudyError("jump_probability_partition")
+
+
+def generate_payload(item: StudySpec, source: WordSource, *, progress: Any | None = None) -> bytes:
+    profile = laws.profile(item.profile_id)
+    output = bytearray(source_length(item))
+    for index in range(len(output)):
+        s = uniform(source, 2) == 0
+        q = uniform(source, profile.p_volatility.denominator) < profile.p_volatility.numerator
+        g = uniform(source, profile.p_gate.denominator) < profile.p_gate.numerator
+        epsilon1 = uniform(source, 2) == 0
+        epsilon2 = uniform(source, 2) == 0
+        jump = _jump_index(source, profile)
+        output[index] = (
+            int(s)
+            | (int(q) << 1)
+            | (int(g) << 2)
+            | (int(epsilon1) << 3)
+            | (int(epsilon2) << 4)
+            | (jump << 5)
+        )
+        if progress is not None and index % 65536 == 0:
+            progress(index)
+    return bytes(output)
+
+
+@dataclass(frozen=True, slots=True)
+class ResultRow:
+    metric: str
+    truth: Fraction | None
+    total: Fraction
+    count: int
+    arithmetic: bool
+    precision: bool
+    reason: str
+    lower: Fraction | None
+    upper: Fraction | None
+    covered: bool
+    lower_miss: bool
+    upper_miss: bool
+    detected: bool
+
+
+@dataclass(frozen=True, slots=True)
+class PathResult:
+    profile_id: str
+    n: int
+    rows: tuple[ResultRow, ...]
+    count: int
+
+
+def evaluate_payload(item: StudySpec, payload: bytes) -> PathResult:
+    if type(payload) is not bytes or len(payload) != source_length(item):
+        raise StudyError("invalid_payload_length")
+    aggregate = evidence.replay(
+        evidence.Evidence(evidence.VERSION, item.profile_id, item.n, payload)
+    )
+    target_items = targets(item)
+    totals = {
+        score.Metric.RAW: aggregate.raw,
+        score.Metric.WIN: Fraction(aggregate.wins),
+        score.Metric.SYNTHETIC_EXCESS: aggregate.excess,
+    }
+    exact_truths = truths(item)
+    try:
+        report = score.calculate(
+            _model(item),
+            tuple(
+                score.Totals(target, totals[target.metric], aggregate.count)
+                for target in target_items
+            ),
+            tail_exponent=5,
+        )
+    except score.ScoreError as error:
+        if item.formal or str(error) != "zero_count":
+            raise StudyError(f"formal_score_refusal:{error}") from error
+        refusal_rows = tuple(
+            ResultRow(
+                target.metric.value,
+                exact_truths[target.metric.value],
+                totals[target.metric],
+                aggregate.count,
+                False,
+                False,
+                "zero_count|sparse_selection_unsupported",
+                None,
+                None,
+                False,
+                False,
+                False,
+                False,
+            )
+            for target in target_items
+        )
+        return PathResult(item.profile_id, item.n, refusal_rows, aggregate.count)
+    result_rows: list[ResultRow] = []
+    for target, interval in zip(target_items, report.intervals, strict=True):
+        truth = exact_truths[target.metric.value]
+        lo, hi = Fraction(interval.lower), Fraction(interval.upper)
+        precision = report.adequacy.decision_eligible
+        result_rows.append(
+            ResultRow(
+                target.metric.value,
+                truth,
+                totals[target.metric],
+                aggregate.count,
+                True,
+                precision,
+                report.adequacy.reason,
+                lo,
+                hi,
+                lo <= truth <= hi,
+                truth < lo,
+                truth > hi,
+                precision
+                and ((item.profile_id == "E+" and lo > 0) or (item.profile_id == "E-" and hi < 0)),
+            )
+        )
+    return PathResult(item.profile_id, item.n, tuple(result_rows), aggregate.count)
+
+
+def canonical_json(payload: object) -> bytes:
+    try:
+        return (
+            json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n"
+        ).encode("utf8")
+    except (TypeError, ValueError, OverflowError) as error:
+        raise StudyError("noncanonical_record") from error
+
+
+def _is_reparse(path: Path) -> bool:
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return False
+    attributes = getattr(info, "st_file_attributes", 0)
+    reparse = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    return path.is_symlink() or bool(attributes & reparse)
+
+
+def _guard_reparse_chain(path: Path) -> None:
+    cursor = Path(os.path.abspath(path))
+    while True:
+        if _is_reparse(cursor):
+            raise StudyError("reparse_path")
+        if cursor.parent == cursor:
+            return
+        cursor = cursor.parent
+
+
+def _guard_path(path: Path, root: Path, *, existing: bool = False) -> Path:
+    lexical_root = Path(os.path.abspath(root))
+    lexical_path = Path(os.path.abspath(path))
+    try:
+        inside = os.path.commonpath((lexical_root, lexical_path)) == str(lexical_root)
+    except ValueError as error:
+        raise StudyError("path_escape") from error
+    if not inside or lexical_path == lexical_root:
+        raise StudyError("path_escape")
+    if not lexical_root.exists():
+        raise StudyError("reparse_path")
+    _guard_reparse_chain(lexical_path if existing else lexical_path.parent)
+    resolved_root = lexical_root.resolve(strict=True)
+    candidate = lexical_path.resolve(strict=existing)
+    if candidate == resolved_root or resolved_root not in candidate.parents:
+        raise StudyError("path_escape")
+    return candidate
+
+
+def _open_exclusive(path: Path) -> Any:
+    _guard_reparse_chain(path)
+    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_BINARY", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(path, flags, 0o600)
+    try:
+        opened = os.fstat(descriptor)
+        lexical = path.lstat()
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or _is_reparse(path)
+            or (opened.st_dev, opened.st_ino) != (lexical.st_dev, lexical.st_ino)
+        ):
+            raise StudyError("nonregular_file")
+        return os.fdopen(descriptor, "wb", buffering=0)
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
+def _write_all(stream: Any, blob: bytes | memoryview) -> None:
+    if len(blob) > MAX_BUFFER:
+        raise StudyError("write_buffer_cap")
+    remaining = memoryview(blob)
+    while remaining:
+        written = stream.write(remaining)
+        if type(written) is not int or not 0 < written <= len(remaining):
+            raise StudyError("short_write")
+        remaining = remaining[written:]
+
+
+def _sync_directory(path: Path) -> str:
+    if os.name == "nt":
+        return "WINDOWS_DIRECTORY_SYNC_NOT_CLAIMED"
+    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    return "SYNCED"
+
+
+def _exclusive_record(path: Path, payload: object, *, root: Path) -> None:
+    _guard_path(path, root)
+    blob = canonical_json(payload)
+    if len(blob) > MAX_RECORD:
+        raise StudyError("record_cap")
+    stream = _open_exclusive(path)
+    failure: BaseException | None = None
+    try:
+        _write_all(stream, blob)
+        stream.flush()
+        os.fsync(stream.fileno())
+    except BaseException as error:
+        failure = error
+        raise
+    finally:
+        try:
+            stream.close()
+        except BaseException as error:
+            if failure is None:
+                raise StudyError("close_failure") from error
+    _sync_directory(path.parent)
+
+
+class CanonicalRecordWriter:
+    def __init__(
+        self,
+        path: Path,
+        *,
+        total_cap: int,
+        record_cap: int = MAX_RECORD,
+        sync_every: int = SYNC_PATHS,
+    ) -> None:
+        if min(total_cap, record_cap, sync_every) <= 0 or record_cap > MAX_RECORD:
+            raise StudyError("invalid_writer_bounds")
+        _guard_reparse_chain(path.parent)
+        if not path.parent.is_dir():
+            raise StudyError("writer_parent_missing")
+        self.path = path
+        self.root = path.parent
+        _guard_path(path, self.root)
+        self.stream = _open_exclusive(path)
+        self.total_cap = total_cap
+        self.record_cap = record_cap
+        self.sync_every = sync_every
+        self.total = 0
+        self.pending = 0
+        self.closed = False
+
+    def write(self, payload: object) -> None:
+        if self.closed:
+            raise StudyError("writer_closed")
+        blob = canonical_json(payload)
+        if len(blob) > self.record_cap:
+            raise StudyError("record_cap")
+        if self.total + len(blob) > self.total_cap:
+            raise StudyError("total_cap")
+        _write_all(self.stream, blob)
+        self.total += len(blob)
+        self.pending += 1
+        if self.pending >= self.sync_every:
+            self.sync()
+
+    def sync(self) -> None:
+        self.stream.flush()
+        os.fsync(self.stream.fileno())
+        self.pending = 0
+
+    def close(self) -> None:
+        if self.closed:
+            return
+        failure: BaseException | None = None
+        try:
+            self.sync()
+        except BaseException as error:
+            failure = error
+            raise
+        finally:
+            try:
+                self.stream.close()
+            except BaseException as error:
+                if failure is None:
+                    raise StudyError("close_failure") from error
+            self.closed = True
+        _sync_directory(self.path.parent)
+
+    def __enter__(self) -> CanonicalRecordWriter:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
+
+def read_canonical_records(
+    path: Path, *, total_cap: int, record_cap: int = MAX_RECORD
+) -> Iterator[dict[str, Any]]:
+    if min(total_cap, record_cap) <= 0 or path.stat().st_size > total_cap:
+        raise StudyError("bounded_read_cap")
+    total = 0
+    with path.open("rb") as stream:
+        while True:
+            line = stream.readline(record_cap + 1)
+            if not line:
+                break
+            total += len(line)
+            if len(line) > record_cap or total > total_cap or not line.endswith(b"\n"):
+                raise StudyError("trailing_or_noncanonical")
+            try:
+                value = json.loads(line)
+            except (UnicodeDecodeError, json.JSONDecodeError) as error:
+                raise StudyError("trailing_or_noncanonical") from error
+            if type(value) is not dict or canonical_json(value) != line:
+                raise StudyError("trailing_or_noncanonical")
+            yield value
+
+
+SOURCE_PATHS = (
+    PROTOCOL_PATH,
+    "scripts/research/signal_calendar_score_study.py",
+    "scripts/research/signal_calendar_evidence.py",
+    "scripts/research/signal_calendar_laws.py",
+    "scripts/research/signal_calendar_score.py",
+    "scripts/research/signal_calendar_uncertainty.py",
+    "scripts/research/signal_moment_uncertainty.py",
+    "scripts/research/signal_bounded_uncertainty.py",
+    "goal.yaml",
+    "uv.lock",
+)
+
+
+@dataclass(frozen=True, slots=True)
+class Manifest:
+    payload: dict[str, Any]
+    digest: str
+
+
+def manifest_for_paths(
+    paths: Mapping[str, Path], *, protocol_hash: str, scope: str = "synthetic_only"
+) -> Manifest:
+    if (
+        type(protocol_hash) is not str
+        or len(protocol_hash) != 64
+        or any(character not in "0123456789abcdef" for character in protocol_hash)
+        or not paths
+        or scope not in ("synthetic_only", "deterministic_test_fixture")
+    ):
+        raise StudyError("invalid_manifest_input")
+    hashes: dict[str, str] = {}
+    for label, path in sorted(paths.items()):
+        if type(label) is not str or not label or not isinstance(path, Path) or not path.is_file():
+            raise StudyError("invalid_manifest_source")
+        hashes[label] = hashlib.sha256(path.read_bytes()).hexdigest()
+    payload: dict[str, Any] = {
+        "schema": 2,
+        "scope": scope,
+        "protocol_sha256": protocol_hash,
+        "sources": hashes,
+        "python": sys.version,
+        "platform": sys.platform,
+        "libraries": {
+            name: importlib.metadata.version(name)
+            for name in ("psutil",)
+            if _has_distribution(name)
+        },
+        "generator": laws.GENERATOR_VERSION,
+        "evidence": evidence.VERSION,
+        "stream": STREAM_IDENTIFIER,
+    }
+    blob = canonical_json(payload)
+    return Manifest(payload, hashlib.sha256(blob).hexdigest())
+
+
+def _has_distribution(name: str) -> bool:
+    try:
+        importlib.metadata.version(name)
+    except importlib.metadata.PackageNotFoundError:
+        return False
+    return True
+
+
+def source_manifest() -> Manifest:
+    paths = {relative: PROJECT / relative for relative in SOURCE_PATHS}
+    if hashlib.sha256(paths[PROTOCOL_PATH].read_bytes()).hexdigest() != PROTOCOL_SHA256:
+        raise StudyError("protocol_drift")
+    manifest = manifest_for_paths(paths, protocol_hash=PROTOCOL_SHA256)
+    verify_manifest(manifest, paths, protocol_hash=PROTOCOL_SHA256)
+    return manifest
+
+
+def verify_manifest(manifest: Manifest, paths: Mapping[str, Path], *, protocol_hash: str) -> None:
+    if type(manifest) is not Manifest or manifest.payload.get("protocol_sha256") != protocol_hash:
+        raise StudyError("protocol_drift")
+    if hashlib.sha256(canonical_json(manifest.payload)).hexdigest() != manifest.digest:
+        raise StudyError("manifest_digest")
+    expected = manifest.payload.get("sources")
+    if type(expected) is not dict or set(expected) != set(paths):
+        raise StudyError("source_closure")
+    if PROTOCOL_PATH in paths:
+        actual_protocol = hashlib.sha256(paths[PROTOCOL_PATH].read_bytes()).hexdigest()
+        if actual_protocol != protocol_hash or expected[PROTOCOL_PATH] != protocol_hash:
+            raise StudyError("protocol_drift")
+    for label, path in paths.items():
+        if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != expected[label]:
+            raise StudyError("source_drift")
+
+
+@dataclass(frozen=True, slots=True)
+class SupervisionLimits:
+    deadline_seconds: float
+    rss_bytes: int
+    heartbeat_seconds: float
+    free_reserve_bytes: int
+
+
+def check_supervision(
+    limits: SupervisionLimits,
+    elapsed: float,
+    rss: int,
+    heartbeat_age: float,
+    free_bytes: int,
+) -> None:
+    values = (elapsed, heartbeat_age)
+    if any(
+        type(value) not in (int, float) or not math.isfinite(value) or value < 0 for value in values
+    ):
+        raise StudyError("invalid_supervision_sample")
+    if any(type(value) is not int or value < 0 for value in (rss, free_bytes)):
+        raise StudyError("invalid_supervision_sample")
+    if elapsed >= limits.deadline_seconds:
+        raise StudyError("timeout")
+    if rss > limits.rss_bytes:
+        raise StudyError("memory")
+    if heartbeat_age > limits.heartbeat_seconds:
+        raise StudyError("heartbeat")
+    if free_bytes < limits.free_reserve_bytes:
+        raise StudyError("disk_reserve")
+
+
+def resource_disclosure() -> dict[str, str]:
+    return {
+        "rss_enforcement": "MONITORED_CANCELLATION_LIMIT",
+        "sample_interval_seconds": "<=0.25",
+        "transient_peaks_between_samples": "UNPROVED",
+        "windows_power_loss_equivalence": "NOT_CLAIMED",
+    }
+
+
+@dataclass(frozen=True, slots=True)
+class PreflightPhase:
+    profile_id: str
+    n: int
+    replicates: int
+
+
+@dataclass(frozen=True, slots=True)
+class PreflightPlan:
+    namespace: str
+    phase: str
+    root: bytes
+    phases: tuple[PreflightPhase, ...]
+    disk_probe_bytes: int
+    safety_factor: int
+    evidence_root: Path | None = None
+
+
+def preflight_plan() -> PreflightPlan:
+    phases = tuple(PreflightPhase(item.profile_id, item.n, 1) for item in SPECS)
+    return PreflightPlan(
+        PREFLIGHT_NAMESPACE,
+        "test_preflight",
+        bytes(32),
+        phases,
+        32 * 1024 * 1024,
+        2,
+        PROJECT / "var/verification/2026-10-04/calendar-score-study-preflight",
+    )
+
+
+def test_preflight_plan(evidence_root: Path, specs: tuple[StudySpec, ...]) -> PreflightPlan:
+    if type(specs) is not tuple or not specs or any(item not in SPECS for item in specs):
+        raise StudyError("invalid_test_preflight")
+    phases = tuple(PreflightPhase(item.profile_id, item.n, 1) for item in specs)
+    return PreflightPlan(
+        PREFLIGHT_NAMESPACE,
+        "test_preflight",
+        bytes(32),
+        phases,
+        32 * 1024,
+        2,
+        evidence_root,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class PreflightReceipt:
+    source_manifest_digest: str
+    generated_paths: int
+    replayed_paths: int
+    disk_probe_bytes: int
+    generation_seconds: float
+    replay_seconds: float
+    disk_write_seconds: float
+    disk_read_seconds: float
+    peak_rss_bytes: int
+    free_disk_bytes: int
+    projected_development_seconds: float
+    projected_development_verify_seconds: float
+    projected_validation_seconds: float
+    projected_validation_verify_seconds: float
+    eligible: bool
+    digest: str
+
+
+def _probe_bytes(size: int) -> Iterator[bytes]:
+    remaining = size
+    counter = 0
+    while remaining:
+        block = hashlib.sha256(
+            b"calendar-score-v2-disk-probe" + counter.to_bytes(8, "big")
+        ).digest()
+        chunk = block[: min(remaining, len(block))]
+        yield chunk
+        remaining -= len(chunk)
+        counter += 1
+
+
+def _hash_file(path: Path, *, expected_size: int | None = None) -> str:
+    digest = hashlib.sha256()
+    size = 0
+    with path.open("rb") as stream:
+        while chunk := stream.read(1024 * 1024):
+            size += len(chunk)
+            digest.update(chunk)
+    if expected_size is not None and size != expected_size:
+        raise StudyError("file_size_drift")
+    return digest.hexdigest()
+
+
+def _pack_result(result: PathResult) -> list[dict[str, Any]]:
+    def pair(value: Fraction | None) -> list[int] | None:
+        return None if value is None else [value.numerator, value.denominator]
+
+    return [
+        {
+            "arithmetic": row.arithmetic,
+            "count": row.count,
+            "detected": row.detected,
+            "lower": pair(row.lower),
+            "metric": row.metric,
+            "precision": row.precision,
+            "reason": row.reason,
+            "total": pair(row.total),
+            "truth": pair(row.truth),
+            "upper": pair(row.upper),
+        }
+        for row in result.rows
+    ]
+
+
+def execute_preflight(plan: PreflightPlan, manifest: Manifest) -> PreflightReceipt:
+    if (
+        type(plan) is not PreflightPlan
+        or plan.namespace != PREFLIGHT_NAMESPACE
+        or plan.phase != "test_preflight"
+        or plan.root != bytes(32)
+        or plan.evidence_root is None
+        or not plan.phases
+        or plan.safety_factor != 2
+        or plan.disk_probe_bytes <= 0
+    ):
+        raise StudyError("invalid_preflight_plan")
+    production = manifest.payload.get("scope") == "synthetic_only"
+    expected = preflight_plan()
+    if production and replace(plan, evidence_root=expected.evidence_root) != expected:
+        raise StudyError("reduced_production_preflight")
+    if not production and manifest.payload.get("scope") != "deterministic_test_fixture":
+        raise StudyError("invalid_preflight_manifest")
+    if plan.evidence_root.exists():
+        if not plan.evidence_root.is_dir():
+            raise StudyError("preflight_destination")
+        _guard_path(plan.evidence_root / ".root-check", plan.evidence_root)
+    else:
+        if not plan.evidence_root.parent.is_dir():
+            raise StudyError("preflight_destination")
+        _guard_path(plan.evidence_root, plan.evidence_root.parent)
+        plan.evidence_root.mkdir()
+    started = time.monotonic()
+    generation_seconds = replay_seconds = 0.0
+    generated = replayed = 0
+    peak_rss = psutil.Process().memory_info().rss
+    payload_path = plan.evidence_root / "preflight-payload.bin"
+    index_path = plan.evidence_root / "preflight-index.jsonl"
+    payload_stream = _open_exclusive(payload_path)
+    offset = 0
+    try:
+        with CanonicalRecordWriter(
+            index_path,
+            total_cap=PATH_METADATA_CAP * len(plan.phases),
+            record_cap=PATH_METADATA_CAP,
+            sync_every=1,
+        ) as writer:
+            for phase in plan.phases:
+                item = spec(phase.profile_id)
+                if phase.n != item.n or phase.replicates != 1:
+                    raise StudyError("preflight_geometry_drift")
+                if time.monotonic() - started >= PREFLIGHT_DEADLINE:
+                    raise StudyError("preflight_timeout")
+                stream = CounterStream(
+                    namespace=PREFLIGHT_NAMESPACE,
+                    phase="test_preflight",
+                    profile_id=item.profile_id,
+                    n=item.n,
+                    replicate=0,
+                    root=bytes(32),
+                )
+                before = time.perf_counter()
+                payload = generate_payload(item, stream)
+                generated_result = evaluate_payload(item, payload)
+                record = {
+                    "offset": offset,
+                    "payload_sha256": hashlib.sha256(payload).hexdigest(),
+                    "profile_id": item.profile_id,
+                    "results": _pack_result(generated_result),
+                    "size": len(payload),
+                    "words": stream.words_consumed,
+                }
+                if len(canonical_json(record)) > PATH_METADATA_CAP:
+                    raise StudyError("path_metadata_cap")
+                _write_all(payload_stream, payload)
+                payload_stream.flush()
+                os.fsync(payload_stream.fileno())
+                writer.write(record)
+                generation_seconds += time.perf_counter() - before
+                generated += 1
+                offset += len(payload)
+                peak_rss = max(peak_rss, psutil.Process().memory_info().rss)
+    finally:
+        payload_stream.close()
+    rows = list(
+        read_canonical_records(
+            index_path,
+            total_cap=PATH_METADATA_CAP * len(plan.phases),
+            record_cap=PATH_METADATA_CAP,
+        )
+    )
+    with payload_path.open("rb") as payload_reader:
+        for phase, row in zip(plan.phases, rows, strict=True):
+            before = time.perf_counter()
+            item = spec(phase.profile_id)
+            size = source_length(item)
+            if (
+                row.get("profile_id") != item.profile_id
+                or row.get("offset") != payload_reader.tell()
+                or row.get("size") != size
+            ):
+                raise StudyError("preflight_ordered_identity")
+            payload = payload_reader.read(size)
+            stream = CounterStream(
+                namespace=PREFLIGHT_NAMESPACE,
+                phase="test_preflight",
+                profile_id=item.profile_id,
+                n=item.n,
+                replicate=0,
+                root=bytes(32),
+            )
+            expected_payload = generate_payload(item, stream)
+            replayed_result = evaluate_payload(item, payload)
+            if (
+                payload != expected_payload
+                or row.get("payload_sha256") != hashlib.sha256(payload).hexdigest()
+                or row.get("words") != stream.words_consumed
+                or row.get("results") != _pack_result(replayed_result)
+            ):
+                raise StudyError("preflight_replay")
+            replay_seconds += time.perf_counter() - before
+            replayed += 1
+        if payload_reader.read(1):
+            raise StudyError("preflight_trailing_payload")
+    if len(rows) != len(plan.phases):
+        raise StudyError("preflight_missing_index")
+    probe = plan.evidence_root / "preflight-disk-probe.bin"
+    probe_hasher = hashlib.sha256()
+    before = time.perf_counter()
+    probe_stream = _open_exclusive(probe)
+    try:
+        for chunk in _probe_bytes(plan.disk_probe_bytes):
+            _write_all(probe_stream, chunk)
+            probe_hasher.update(chunk)
+        probe_stream.flush()
+        os.fsync(probe_stream.fileno())
+    finally:
+        probe_stream.close()
+    write_seconds = time.perf_counter() - before
+    before = time.perf_counter()
+    read_hasher = hashlib.sha256()
+    with probe.open("rb") as reader:
+        while chunk := reader.read(1024 * 1024):
+            read_hasher.update(chunk)
+    read_seconds = time.perf_counter() - before
+    if read_hasher.digest() != probe_hasher.digest():
+        raise StudyError("disk_probe_digest")
+    payload_digest = _hash_file(payload_path, expected_size=offset)
+    index_digest = _hash_file(index_path)
+    cleanup_targets = (probe,)
+    _exclusive_record(
+        plan.evidence_root / "preflight-cleanup-intent.json",
+        {
+            "allowlist": [path.name for path in cleanup_targets],
+            "probe_sha256": probe_hasher.hexdigest(),
+            "state": "INTENT",
+        },
+        root=plan.evidence_root,
+    )
+    if (
+        _hash_file(payload_path, expected_size=offset) != payload_digest
+        or _hash_file(index_path) != index_digest
+        or _hash_file(probe, expected_size=plan.disk_probe_bytes) != probe_hasher.hexdigest()
+    ):
+        raise StudyError("preflight_cleanup_identity")
+    deleted: list[str] = []
+    try:
+        for target in cleanup_targets:
+            _guard_path(target, plan.evidence_root, existing=True).unlink()
+            deleted.append(target.name)
+    except BaseException as error:
+        _exclusive_record(
+            plan.evidence_root / "preflight-cleanup-failure.json",
+            {
+                "deleted": deleted,
+                "error_type": type(error).__name__,
+                "state": "PARTIAL_FAILURE",
+            },
+            root=plan.evidence_root,
+        )
+        raise StudyError("preflight_cleanup_failure") from error
+    _exclusive_record(
+        plan.evidence_root / "preflight-probe-cleanup.json",
+        {
+            "bytes": plan.disk_probe_bytes,
+            "deleted": [path.name for path in cleanup_targets],
+            "index_sha256": index_digest,
+            "payload_sha256": payload_digest,
+            "sha256": probe_hasher.hexdigest(),
+            "state": "DELETED",
+        },
+        root=plan.evidence_root,
+    )
+    development_seconds = plan.safety_factor * generation_seconds * PHASE_REPLICATES["development"]
+    validation_seconds = plan.safety_factor * generation_seconds * PHASE_REPLICATES["validation"]
+    development_verify_seconds = (
+        plan.safety_factor * replay_seconds * PHASE_REPLICATES["development"]
+    )
+    validation_verify_seconds = plan.safety_factor * replay_seconds * PHASE_REPLICATES["validation"]
+    free_disk_bytes = psutil.disk_usage(str(plan.evidence_root)).free
+    eligible = (
+        generated == replayed == sum(phase.replicates for phase in plan.phases)
+        and development_seconds <= PHASE_DEADLINES["development"]
+        and validation_seconds <= PHASE_DEADLINES["validation"]
+        and development_verify_seconds <= VERIFY_DEADLINE
+        and validation_verify_seconds <= VERIFY_DEADLINE
+        and peak_rss <= WORKER_RSS_CAP
+        and free_disk_bytes >= FREE_RESERVE + PHASE_BOUNDED_ESTIMATES["validation"]
+        and PHASE_BOUNDED_ESTIMATES["development"] <= PHASE_CAPS["development"]
+        and PHASE_BOUNDED_ESTIMATES["validation"] <= PHASE_CAPS["validation"]
+    )
+    fields: dict[str, Any] = {
+        "disk_probe_bytes": plan.disk_probe_bytes,
+        "disk_read_seconds": read_seconds,
+        "disk_write_seconds": write_seconds,
+        "eligible": eligible,
+        "generated_paths": generated,
+        "generation_seconds": generation_seconds,
+        "peak_rss_bytes": peak_rss,
+        "free_disk_bytes": free_disk_bytes,
+        "projected_development_seconds": development_seconds,
+        "projected_development_verify_seconds": development_verify_seconds,
+        "projected_validation_seconds": validation_seconds,
+        "projected_validation_verify_seconds": validation_verify_seconds,
+        "replay_seconds": replay_seconds,
+        "replayed_paths": replayed,
+        "source_manifest_digest": manifest.digest,
+    }
+    digest = hashlib.sha256(canonical_json(fields)).hexdigest()
+    receipt = PreflightReceipt(**fields, digest=digest)
+    _exclusive_record(
+        plan.evidence_root / "preflight-receipt.json",
+        {**fields, "digest": digest, "resource_disclosure": resource_disclosure()},
+        root=plan.evidence_root,
+    )
+    return receipt
+
+
+def _heartbeat(path: Path, stop: threading.Event, errors: list[BaseException]) -> None:
+    try:
+        while not stop.is_set():
+            temporary = path.with_suffix(".tmp")
+            _guard_path(temporary, path.parent)
+            if path.exists():
+                _guard_path(path, path.parent, existing=True)
+            stream = _open_exclusive(temporary)
+            failure: BaseException | None = None
+            try:
+                _write_all(
+                    stream,
+                    canonical_json({"monotonic": time.monotonic(), "pid": os.getpid()}),
+                )
+                stream.flush()
+                os.fsync(stream.fileno())
+            except BaseException as error:
+                failure = error
+                raise
+            finally:
+                try:
+                    stream.close()
+                except BaseException as error:
+                    if failure is None:
+                        raise StudyError("close_failure") from error
+            os.replace(temporary, path)
+            if stop.wait(0.5):
+                return
+    except BaseException as error:
+        errors.append(error)
+        stop.set()
+
+
+def _launch_python() -> tuple[str, dict[str, str] | None]:
+    base = str(getattr(sys, "_base_executable", sys.executable))
+    if sys.platform == "win32" and sys.executable != base:
+        environment = os.environ.copy()
+        environment["__PYVENV_LAUNCHER__"] = sys.executable
+        return base, environment
+    return sys.executable, None
+
+
+def _kill_tree(process: subprocess.Popen[bytes]) -> None:
+    try:
+        parent = psutil.Process(process.pid)
+        children = parent.children(recursive=True)
+    except psutil.NoSuchProcess:
+        children = []
+    for child in reversed(children):
+        try:
+            child.kill()
+        except psutil.NoSuchProcess:
+            pass
+    if process.poll() is None:
+        process.kill()
+    process.wait(timeout=10)
+
+
+def _supervision_sample(
+    root: Path, started: float, worker_rss: int, *, require_heartbeat: bool
+) -> None:
+    parent_rss = psutil.Process().memory_info().rss
+    if parent_rss > PARENT_RSS_CAP:
+        raise StudyError("parent_memory")
+    log = root / "preflight-worker.log"
+    if log.exists() and log.stat().st_size > MAX_BUFFER:
+        raise StudyError("worker_log_cap")
+    heartbeat = root / "heartbeat.json"
+    if require_heartbeat and not heartbeat.exists():
+        raise StudyError("heartbeat")
+    heartbeat_age = (
+        time.time() - heartbeat.stat().st_mtime
+        if heartbeat.exists()
+        else time.monotonic() - started
+    )
+    check_supervision(
+        SupervisionLimits(PREFLIGHT_DEADLINE, WORKER_RSS_CAP, 30.0, FREE_RESERVE),
+        time.monotonic() - started,
+        worker_rss,
+        heartbeat_age,
+        psutil.disk_usage(str(root)).free,
+    )
+
+
+def _supervise_preflight(process: subprocess.Popen[bytes], root: Path) -> int:
+    started = time.monotonic()
+    peak_worker_rss = 0
+    while process.poll() is None:
+        try:
+            worker = psutil.Process(process.pid)
+            worker_rss = worker.memory_info().rss + sum(
+                child.memory_info().rss for child in worker.children(recursive=True)
+            )
+        except psutil.NoSuchProcess:
+            if process.poll() is not None:
+                break
+            raise StudyError("worker_disappeared") from None
+        peak_worker_rss = max(peak_worker_rss, worker_rss)
+        _supervision_sample(root, started, worker_rss, require_heartbeat=False)
+        time.sleep(0.25)
+    _supervision_sample(root, started, 0, require_heartbeat=True)
+    if process.returncode != 0:
+        raise StudyError("preflight_worker_failed")
+    return peak_worker_rss
+
+
+def _internal_preflight_worker(root: Path, nonce: str) -> None:
+    claim_rows = list(read_canonical_records(root / "preflight-claim.json", total_cap=MAX_RECORD))
+    if len(claim_rows) != 1:
+        raise StudyError("preflight_claim")
+    claim = claim_rows[0]
+    manifest_record = claim.get("manifest")
+    if (
+        claim.get("nonce") != nonce
+        or type(manifest_record) is not dict
+        or type(manifest_record.get("payload")) is not dict
+        or type(manifest_record.get("digest")) is not str
+    ):
+        raise StudyError("preflight_claim")
+    manifest = Manifest(manifest_record["payload"], manifest_record["digest"])
+    if hashlib.sha256(canonical_json(manifest.payload)).hexdigest() != manifest.digest:
+        raise StudyError("manifest_digest")
+    plan_record = claim.get("plan")
+    if type(plan_record) is not dict or type(plan_record.get("phases")) is not list:
+        raise StudyError("preflight_claim")
+    try:
+        plan = PreflightPlan(
+            plan_record["namespace"],
+            plan_record["phase"],
+            bytes.fromhex(plan_record["root"]),
+            tuple(PreflightPhase(**item) for item in plan_record["phases"]),
+            plan_record["disk_probe_bytes"],
+            plan_record["safety_factor"],
+            root,
+        )
+    except (KeyError, TypeError, ValueError) as error:
+        raise StudyError("preflight_claim") from error
+    if manifest.payload.get("scope") == "synthetic_only" and manifest != source_manifest():
+        raise StudyError("source_drift")
+    stop = threading.Event()
+    heartbeat_errors: list[BaseException] = []
+    heartbeat = threading.Thread(
+        target=_heartbeat,
+        args=(root / "heartbeat.json", stop, heartbeat_errors),
+        daemon=True,
+    )
+    heartbeat.start()
+    try:
+        receipt = execute_preflight(plan, manifest)
+    finally:
+        stop.set()
+        heartbeat.join(timeout=5)
+        if heartbeat.is_alive():
+            raise StudyError("heartbeat_join")
+        if heartbeat_errors:
+            raise StudyError("heartbeat_io") from heartbeat_errors[0]
+    _exclusive_record(
+        root / "preflight-terminal.json",
+        {"digest": receipt.digest, "state": "COMPLETE"},
+        root=root,
+    )
+
+
+def _read_preflight_receipt(root: Path, manifest: Manifest) -> PreflightReceipt:
+    rows = list(read_canonical_records(root / "preflight-receipt.json", total_cap=MAX_RECORD))
+    if len(rows) != 1:
+        raise StudyError("preflight_receipt")
+    row = rows[0]
+    disclosure = row.pop("resource_disclosure", None)
+    digest = row.pop("digest", None)
+    if (
+        disclosure != resource_disclosure()
+        or digest != hashlib.sha256(canonical_json(row)).hexdigest()
+    ):
+        raise StudyError("preflight_receipt")
+    if row.get("source_manifest_digest") != manifest.digest:
+        raise StudyError("preflight_receipt")
+    return PreflightReceipt(**row, digest=digest)
+
+
+def _plan_record(plan: PreflightPlan) -> dict[str, Any]:
+    return {
+        "disk_probe_bytes": plan.disk_probe_bytes,
+        "namespace": plan.namespace,
+        "phase": plan.phase,
+        "phases": [asdict(phase) for phase in plan.phases],
+        "root": plan.root.hex(),
+        "safety_factor": plan.safety_factor,
+    }
+
+
+def _stable_failure_reason(error: BaseException) -> str | None:
+    if not isinstance(error, StudyError):
+        return None
+    reason = str(error)
+    if (
+        not reason
+        or len(reason) > 64
+        or any(character not in "abcdefghijklmnopqrstuvwxyz0123456789_" for character in reason)
+    ):
+        return "study_error"
+    return reason
+
+
+def run_supervised_preflight(
+    root: Path, *, plan: PreflightPlan | None = None, manifest: Manifest | None = None
+) -> PreflightReceipt:
+    production = plan is None and manifest is None
+    if (plan is None) != (manifest is None):
+        raise StudyError("preflight_configuration")
+    if production:
+        plan = replace(preflight_plan(), evidence_root=root)
+        manifest = source_manifest()
+        trusted_root = Path(os.path.abspath(PROJECT / "var/verification"))
+    else:
+        assert plan is not None and manifest is not None
+        if (
+            manifest.payload.get("scope") != "deterministic_test_fixture"
+            or plan.evidence_root != root
+        ):
+            raise StudyError("preflight_configuration")
+        trusted_root = Path(os.path.abspath(root.parent))
+    if root.exists():
+        raise StudyError("preflight_destination")
+    _guard_path(root, trusted_root)
+    root.mkdir()
+    process: subprocess.Popen[bytes] | None = None
+    stage = "startup"
+    try:
+        assert plan is not None and manifest is not None
+        if production:
+            current = source_manifest()
+            if current != manifest:
+                raise StudyError("source_drift")
+        required = FREE_RESERVE + PHASE_BOUNDED_ESTIMATES["validation"]
+        if psutil.disk_usage(str(root)).free < required:
+            raise StudyError("disk_reserve")
+        nonce = secrets.token_hex(32)
+        stage = "claim"
+        _exclusive_record(
+            root / "preflight-claim.json",
+            {
+                "manifest": {"digest": manifest.digest, "payload": manifest.payload},
+                "nonce": nonce,
+                "plan": _plan_record(plan),
+                "protocol_sha256": PROTOCOL_SHA256,
+                "state": "CLAIMED_DETERMINISTIC_PREFLIGHT",
+            },
+            root=root,
+        )
+        python, environment = _launch_python()
+        stage = "launch"
+        log = _open_exclusive(root / "preflight-worker.log")
+        log_failure: BaseException | None = None
+        supervisor_peak_rss = 0
+        try:
+            process = subprocess.Popen(
+                [
+                    python,
+                    "-m",
+                    MODULE,
+                    "--internal-worker",
+                    str(root),
+                    "--nonce",
+                    nonce,
+                ],
+                cwd=PROJECT,
+                env=environment,
+                stdout=log,
+                stderr=log,
+            )
+            stage = "supervision"
+            supervisor_peak_rss = _supervise_preflight(process, root)
+        except BaseException as error:
+            log_failure = error
+            raise
+        finally:
+            try:
+                log.close()
+            except BaseException as error:
+                if log_failure is None:
+                    raise StudyError("close_failure") from error
+        stage = "supervision_record"
+        _exclusive_record(
+            root / "preflight-supervision.json",
+            {
+                "peak_worker_rss_bytes": supervisor_peak_rss,
+                "state": "COMPLETE",
+                "transient_peaks_between_samples": "UNPROVED",
+            },
+            root=root,
+        )
+        stage = "source_recheck"
+        if production and source_manifest() != manifest:
+            raise StudyError("source_drift")
+        stage = "receipt"
+        receipt = _read_preflight_receipt(root, manifest)
+        terminal = list(
+            read_canonical_records(root / "preflight-terminal.json", total_cap=MAX_RECORD)
+        )
+        if terminal != [{"digest": receipt.digest, "state": "COMPLETE"}]:
+            raise StudyError("preflight_terminal")
+        return receipt
+    except BaseException as error:
+        if process is not None and process.poll() is None:
+            _kill_tree(process)
+        if not (root / "preflight-failure.json").exists():
+            failure_payload: dict[str, Any] = {
+                "error_type": type(error).__name__,
+                "stage": stage,
+                "state": "ERROR",
+            }
+            reason = _stable_failure_reason(error)
+            if reason is not None:
+                failure_payload["reason"] = reason
+            _exclusive_record(
+                root / "preflight-failure.json",
+                failure_payload,
+                root=root,
+            )
+        raise
+
+
+def parser() -> argparse.ArgumentParser:
+    result = argparse.ArgumentParser(description=__doc__)
+    result.add_argument("--preflight", action="store_true")
+    result.add_argument("--internal-worker", type=Path, help=argparse.SUPPRESS)
+    result.add_argument("--nonce", help=argparse.SUPPRESS)
+    result.add_argument(
+        "--evidence-root",
+        type=Path,
+        default=PROJECT / "var/verification/2026-10-04/calendar-score-study-preflight",
+    )
+    return result
+
+
+def dispatch(args: argparse.Namespace) -> None:
+    if args.internal_worker is not None:
+        if type(args.nonce) is not str or len(args.nonce) != 64:
+            raise StudyError("internal_mode_requires_live_parent_capability")
+        _internal_preflight_worker(args.internal_worker, args.nonce)
+        return
+    if args.nonce is not None:
+        raise StudyError("internal_mode_requires_live_parent_capability")
+    if not args.preflight:
+        raise StudyError("preflight_only")
+    receipt = run_supervised_preflight(args.evidence_root)
+    print(
+        canonical_json({**asdict(receipt), "resource_disclosure": resource_disclosure()}).decode(),
+        end="",
+    )
+
+
+def main() -> None:
+    dispatch(parser().parse_args())
+
+
+if __name__ == "__main__":
+    main()

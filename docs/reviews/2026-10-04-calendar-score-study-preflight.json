@@ -1,0 +1,1038 @@
+{
+  "experimental_draws": 0,
+  "note": "Raw removed after two independent checks under D44; original claim nonce retained locally only.",
+  "path_results": [
+    {
+      "offset": 0,
+      "payload_sha256": "2742b8c7ccb42a0fdf58f7280068fc8557d2cce479cb8aad6d2cc365c4a952a9",
+      "profile_id": "P1",
+      "results": [
+        {
+          "arithmetic": true,
+          "count": 3055,
+          "detected": false,
+          "lower": [
+            -577114946646877321762171356710164284538269142826353851179,
+            200000000000000000000000000000000000000000000000000000000000
+          ],
+          "metric": "raw",
+          "precision": true,
+          "reason": "",
+          "total": [
+            -18,
+            25
+          ],
+          "truth": [
+            0,
+            1
+          ],
+          "upper": [
+            75444259513410915404226344862395248018842687772837101849,
+            31250000000000000000000000000000000000000000000000000000000
+          ]
+        },
+        {
+          "arithmetic": true,
+          "count": 3055,
+          "detected": false,
+          "lower": [
+            90935225818203555278571327848822588190171599195284144530461,
+            500000000000000000000000000000000000000000000000000000000000
+          ],
+          "metric": "win",
+          "precision": true,
+          "reason": "",
+          "total": [
+            758,
+            1
+          ],
+          "truth": [
+            1,
+            4
+          ],
+          "upper": [
+            314365227577995508100795151176331910362700991462132201937441,
+            1000000000000000000000000000000000000000000000000000000000000
+          ]
+        },
+        {
+          "arithmetic": true,
+          "count": 3055,
+          "detected": false,
+          "lower": [
+            -350725771653434384156034926006517308626148100251031817699,
+            50000000000000000000000000000000000000000000000000000000000
+          ],
+          "metric": "synthetic_excess",
+          "precision": true,
+          "reason": "",
+          "total": [
+            -14953,
+            1000
+          ],
+          "truth": [
+            -1,
+            200
+          ],
+          "upper": [
+            -2774682602937858961723818664812370685087512626730591141929,
+            1000000000000000000000000000000000000000000000000000000000000
+          ]
+        }
+      ],
+      "size": 2050,
+      "words": 12300
+    },
+    {
+      "offset": 2050,
+      "payload_sha256": "1718a4bf0729b5c312b12f85f50365de205a29fce81525bbfb30ae1b54481e49",
+      "profile_id": "P2",
+      "results": [
+        {
+          "arithmetic": true,
+          "count": 3089,
+          "detected": false,
+          "lower": [
+            -353830135374336137958640915418850949697305225046147597339,
+            100000000000000000000000000000000000000000000000000000000000
+          ],
+          "metric": "raw",
+          "precision": true,
+          "reason": "",
+          "total": [
+            91,
+            75
+          ],
+          "truth": [
+            0,
+            1
+          ],
+          "upper": [
+            4323884606144354149630652167029774199681587914646217529449,
+            1000000000000000000000000000000000000000000000000000000000000
+          ]
+        },
+        {
+          "arithmetic": true,
+          "count": 3089,
+          "detected": false,
+          "lower": [
+            131807561488282917024285433243469246830847237866881363149977,
+            250000000000000000000000000000000000000000000000000000000000
+          ],
+          "metric": "win",
+          "precision": true,
+          "reason": "",
+          "total": [
+            1831,
+            1
+          ],
+          "truth": [
+            7,
+            12
+          ],
+          "upper": [
+            658266678617926926917426088327515048934299620885987010980539,
+            1000000000000000000000000000000000000000000000000000000000000
+          ]
+        },
+        {
+          "arithmetic": true,
+          "count": 3089,
+          "detected": false,
+          "lower": [
+            -263392272368901294005939577834769806139101450001132472909,
+            40000000000000000000000000000000000000000000000000000000000
+          ],
+          "metric": "synthetic_excess",
+          "precision": true,
+          "reason": "",
+          "total": [
+            -44021,
+            3000
+          ],
+          "truth": [
+            -1,
+            200
+          ],
+          "upper": [
+            -1457893347304132551590263747983689714186018753155694094033,
+            500000000000000000000000000000000000000000000000000000000000
+          ]
+        }
+      ],
+      "size": 2050,
+      "words": 12300
+    },
+    {
+      "offset": 4100,
+      "payload_sha256": "0cf6be9f8feefb6263b9473118fcfe87c93c359e953cf3647e4b805e4ee551f4",
+      "profile_id": "P3",
+      "results": [
+        {
+          "arithmetic": true,
+          "count": 24480,
+          "detected": false,
+          "lower": [
+            -6573029190382308807945629678409300246478639739383414680621,
+            1000000000000000000000000000000000000000000000000000000000000
+          ],
+          "metric": "raw",
+          "precision": true,
+          "reason": "",
+          "total": [
+            -1519,
+            100
+          ],
+          "truth": [
+            0,
+            1
+          ],
+          "upper": [
+            106640322369737679426886449777336331726958415702700973351,
+            20000000000000000000000000000000000000000000000000000000000
+          ]
+        },
+        {
+          "arithmetic": true,
+          "count": 24480,
+          "detected": false,
+          "lower": [
+            407462638010430651001324545708244938033157305004048886376091,
+            1000000000000000000000000000000000000000000000000000000000000
+          ],
+          "metric": "win",
+          "precision": true,
+          "reason": "",
+          "total": [
+            11189,
+            1
+          ],
+          "truth": [
+            121,
+            256
+          ],
+          "upper": [
+            253335674458836962081037073551106289153355988020851373805419,
+            500000000000000000000000000000000000000000000000000000000000
+          ]
+        },
+        {
+          "arithmetic": true,
+          "count": 24480,
+          "detected": false,
+          "lower": [
+            -9801927560964455653059910565909739570729215983173109763611,
+            1000000000000000000000000000000000000000000000000000000000000
+          ],
+          "metric": "synthetic_excess",
+          "precision": true,
+          "reason": "",
+          "total": [
+            -266183,
+            2000
+          ],
+          "truth": [
+            -1,
+            200
+          ],
+          "upper": [
+            -133945125140880951864243205405073403332050616482446246869,
+            125000000000000000000000000000000000000000000000000000000000
+          ]
+        }
+      ],
+      "size": 16393,
+      "words": 98358
+    },
+    {
+      "offset": 20493,
+      "payload_sha256": "61f6e5dc924bf75df764faeff924c2fda6c04a4a808799ba6aa9c8402914db06",
+      "profile_id": "P4",
+      "results": [
+        {
+          "arithmetic": true,
+          "count": 12298,
+          "detected": false,
+          "lower": [
+            -62105491407816989212338049547351872933268282105491407817,
+            10000000000000000000000000000000000000000000000000000000000
+          ],
+          "metric": "raw",
+          "precision": true,
+          "reason": "",
+          "total": [
+            317,
+            750
+          ],
+          "truth": [
+            0,
+            1
+          ],
+          "upper": [
+            6279286604868000216837426139751721147069984279286604868001,
+            1000000000000000000000000000000000000000000000000000000000000
+          ]
+        },
+        {
+          "arithmetic": true,
+          "count": 12298,
+          "detected": false,
+          "lower": [
+            35485444787770369165718002927305252886648235485444787770369,
+            100000000000000000000000000000000000000000000000000000000000
+          ],
+          "metric": "win",
+          "precision": true,
+          "reason": "",
+          "total": [
+            5004,
+            1
+          ],
+          "truth": [
+            9887,
+            24576
+          ],
+          "upper": [
+            458936412424784517807773621727110099203122458936412424784519,
+            1000000000000000000000000000000000000000000000000000000000000
+          ]
+        },
+        {
+          "arithmetic": true,
+          "count": 12298,
+          "detected": false,
+          "lower": [
+            -9592399848213801702173795197051011004499376592399848213803,
+            1000000000000000000000000000000000000000000000000000000000000
+          ],
+          "metric": "synthetic_excess",
+          "precision": true,
+          "reason": "",
+          "total": [
+            -92471,
+            1500
+          ],
+          "truth": [
+            -1,
+            200
+          ],
+          "upper": [
+            -13537092752209031278798720659185775464845232287092752209,
+            31250000000000000000000000000000000000000000000000000000000
+          ]
+        }
+      ],
+      "size": 8197,
+      "words": 49182
+    },
+    {
+      "offset": 28690,
+      "payload_sha256": "20786c1f80220695faeaf756bfc46ab8e103f7cd1cf92f48d9933cab0bef7f20",
+      "profile_id": "P5",
+      "results": [
+        {
+          "arithmetic": true,
+          "count": 49158,
+          "detected": false,
+          "lower": [
+            -3180375540005807727193636147485278270134671722916205378509,
+            500000000000000000000000000000000000000000000000000000000000
+          ],
+          "metric": "raw",
+          "precision": true,
+          "reason": "",
+          "total": [
+            76,
+            25
+          ],
+          "truth": [
+            0,
+            1
+          ],
+          "upper": [
+            6484433898677956639952185432201526067101191771638993612301,
+            1000000000000000000000000000000000000000000000000000000000000
+          ]
+        },
+        {
+          "arithmetic": true,
+          "count": 49158,
+          "detected": false,
+          "lower": [
+            269909851082193080383745100010427845471416594291191103099439,
+            500000000000000000000000000000000000000000000000000000000000
+          ],
+          "metric": "win",
+          "precision": true,
+          "reason": "",
+          "total": [
+            27346,
+            1
+          ],
+          "truth": [
+            1143,
+            2048
+          ],
+          "upper": [
+            572756073904615832804258040346937954038655073755385807145847,
+            1000000000000000000000000000000000000000000000000000000000000
+          ]
+        },
+        {
+          "arithmetic": true,
+          "count": 49158,
+          "detected": false,
+          "lower": [
+            -434275131615697651669339351121013701272085755652286481751,
+            40000000000000000000000000000000000000000000000000000000000
+          ],
+          "metric": "synthetic_excess",
+          "precision": true,
+          "reason": "",
+          "total": [
+            -121943,
+            500
+          ],
+          "truth": [
+            -1,
+            200
+          ],
+          "upper": [
+            467171396304890648714701529356053828251045500314063547621,
+            500000000000000000000000000000000000000000000000000000000000
+          ]
+        }
+      ],
+      "size": 32770,
+      "words": 196620
+    },
+    {
+      "offset": 61460,
+      "payload_sha256": "d6d42f05a6fe982dd2a24b06b6d30dca886470aeb1d045355061b271168c25df",
+      "profile_id": "P6",
+      "results": [
+        {
+          "arithmetic": true,
+          "count": 49224,
+          "detected": false,
+          "lower": [
+            -1621169559519802294138883123456863615342924107702694051649,
+            250000000000000000000000000000000000000000000000000000000000
+          ],
+          "metric": "raw",
+          "precision": true,
+          "reason": "",
+          "total": [
+            -87,
+            25
+          ],
+          "truth": [
+            0,
+            1
+          ],
+          "upper": [
+            6343283796343470512489223376323797708568185948119406143213,
+            1000000000000000000000000000000000000000000000000000000000000
+          ]
+        },
+        {
+          "arithmetic": true,
+          "count": 49224,
+          "detected": false,
+          "lower": [
+            566826282280938056456368504238282627485937629699592566478231,
+            1000000000000000000000000000000000000000000000000000000000000
+          ],
+          "metric": "win",
+          "precision": true,
+          "reason": "",
+          "total": [
+            28711,
+            1
+          ],
+          "truth": [
+            3577,
+            6144
+          ],
+          "upper": [
+            299859246312805797060292913491130098576225074309963183687587,
+            500000000000000000000000000000000000000000000000000000000000
+          ]
+        },
+        {
+          "arithmetic": true,
+          "count": 49224,
+          "detected": false,
+          "lower": [
+            -5511827797406870926977029452707721722923063844962594179139,
+            500000000000000000000000000000000000000000000000000000000000
+          ],
+          "metric": "synthetic_excess",
+          "precision": true,
+          "reason": "",
+          "total": [
+            -63203,
+            250
+          ],
+          "truth": [
+            -1,
+            200
+          ],
+          "upper": [
+            751755708579384629835742636928526494765354083554312362829,
+            1000000000000000000000000000000000000000000000000000000000000
+          ]
+        }
+      ],
+      "size": 32770,
+      "words": 196620
+    },
+    {
+      "offset": 94230,
+      "payload_sha256": "38548a272543175aa2f2c95762d153482d004e7072c4a0ecf3c7d4a86d01c51d",
+      "profile_id": "P7",
+      "results": [
+        {
+          "arithmetic": true,
+          "count": 196653,
+          "detected": false,
+          "lower": [
+            -66292897595411430132041531440235223933009392195765909711,
+            10000000000000000000000000000000000000000000000000000000000
+          ],
+          "metric": "raw",
+          "precision": true,
+          "reason": "",
+          "total": [
+            -661,
+            2000
+          ],
+          "truth": [
+            0,
+            1
+          ],
+          "upper": [
+            6625928509013563978050862830628862764411474019452514552231,
+            1000000000000000000000000000000000000000000000000000000000000
+          ]
+        },
+        {
+          "arithmetic": true,
+          "count": 196653,
+          "detected": false,
+          "lower": [
+            59631830280144310886520516933409575392775142000166553437613,
+            125000000000000000000000000000000000000000000000000000000000
+          ],
+          "metric": "win",
+          "precision": true,
+          "reason": "",
+          "total": [
+            101055,
+            1
+          ],
+          "truth": [
+            74146261351971311,
+            144115188075855872
+          ],
+          "upper": [
+            550694743733125081488025335326456520685047876218160791519401,
+            1000000000000000000000000000000000000000000000000000000000000
+          ]
+        },
+        {
+          "arithmetic": true,
+          "count": 196653,
+          "detected": false,
+          "lower": [
+            -5232164889485124824386019149611602202908052662012875908149,
+            500000000000000000000000000000000000000000000000000000000000
+          ],
+          "metric": "synthetic_excess",
+          "precision": true,
+          "reason": "",
+          "total": [
+            -7889659,
+            8000
+          ],
+          "truth": [
+            -1,
+            200
+          ],
+          "upper": [
+            434405241841398321815419279935423390525212228064846058441,
+            1000000000000000000000000000000000000000000000000000000000000
+          ]
+        }
+      ],
+      "size": 131112,
+      "words": 786672
+    },
+    {
+      "offset": 225342,
+      "payload_sha256": "6eb73cff244f0edfc51d3505a91b4756f610b588c152b88fc4c61968f575a873",
+      "profile_id": "E+",
+      "results": [
+        {
+          "arithmetic": true,
+          "count": 3093,
+          "detected": true,
+          "lower": [
+            18607269510179267525069969693865541634930155002154452784229,
+            500000000000000000000000000000000000000000000000000000000000
+          ],
+          "metric": "raw",
+          "precision": true,
+          "reason": "",
+          "total": [
+            616,
+            5
+          ],
+          "truth": [
+            1,
+            25
+          ],
+          "upper": [
+            8489843569998774722917372613886049754046043398426935342823,
+            200000000000000000000000000000000000000000000000000000000000
+          ]
+        },
+        {
+          "arithmetic": true,
+          "count": 3093,
+          "detected": true,
+          "lower": [
+            3260674275847887459685297963821590444324033335747234268949,
+            100000000000000000000000000000000000000000000000000000000000
+          ],
+          "metric": "synthetic_excess",
+          "precision": true,
+          "reason": "",
+          "total": [
+            107329,
+            1000
+          ],
+          "truth": [
+            7,
+            200
+          ],
+          "upper": [
+            7358897164437429089682103716715047368707251789546591921203,
+            200000000000000000000000000000000000000000000000000000000000
+          ]
+        }
+      ],
+      "size": 2050,
+      "words": 12300
+    },
+    {
+      "offset": 227392,
+      "payload_sha256": "721eb76e211b8c2b15530d5c995e7e6e2d98f0dc9c7f29ea2014183926422334",
+      "profile_id": "E-",
+      "results": [
+        {
+          "arithmetic": true,
+          "count": 3066,
+          "detected": true,
+          "lower": [
+            -42451216833017303029979506677673763681122655302241537859347,
+            1000000000000000000000000000000000000000000000000000000000000
+          ],
+          "metric": "raw",
+          "precision": true,
+          "reason": "",
+          "total": [
+            -6103,
+            50
+          ],
+          "truth": [
+            -1,
+            25
+          ],
+          "upper": [
+            -18585220024456775751807376471991559124865939146009041898767,
+            500000000000000000000000000000000000000000000000000000000000
+          ]
+        },
+        {
+          "arithmetic": true,
+          "count": 3066,
+          "detected": true,
+          "lower": [
+            -46820073270719126181322157201238815250181881580345089387283,
+            1000000000000000000000000000000000000000000000000000000000000
+          ],
+          "metric": "synthetic_excess",
+          "precision": true,
+          "reason": "",
+          "total": [
+            -68537,
+            500
+          ],
+          "truth": [
+            -9,
+            200
+          ],
+          "upper": [
+            -5324431480429515620028794276785787363133657496520790767229,
+            125000000000000000000000000000000000000000000000000000000000
+          ]
+        }
+      ],
+      "size": 2050,
+      "words": 12300
+    },
+    {
+      "offset": 229442,
+      "payload_sha256": "033dd7a4a2b417886c9a98a7dd36f4757db320646db86346d707f9500f6f264b",
+      "profile_id": "L1",
+      "results": [
+        {
+          "arithmetic": true,
+          "count": 72,
+          "detected": false,
+          "lower": [
+            -16337703076453578659549654459196721068726516298623378632129,
+            100000000000000000000000000000000000000000000000000000000000
+          ],
+          "metric": "raw",
+          "precision": false,
+          "reason": "sparse_selection_unsupported",
+          "total": [
+            19,
+            50
+          ],
+          "truth": [
+            0,
+            1
+          ],
+          "upper": [
+            34786517264018268430210420029504553248564143708357868375369,
+            200000000000000000000000000000000000000000000000000000000000
+          ]
+        },
+        {
+          "arithmetic": true,
+          "count": 72,
+          "detected": false,
+          "lower": [
+            -2088691253483003850665683150606860918861826790511303846095561,
+            1000000000000000000000000000000000000000000000000000000000000
+          ],
+          "metric": "win",
+          "precision": false,
+          "reason": "sparse_selection_unsupported",
+          "total": [
+            52,
+            1
+          ],
+          "truth": [
+            7,
+            12
+          ],
+          "upper": [
+            1766567848963724147555063797525652681653135617477874145270003,
+            500000000000000000000000000000000000000000000000000000000000
+          ]
+        },
+        {
+          "arithmetic": true,
+          "count": 72,
+          "detected": false,
+          "lower": [
+            -8131668843085744115197246155032543906146448346764984102401,
+            100000000000000000000000000000000000000000000000000000000000
+          ],
+          "metric": "synthetic_excess",
+          "precision": false,
+          "reason": "sparse_selection_unsupported",
+          "total": [
+            -47,
+            250
+          ],
+          "truth": [
+            -1,
+            200
+          ],
+          "upper": [
+            76094466208635218929750239328103216839242261245427618801787,
+            1000000000000000000000000000000000000000000000000000000000000
+          ]
+        }
+      ],
+      "size": 2050,
+      "words": 12300
+    }
+  ],
+  "plan": {
+    "disk_probe_bytes": 33554432,
+    "namespace": "icarus/calendar-score-research/test-preflight/v2",
+    "phase": "test_preflight",
+    "phases": [
+      {
+        "n": 2048,
+        "profile_id": "P1",
+        "replicates": 1
+      },
+      {
+        "n": 2048,
+        "profile_id": "P2",
+        "replicates": 1
+      },
+      {
+        "n": 16384,
+        "profile_id": "P3",
+        "replicates": 1
+      },
+      {
+        "n": 8192,
+        "profile_id": "P4",
+        "replicates": 1
+      },
+      {
+        "n": 32768,
+        "profile_id": "P5",
+        "replicates": 1
+      },
+      {
+        "n": 32768,
+        "profile_id": "P6",
+        "replicates": 1
+      },
+      {
+        "n": 131072,
+        "profile_id": "P7",
+        "replicates": 1
+      },
+      {
+        "n": 2048,
+        "profile_id": "E+",
+        "replicates": 1
+      },
+      {
+        "n": 2048,
+        "profile_id": "E-",
+        "replicates": 1
+      },
+      {
+        "n": 2048,
+        "profile_id": "L1",
+        "replicates": 1
+      }
+    ],
+    "root": "0000000000000000000000000000000000000000000000000000000000000000",
+    "safety_factor": 2
+  },
+  "raw_available": false,
+  "records": {
+    "preflight-probe-cleanup.json": {
+      "bytes": 33554432,
+      "deleted": [
+        "preflight-disk-probe.bin"
+      ],
+      "index_sha256": "9bb0367747edce09933993a3873ea01cdd04fbf653e327aabbbfc89aa95f9cba",
+      "payload_sha256": "816a0ae0a31c0cf97bf3fd1aa309b063551951305b4dfaac78370db22759afc2",
+      "sha256": "498acf165bdbc19e8d6854e3a9dc52a52a180e277bd27b13f0019f50914cdd05",
+      "state": "DELETED"
+    },
+    "preflight-raw-cleanup-intent.json": {
+      "bytes": 231492,
+      "identity": [
+        12408556858599311378,
+        5629499534300789,
+        231492,
+        1791097163100751600
+      ],
+      "path": "C:\\ICARUS\\var\\verification\\2026-10-04\\calendar-score-study-preflight-final\\preflight-payload.bin",
+      "retained": "index, source manifest, claim, terminal, results, resource and verification records",
+      "schema": 1,
+      "scope": "deterministic_preflight_only",
+      "sha256": "816a0ae0a31c0cf97bf3fd1aa309b063551951305b4dfaac78370db22759afc2",
+      "state": "CLEANUP_INTENT",
+      "ts": "2026-10-04T07:04:45.379371+00:00",
+      "verified_records": [
+        "primary-independent-verification.json",
+        "reviewer-independent-verification.json"
+      ],
+      "windows_power_loss_equivalence": "NOT_CLAIMED"
+    },
+    "preflight-raw-cleanup.json": {
+      "bytes": 231492,
+      "identity": [
+        12408556858599311378,
+        5629499534300789,
+        231492,
+        1791097163100751600
+      ],
+      "path": "C:\\ICARUS\\var\\verification\\2026-10-04\\calendar-score-study-preflight-final\\preflight-payload.bin",
+      "retained": "index, source manifest, claim, terminal, results, resource and verification records",
+      "schema": 1,
+      "scope": "deterministic_preflight_only",
+      "sha256": "816a0ae0a31c0cf97bf3fd1aa309b063551951305b4dfaac78370db22759afc2",
+      "state": "DELETED_VERIFIED_RAW",
+      "ts": "2026-10-04T07:04:45.380373+00:00",
+      "verified_records": [
+        "primary-independent-verification.json",
+        "reviewer-independent-verification.json"
+      ],
+      "windows_power_loss_equivalence": "NOT_CLAIMED"
+    },
+    "preflight-receipt.json": {
+      "digest": "f4a1eec793134e6078c378be7f37daa198094c45590807e03d43c3340257c5fc",
+      "disk_probe_bytes": 33554432,
+      "disk_read_seconds": 0.03042730000015581,
+      "disk_write_seconds": 4.12406600000395,
+      "eligible": false,
+      "free_disk_bytes": 337497473024,
+      "generated_paths": 10,
+      "generation_seconds": 1.7293323000048986,
+      "peak_rss_bytes": 28475392,
+      "projected_development_seconds": 28333.380403280258,
+      "projected_development_verify_seconds": 28653.397606492043,
+      "projected_validation_seconds": 113333.52161312103,
+      "projected_validation_verify_seconds": 114613.59042596817,
+      "replay_seconds": 1.7488646000056178,
+      "replayed_paths": 10,
+      "resource_disclosure": {
+        "rss_enforcement": "MONITORED_CANCELLATION_LIMIT",
+        "sample_interval_seconds": "<=0.25",
+        "transient_peaks_between_samples": "UNPROVED",
+        "windows_power_loss_equivalence": "NOT_CLAIMED"
+      },
+      "source_manifest_digest": "38c657c161b1fa6e69a54b31f62de4bc47bc489240b690567c4338f7cd01b027"
+    },
+    "preflight-supervision.json": {
+      "peak_worker_rss_bytes": 28680192,
+      "state": "COMPLETE",
+      "transient_peaks_between_samples": "UNPROVED"
+    },
+    "preflight-terminal.json": {
+      "digest": "f4a1eec793134e6078c378be7f37daa198094c45590807e03d43c3340257c5fc",
+      "state": "COMPLETE"
+    },
+    "primary-independent-verification.json": {
+      "facts": {
+        "aggregate_checks": [
+          {
+            "bytes": 2050,
+            "count": 3055,
+            "profile": "P1",
+            "words": 12300
+          },
+          {
+            "bytes": 2050,
+            "count": 3089,
+            "profile": "P2",
+            "words": 12300
+          },
+          {
+            "bytes": 16393,
+            "count": 24480,
+            "profile": "P3",
+            "words": 98358
+          },
+          {
+            "bytes": 8197,
+            "count": 12298,
+            "profile": "P4",
+            "words": 49182
+          },
+          {
+            "bytes": 32770,
+            "count": 49158,
+            "profile": "P5",
+            "words": 196620
+          },
+          {
+            "bytes": 32770,
+            "count": 49224,
+            "profile": "P6",
+            "words": 196620
+          },
+          {
+            "bytes": 131112,
+            "count": 196653,
+            "profile": "P7",
+            "words": 786672
+          },
+          {
+            "bytes": 2050,
+            "count": 3093,
+            "profile": "E+",
+            "words": 12300
+          },
+          {
+            "bytes": 2050,
+            "count": 3066,
+            "profile": "E-",
+            "words": 12300
+          },
+          {
+            "bytes": 2050,
+            "count": 72,
+            "profile": "L1",
+            "words": 12300
+          }
+        ],
+        "bytes": 231492,
+        "independently_rebuilt_paths": 10,
+        "metrics": 28,
+        "words": 1388952
+      },
+      "method": "independent literal SHA stream and unbiased atom mapping; naive integer-prefix trade totals; manifest/receipt/source/projection checks",
+      "metrics": 28,
+      "oracle_script_sha256": "922aadb2206b2e356c745a30316df8e72e79459e8f761968c6cd96467d9eae66",
+      "passed": true,
+      "paths": 10,
+      "payload_sha256": "816a0ae0a31c0cf97bf3fd1aa309b063551951305b4dfaac78370db22759afc2",
+      "schema": 1,
+      "source_sha256": "6f8e6d0f929bcd45d56a4a1f6b0b3f1c87ca9f7be095ed23d05d25560d37ac79",
+      "ts": "2026-10-04T07:02:19.128974+00:00"
+    },
+    "reviewer-independent-verification.json": {
+      "index_sha256": "9bb0367747edce09933993a3873ea01cdd04fbf653e327aabbbfc89aa95f9cba",
+      "metrics": 28,
+      "passed": true,
+      "paths": 10,
+      "payload_sha256": "816a0ae0a31c0cf97bf3fd1aa309b063551951305b4dfaac78370db22759afc2",
+      "receipt_digest": "f4a1eec793134e6078c378be7f37daa198094c45590807e03d43c3340257c5fc",
+      "review_record": "docs/reviews/2026-10-04-calendar-score-study-code-review.md",
+      "scope": "independent deterministic saved-file verification; feasibility remains false; no cleanup authorized by this receipt alone",
+      "source_manifest_digest": "38c657c161b1fa6e69a54b31f62de4bc47bc489240b690567c4338f7cd01b027",
+      "source_sha256": "6f8e6d0f929bcd45d56a4a1f6b0b3f1c87ca9f7be095ed23d05d25560d37ac79",
+      "timestamp": "2026-10-04T07:02:56.321313+00:00",
+      "words": 1388952
+    }
+  },
+  "schema": 1,
+  "scope": "deterministic_test_preflight_only",
+  "source_manifest": {
+    "digest": "38c657c161b1fa6e69a54b31f62de4bc47bc489240b690567c4338f7cd01b027",
+    "payload": {
+      "evidence": "finite-calendar-bytes/v1",
+      "generator": "finite-calendar-law/v1",
+      "libraries": {
+        "psutil": "6.1.1"
+      },
+      "platform": "win32",
+      "protocol_sha256": "130569a78811e9ad4f9dcdb915410b3c350e137a78bc70974eb81ac4daf13b71",
+      "python": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
+      "schema": 2,
+      "scope": "synthetic_only",
+      "sources": {
+        "docs/plans/2026-10-04-calendar-score-study-protocol.md": "130569a78811e9ad4f9dcdb915410b3c350e137a78bc70974eb81ac4daf13b71",
+        "goal.yaml": "c886aca6b198257486d0daefc484f818458e60fa32a5aa861b95d1413282fa0c",
+        "scripts/research/signal_bounded_uncertainty.py": "4995e3ed835d59ee79cff00fe76bc390f7699c1e8bffc04abe9265d68ebadd3a",
+        "scripts/research/signal_calendar_evidence.py": "b6cf2087c5d830a004b5696d6599c2d64d00c73394464b5030cd39d5d16f6052",
+        "scripts/research/signal_calendar_laws.py": "811070fa4247a10c5aad612829a6b3f20421f04793a77a3b44017e7ee18b6ba4",
+        "scripts/research/signal_calendar_score.py": "7b19acfe21715fe082b13879ea9d3348d769131ab596553baf0c20fd5c600fc7",
+        "scripts/research/signal_calendar_score_study.py": "6f8e6d0f929bcd45d56a4a1f6b0b3f1c87ca9f7be095ed23d05d25560d37ac79",
+        "scripts/research/signal_calendar_uncertainty.py": "ef28eeebb2c807bbbed2c707cd1e20a752d448b537646a7beea0426fe2828ec9",
+        "scripts/research/signal_moment_uncertainty.py": "852723b844920a005d17889bde1977a88763533d37c75da00769ae60b5057111",
+        "uv.lock": "f97c9a52f21a91a1ff1f7a087d53e2deda000873e9f67971c3d9f51f1e5875e5"
+      },
+      "stream": "sha256-counter-u64x4-big-endian/v2"
+    }
+  }
+}
