@@ -1,0 +1,23 @@
+# Exact-output calendar-score generation optimization
+
+Date:2026-10-04. Scope: approved Phase1 artificial research, deterministic optimization/preflight only. No sampled lifecycle, real data, held/official stream, broker or inference path. User approved proceeding with this next task. Protocol130569a78811e9ad4f9dcdb915410b3c350e137a78bc70974eb81ac4daf13b71 remains byte-for-byte frozen; no count/rate/resource amendment.
+
+## Problem and bounded change
+
+Previous supervised generation/output1.7293s and saved regeneration/replay1.7489s per ten-profile set exceed phase projections. cProfile is diagnostic overhead, not a new feasibility number:3.603/4.030s in generator,1,388,952 uniform/word calls. Frozen validation gate requires each measured set stage<=0.6591796875s with2x margin. No speed claim before actual measurement.
+
+Change only the stream buffering and atom-packing portion of signal_calendar_score_study.py. Keep exact evaluator/evidence/support/score/protocol untouched. NumPy is already pinned in uv.lock; record its installed version in the source manifest. No new dependency, parallel worker or compiled/JIT layer.
+
+1. Buffer bounded SHA digest blocks, big-endian u64 lanes, preserving the frozen prefix/counter/framing. Distinguish generating buffered words from consuming them. A peek generates/retains words but does not increment words_consumed; consume advances the cursor/count. next_word consumes exactly one. Never hash the same block again or rewind/redraw. Retain unused prefetched words across scalar/batch calls.
+2. Batch at most8192 source dates (49152 words,393216 data bytes plus at most3 spare lanes). Map six columns S,Q,G,epsilon1,epsilon2,J with exact integer modulus/comparison/bit packing. All paths/halos and source order preserved; no floating-point probabilities. Temporary arrays/buffers remain below16MiB by design and measured monitoring.
+3. Before bulk consumption, detect any word exceeding its unbiased denominator acceptance limit. If any rejection exists, use the unchanged scalar mapping against the retained buffered words, then additional next_word calls as needed. Counts and subsequent words must match even on1024-rejection failure; no unused prefetched word counts as consumed. Custom WordSource inputs always use the scalar route; no arbitrary source silently gains trusted-stream privileges.
+4. SHA counter overflow refuses safely; a large peek that cannot be fulfilled must not partially advance state, and generator scalar fallback may consume the remaining valid words before the existing overflow halt. Check bounded request lengths before allocation. Preserve progress-callback boundaries and failure propagation.
+5. Retain the scalar atom mapper as used production fallback/reference, not dormant sampled machinery. It remains the oracle for deterministic equivalence; independent verification still uses a separately authored generator and exact totals/endpoints.
+
+## Acceptance and sequencing
+
+Tests RED before implementation: known stream vectors plus mixed peek/consume/next_word and partial lanes; bounded counts/counter overflow/no consumption on rejected peek; every frozen profile byte/word/next-word equality versus scalar over multiple constructed test identities and batch boundaries; forced unbiased rejection crossing rows/batches;1024 rejections preserve halt reason and actual consumed count; progress callbacks/errors; invalid/custom source refusals; experimental namespace always closed. Pin full old zero-key payload hashes/word counts from committed compact evidence. Preserve all existing supervision/I/O/source/cleanup failure tests.
+
+One focused reviewer checks this proposal before source edits, then ordered simplicity and engineering/math/safety review before source commit. Primary independently verifies claims. Relevant calendar/synthetic portfolio-golden regression, configured-strict global mypy and Ruff/format must pass. Exact-source manifest includes NumPy version and renewed source hash.
+
+After final source review, run a fresh-root supervised deterministic preflight using all ten geometries and32MiB probe, identical budgets and2x margin. Retain all paths until primary and reviewer independently rebuild every byte/count/truth/endpoint/source/receipt; then identity/hash-bound D44 raw cleanup with compact provenance. Report actual eligibility, including failure. Do not start a sampled study even if preflight passes: full sampled lifecycle remains separately unbuilt/open. Update STATE/HANDOVER/TASKS/ranked audit and build record, commit on dev, post-commit deliberate defect probes with exact restoration. D26 authorizes pushing committed work; no experimental workflows or remote official proofs automatically authorized by that push.

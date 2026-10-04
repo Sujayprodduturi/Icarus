@@ -2,6 +2,8 @@
 
 ## Start here in the next session
 
+**Optimization continuation2026-10-04:** user approved proceeding. [Exact-output batching proposal](plans/2026-10-04-calendar-score-generation-optimization.md) is independently approved for deterministic implementation; [review](reviews/2026-10-04-calendar-score-generation-optimization-review.md). Builder is implementing bounded SHA prefetch/consumption and exact NumPy atom packing with scalar rejection fallback. Primary will independently verify before renewed source review, supervised feasibility and D44 cleanup. Baseline source/timing below remain dated history. Full sampled lifecycle remains OPEN; no experimental draw or real-market run.
+
 **Repository visibility update2026-10-04:** operator requested public visibility because the private GitHub Actions monthly allowance was exhausted. Authenticated `gh repo edit Sujayprodduturi/Icarus --visibility public --accept-visibility-change-consequences` completed successfully, and GitHub readback confirms PUBLIC at https://github.com/Sujayprodduturi/Icarus. No push or workflow rerun occurred in this follow-up; local protocol/build/verification commits remain recorded below. This settings/documentation change does not alter research gates.
 
 This section is the current restart point. The dated notices below are history; their older "next" instructions do not override this section. This session completed the reviewed protocol and deterministic preflight feasibility checkpoint. No sampled study or real-market evaluation occurred; current continuation below controls the next work.
