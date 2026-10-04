@@ -13,3 +13,7 @@ Fresh contract reads, source closure, canonical direct/transitive artifact bindi
 The three explicitly declared `verifier-budget-amended-final-1..3` roots must be fresh, supervised, cold and full geometry. All three must pass the effective gate using the worst time, while each retains its original12h comparison. Primary and reviewer must verify every saved byte/result and all contract/source/receipt bindings before raw-only guarded cleanup. Effective feasibility does not establish a sustained74-hour session or platform power-loss guarantee.
 
 No remaining plan blocker. Proceed with TDD and exact source/config/test freeze, then ordered simplicity and engineering/governance review before any effective-budget qualification run. Current code remains on12h until that reviewed integration is accepted.
+
+## Formatting-only hash ratification
+
+Current plan SHA-256 `791c0a23b43dce002d6ecbeeccf610a679f91ae63f22d6561f6a35fc226c4849` is approved. Independent byte check proves appending exactly one LF to the current bytes reproduces the previously approved `727401f...3857c` hash. Only a redundant EOF blank line was removed; semantics and bounded implementation authorization are unchanged. Source closure must bind this final791c hash.

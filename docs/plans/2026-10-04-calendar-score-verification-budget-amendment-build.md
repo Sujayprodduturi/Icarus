@@ -73,4 +73,3 @@ Primary and reviewer independently check ALL saved paths/results and actual runt
 Root records final evidence, meaningful post-commit defect tests with exact-byte restoration, normal dev push and durable STATE/HANDOVER/TASKS/audit status. Original12-hour failures remain visible. Task3a/M1-M4/F48 remain OPEN; inference=false. No real-market/lockbox/old confirmation/official stream/live-order permission or statistical/goal change.
 
 Review questions: none requiring a routine operator decision. Reviewer must resolve any concrete schema, source-closure or authority inconsistency before GO; root owns acceptance of the exact plan hash.
-
