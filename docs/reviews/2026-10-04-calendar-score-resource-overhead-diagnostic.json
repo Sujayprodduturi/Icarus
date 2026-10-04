@@ -1,0 +1,306 @@
+{
+  "experimental_draws": 0,
+  "provenance": {
+    "scope": "nonqualifying diagnostic before reviewed candidate",
+    "source_check_limitation": "Profile was not itself a frozen-source qualification; raw full workload and approval remain separate.",
+    "source_commit": "fc84af333fa0ba2c63c95818702a03ad8756671b",
+    "source_sha256": "abd6f6cb7ff92802eebd1efa696b3a38bcb0080ff2c7f11009f2e970f4255231"
+  },
+  "resource_binding": {
+    "effective_verifier_seconds": 50400,
+    "legacy_verifier_seconds": 43200,
+    "resource_contract_id": "calendar-score-verification-resources/v2",
+    "resource_contract_sha256": "8a2225727e08cb7eb848e46ab856eca5649d727c15a101f0ab1bb3d9a1d313bc"
+  },
+  "results": {
+    "loads": {
+      "iterations": 10,
+      "plain_per_call_seconds": 0.001939430000493303,
+      "plain_seconds": 0.01939430000493303,
+      "profiled_selected": [
+        {
+          "calls": 10,
+          "cumulative_seconds": 0.025159300000000002,
+          "file": "C:\\ICARUS\\scripts\\research\\signal_calendar_score_study.py",
+          "function": "load_operational_resources",
+          "line": 893,
+          "self_seconds": 6.16e-05
+        },
+        {
+          "calls": 10,
+          "cumulative_seconds": 0.0250977,
+          "file": "C:\\ICARUS\\scripts\\research\\signal_calendar_score_study.py",
+          "function": "_load_operational_resources",
+          "line": 781,
+          "self_seconds": 0.0004761
+        },
+        {
+          "calls": 30,
+          "cumulative_seconds": 0.019025200000000003,
+          "file": "C:\\ICARUS\\scripts\\research\\signal_calendar_score_study.py",
+          "function": "_guard_path",
+          "line": 568,
+          "self_seconds": 0.0002472
+        },
+        {
+          "calls": 60,
+          "cumulative_seconds": 0.0081987,
+          "file": "C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\pathlib.py",
+          "function": "resolve",
+          "line": 1228,
+          "self_seconds": 9.530000000000001e-05
+        },
+        {
+          "calls": 350,
+          "cumulative_seconds": 0.0043772,
+          "file": "C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\pathlib.py",
+          "function": "stat",
+          "line": 835,
+          "self_seconds": 0.0001084
+        },
+        {
+          "calls": 350,
+          "cumulative_seconds": 0.0042688000000000005,
+          "file": "~",
+          "function": "<built-in method nt.stat>",
+          "line": 0,
+          "self_seconds": 0.0037902
+        },
+        {
+          "calls": 50,
+          "cumulative_seconds": 0.0010185,
+          "file": "~",
+          "function": "<built-in method _hashlib.openssl_sha256>",
+          "line": 0,
+          "self_seconds": 0.0010185
+        },
+        {
+          "calls": 70,
+          "cumulative_seconds": 0.0008903,
+          "file": "C:\\ICARUS\\scripts\\research\\signal_calendar_score_study.py",
+          "function": "canonical_json",
+          "line": 539,
+          "self_seconds": 0.000111
+        },
+        {
+          "calls": 30,
+          "cumulative_seconds": 0.0007160000000000001,
+          "file": "~",
+          "function": "<method 'read' of '_io.BufferedReader' objects>",
+          "line": 0,
+          "self_seconds": 0.0007160000000000001
+        },
+        {
+          "calls": 10,
+          "cumulative_seconds": 0.00019020000000000002,
+          "file": "C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\json\\__init__.py",
+          "function": "loads",
+          "line": 299,
+          "self_seconds": 2.08e-05
+        },
+        {
+          "calls": 50,
+          "cumulative_seconds": 5.4300000000000005e-05,
+          "file": "~",
+          "function": "<method 'hexdigest' of '_hashlib.HASH' objects>",
+          "line": 0,
+          "self_seconds": 5.4300000000000005e-05
+        },
+        {
+          "calls": 10,
+          "cumulative_seconds": 5.500000000000001e-06,
+          "file": "~",
+          "function": "<built-in method fromisoformat>",
+          "line": 0,
+          "self_seconds": 5.500000000000001e-06
+        }
+      ],
+      "profiled_text": "         19651 function calls (19511 primitive calls) in 0.025 seconds\n\n   Ordered by: cumulative time\n   List reduced from 90 to 36 due to restriction <36>\n\n   ncalls  tottime  percall  cumtime  percall filename:lineno(function)\n       10    0.000    0.000    0.025    0.003 C:\\ICARUS\\scripts\\research\\signal_calendar_score_study.py:893(load_operational_resources)\n       10    0.000    0.000    0.025    0.003 C:\\ICARUS\\scripts\\research\\signal_calendar_score_study.py:781(_load_operational_resources)\n       30    0.000    0.000    0.019    0.001 C:\\ICARUS\\scripts\\research\\signal_calendar_score_study.py:568(_guard_path)\n       60    0.000    0.000    0.008    0.000 C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\pathlib.py:1228(resolve)\n       60    0.000    0.000    0.008    0.000 <frozen ntpath>:705(realpath)\n      120    0.007    0.000    0.007    0.000 {built-in method nt._getfinalpathname}\n       30    0.000    0.000    0.006    0.000 C:\\ICARUS\\scripts\\research\\signal_calendar_score_study.py:558(_guard_reparse_chain)\n      350    0.000    0.000    0.004    0.000 C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\pathlib.py:835(stat)\n      350    0.004    0.000    0.004    0.000 {built-in method nt.stat}\n      150    0.000    0.000    0.004    0.000 C:\\ICARUS\\scripts\\research\\signal_calendar_score_study.py:548(_is_reparse)\n      300    0.000    0.000    0.004    0.000 C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\pathlib.py:842(lstat)\n     1080    0.000    0.000    0.002    0.000 C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\pathlib.py:437(__str__)\n      590    0.000    0.000    0.002    0.000 C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\pathlib.py:447(__fspath__)\n      280    0.000    0.000    0.002    0.000 C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\pathlib.py:519(__eq__)\n      150    0.000    0.000    0.002    0.000 C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\pathlib.py:909(is_symlink)\n       30    0.000    0.000    0.002    0.000 C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\pathlib.py:1005(open)\n      400    0.000    0.000    0.002    0.000 C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\pathlib.py:380(with_segments)\n       30    0.002    0.000    0.002    0.000 {built-in method _io.open}\n      280    0.000    0.000    0.002    0.000 C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\pathlib.py:731(parent)\n      320    0.000    0.000    0.001    0.000 C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\pathlib.py:420(_from_parsed_parts)\n      560    0.001    0.000    0.001    0.000 C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\pathlib.py:484(_str_normcase)\n      480    0.000    0.000    0.001    0.000 C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\pathlib.py:551(drive)\n      170    0.000    0.000    0.001    0.000 C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\pathlib.py:407(_load_parts)\n      490    0.000    0.000    0.001    0.000 C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\pathlib.py:1157(__init__)\n       30    0.000    0.000    0.001    0.000 <frozen ntpath>:827(commonpath)\n       50    0.001    0.000    0.001    0.000 {built-in method _hashlib.openssl_sha256}\n      170    0.000    0.000    0.001    0.000 C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\pathlib.py:387(_parse_path)\n       70    0.000    0.000    0.001    0.000 C:\\ICARUS\\scripts\\research\\signal_calendar_score_study.py:539(canonical_json)\n      490    0.001    0.000    0.001    0.000 C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\pathlib.py:358(__init__)\n       30    0.000    0.000    0.001    0.000 <frozen _collections_abc>:1032(__contains__)\n       70    0.000    0.000    0.001    0.000 C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\json\\__init__.py:183(dumps)\n       90    0.000    0.000    0.001    0.000 <frozen ntpath>:581(abspath)\n       30    0.001    0.000    0.001    0.000 {method 'read' of '_io.BufferedReader' objects}\n      150    0.000    0.000    0.001    0.000 {built-in method nt._path_normpath}\n       70    0.000    0.000    0.001    0.000 C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\json\\encoder.py:183(encode)\n       30    0.000    0.000    0.001    0.000 C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\pathlib.py:852(exists)\n\n\n"
+    },
+    "manifests": {
+      "iterations": 3,
+      "plain_per_call_seconds": 0.014135533332591876,
+      "plain_seconds": 0.04240659999777563,
+      "profiled_selected": [
+        {
+          "calls": 3,
+          "cumulative_seconds": 0.0509408,
+          "file": "C:\\ICARUS\\scripts\\research\\signal_calendar_score_study.py",
+          "function": "source_manifest",
+          "line": 970,
+          "self_seconds": 3.99e-05
+        },
+        {
+          "calls": 3,
+          "cumulative_seconds": 0.0356992,
+          "file": "C:\\ICARUS\\scripts\\research\\signal_calendar_score_study.py",
+          "function": "manifest_for_paths",
+          "line": 931,
+          "self_seconds": 0.0002619
+        },
+        {
+          "calls": 6,
+          "cumulative_seconds": 0.014879000000000002,
+          "file": "C:\\ICARUS\\scripts\\research\\signal_calendar_score_study.py",
+          "function": "load_operational_resources",
+          "line": 893,
+          "self_seconds": 3.91e-05
+        },
+        {
+          "calls": 6,
+          "cumulative_seconds": 0.014839900000000001,
+          "file": "C:\\ICARUS\\scripts\\research\\signal_calendar_score_study.py",
+          "function": "_load_operational_resources",
+          "line": 781,
+          "self_seconds": 0.00028280000000000004
+        },
+        {
+          "calls": 3,
+          "cumulative_seconds": 0.014579000000000002,
+          "file": "C:\\ICARUS\\scripts\\research\\signal_calendar_score_study.py",
+          "function": "verify_manifest",
+          "line": 979,
+          "self_seconds": 0.0002223
+        },
+        {
+          "calls": 18,
+          "cumulative_seconds": 0.0113541,
+          "file": "C:\\ICARUS\\scripts\\research\\signal_calendar_score_study.py",
+          "function": "_guard_path",
+          "line": 568,
+          "self_seconds": 0.00016
+        },
+        {
+          "calls": 114,
+          "cumulative_seconds": 0.009419400000000001,
+          "file": "C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\pathlib.py",
+          "function": "read_bytes",
+          "line": 1015,
+          "self_seconds": 0.00021060000000000002
+        },
+        {
+          "calls": 360,
+          "cumulative_seconds": 0.0089073,
+          "file": "~",
+          "function": "<built-in method nt.stat>",
+          "line": 0,
+          "self_seconds": 0.0076135000000000005
+        },
+        {
+          "calls": 318,
+          "cumulative_seconds": 0.005713500000000001,
+          "file": "C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\pathlib.py",
+          "function": "stat",
+          "line": 835,
+          "self_seconds": 0.0001188
+        },
+        {
+          "calls": 36,
+          "cumulative_seconds": 0.004732200000000001,
+          "file": "C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\pathlib.py",
+          "function": "resolve",
+          "line": 1228,
+          "self_seconds": 6.0400000000000004e-05
+        },
+        {
+          "calls": 132,
+          "cumulative_seconds": 0.0035240000000000002,
+          "file": "~",
+          "function": "<method 'read' of '_io.BufferedReader' objects>",
+          "line": 0,
+          "self_seconds": 0.0035240000000000002
+        },
+        {
+          "calls": 150,
+          "cumulative_seconds": 0.0028561000000000003,
+          "file": "~",
+          "function": "<built-in method _hashlib.openssl_sha256>",
+          "line": 0,
+          "self_seconds": 0.0028561000000000003
+        },
+        {
+          "calls": 4905,
+          "cumulative_seconds": 0.0019708,
+          "file": "C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\email\\feedparser.py",
+          "function": "readline",
+          "line": 77,
+          "self_seconds": 0.0015134
+        },
+        {
+          "calls": 6,
+          "cumulative_seconds": 0.0011205,
+          "file": "C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\importlib\\metadata\\__init__.py",
+          "function": "read_text",
+          "line": 811,
+          "self_seconds": 4.22e-05
+        },
+        {
+          "calls": 6,
+          "cumulative_seconds": 0.0010306,
+          "file": "C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\pathlib.py",
+          "function": "read_text",
+          "line": 1022,
+          "self_seconds": 1.8e-05
+        },
+        {
+          "calls": 54,
+          "cumulative_seconds": 0.0006764000000000001,
+          "file": "C:\\ICARUS\\scripts\\research\\signal_calendar_score_study.py",
+          "function": "canonical_json",
+          "line": 539,
+          "self_seconds": 6.6e-05
+        },
+        {
+          "calls": 39,
+          "cumulative_seconds": 0.0005749,
+          "file": "~",
+          "function": "<method 'readlines' of '_io._IOBase' objects>",
+          "line": 0,
+          "self_seconds": 0.0005749
+        },
+        {
+          "calls": 6,
+          "cumulative_seconds": 0.00040340000000000005,
+          "file": "~",
+          "function": "<method 'read' of '_io.TextIOWrapper' objects>",
+          "line": 0,
+          "self_seconds": 0.000333
+        },
+        {
+          "calls": 150,
+          "cumulative_seconds": 0.00017940000000000002,
+          "file": "~",
+          "function": "<method 'hexdigest' of '_hashlib.HASH' objects>",
+          "line": 0,
+          "self_seconds": 0.00017940000000000002
+        },
+        {
+          "calls": 9,
+          "cumulative_seconds": 0.00017590000000000002,
+          "file": "C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\json\\__init__.py",
+          "function": "loads",
+          "line": 299,
+          "self_seconds": 2.08e-05
+        },
+        {
+          "calls": 39,
+          "cumulative_seconds": 0.00010460000000000001,
+          "file": "~",
+          "function": "<method 'read' of '_io.StringIO' objects>",
+          "line": 0,
+          "self_seconds": 0.00010460000000000001
+        },
+        {
+          "calls": 6,
+          "cumulative_seconds": 3.6000000000000003e-06,
+          "file": "~",
+          "function": "<built-in method fromisoformat>",
+          "line": 0,
+          "self_seconds": 3.6000000000000003e-06
+        }
+      ],
+      "profiled_text": "         53002 function calls (52894 primitive calls) in 0.051 seconds\n\n   Ordered by: cumulative time\n   List reduced from 232 to 36 due to restriction <36>\n\n   ncalls  tottime  percall  cumtime  percall filename:lineno(function)\n        3    0.000    0.000    0.051    0.017 C:\\ICARUS\\scripts\\research\\signal_calendar_score_verify.py:639(current_manifest)\n        3    0.000    0.000    0.051    0.017 C:\\ICARUS\\scripts\\research\\signal_calendar_score_study.py:970(source_manifest)\n        3    0.000    0.000    0.036    0.012 C:\\ICARUS\\scripts\\research\\signal_calendar_score_study.py:931(manifest_for_paths)\n        6    0.000    0.000    0.020    0.003 C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\importlib\\metadata\\__init__.py:882(version)\n        6    0.000    0.000    0.015    0.002 C:\\ICARUS\\scripts\\research\\signal_calendar_score_study.py:893(load_operational_resources)\n        6    0.000    0.000    0.015    0.002 C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\importlib\\metadata\\__init__.py:464(version)\n        6    0.000    0.000    0.015    0.002 C:\\ICARUS\\scripts\\research\\signal_calendar_score_study.py:781(_load_operational_resources)\n        6    0.000    0.000    0.015    0.002 C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\importlib\\metadata\\__init__.py:436(metadata)\n        3    0.000    0.000    0.015    0.005 C:\\ICARUS\\scripts\\research\\signal_calendar_score_study.py:979(verify_manifest)\n       18    0.000    0.000    0.011    0.001 C:\\ICARUS\\scripts\\research\\signal_calendar_score_study.py:568(_guard_path)\n        6    0.000    0.000    0.010    0.002 C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\email\\__init__.py:31(message_from_string)\n        6    0.000    0.000    0.010    0.002 C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\email\\parser.py:56(parsestr)\n      114    0.000    0.000    0.009    0.000 C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\pathlib.py:1015(read_bytes)\n        6    0.000    0.000    0.009    0.002 C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\email\\parser.py:41(parse)\n       33    0.000    0.000    0.009    0.000 C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\email\\feedparser.py:171(feed)\n      360    0.008    0.000    0.009    0.000 {built-in method nt.stat}\n       39    0.000    0.000    0.008    0.000 C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\email\\feedparser.py:176(_call_parse)\n       39    0.002    0.000    0.008    0.000 C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\email\\feedparser.py:216(_parsegen)\n      144    0.006    0.000    0.006    0.000 {built-in method _io.open}\n      138    0.000    0.000    0.006    0.000 C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\pathlib.py:1005(open)\n      318    0.000    0.000    0.006    0.000 C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\pathlib.py:835(stat)\n        6    0.000    0.000    0.005    0.001 C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\importlib\\metadata\\__init__.py:856(distribution)\n        6    0.000    0.000    0.005    0.001 C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\importlib\\metadata\\__init__.py:383(from_name)\n        6    0.000    0.000    0.005    0.001 {built-in method builtins.next}\n       48    0.000    0.000    0.005    0.000 C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\importlib\\metadata\\__init__.py:794(<genexpr>)\n       42    0.000    0.000    0.005    0.000 C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\importlib\\metadata\\__init__.py:692(search)\n       36    0.000    0.000    0.005    0.000 C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\pathlib.py:1228(resolve)\n       36    0.000    0.000    0.004    0.000 <frozen ntpath>:705(realpath)\n        6    0.000    0.000    0.004    0.001 C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\importlib\\metadata\\_adapters.py:46(__init__)\n        6    0.000    0.000    0.004    0.001 C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\importlib\\metadata\\_adapters.py:63(_repair_headers)\n       18    0.000    0.000    0.004    0.000 C:\\ICARUS\\scripts\\research\\signal_calendar_score_study.py:558(_guard_reparse_chain)\n       72    0.004    0.000    0.004    0.000 {built-in method nt._getfinalpathname}\n      363    0.000    0.000    0.004    0.000 C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\importlib\\metadata\\_adapters.py:64(redent)\n        3    0.000    0.000    0.004    0.001 C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\textwrap.py:419(dedent)\n      132    0.004    0.000    0.004    0.000 {method 'read' of '_io.BufferedReader' objects}\n       42    0.000    0.000    0.003    0.000 C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\importlib\\metadata\\__init__.py:695(mtime)\n\n\n"
+    }
+  },
+  "scope": "FRESH_RESOURCE_READ_DIAGNOSTIC_NOT_ELIGIBILITY"
+}
