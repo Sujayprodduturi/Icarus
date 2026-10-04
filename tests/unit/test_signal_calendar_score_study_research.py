@@ -581,3 +581,236 @@ def test_manifest_json_is_canonical_and_digest_bound(tmp_path: Path) -> None:
         + b"\n"
     )
     assert manifest.digest == hashlib.sha256(payload).hexdigest()
+
+
+class _IndependentStream:
+    """Original scalar SHA framing, without production buffering."""
+
+    def __init__(self, prefix: bytes, *, counter: int = 0, lanes: tuple[int, ...] = ()) -> None:
+        self.prefix = prefix
+        self.counter = counter
+        self.lanes = list(lanes)
+        self.words_consumed = 0
+
+    def next_word(self) -> int:
+        if not self.lanes:
+            if self.counter >= 1 << 64:
+                raise study.StudyError("counter_overflow")
+            block = hashlib.sha256(self.prefix + self.counter.to_bytes(8, "big")).digest()
+            self.lanes = [int.from_bytes(block[i : i + 8], "big") for i in range(0, 32, 8)]
+            self.counter += 1
+        self.words_consumed += 1
+        return self.lanes.pop(0)
+
+
+def _stream(
+    item: study.StudySpec, root: bytes = bytes(32), replicate: int = 0, *, preflight: bool = False
+) -> study.CounterStream:
+    return study.CounterStream(
+        namespace=study.PREFLIGHT_NAMESPACE if preflight else study.TEST_NAMESPACE,
+        phase="test_preflight" if preflight else "test_fixture",
+        profile_id=item.profile_id,
+        n=item.n,
+        root=root,
+        replicate=replicate,
+    )
+
+
+def test_buffer_peek_ownership_partial_lanes_and_bounded_refusal() -> None:
+    stream = _stream(study.spec("P1"))
+    oracle = _IndependentStream(stream.prefix)
+    expected = [oracle.next_word() for _ in range(17)]
+    first = stream.peek_words(7)
+    assert type(first) is bytes
+    assert stream.words_consumed == 0
+    assert first == b"".join(word.to_bytes(8, "big") for word in expected[:7])
+    stream.consume_words(3)
+    assert stream.next_word() == expected[3]
+    assert stream.peek_words(13) == b"".join(word.to_bytes(8, "big") for word in expected[4:17])
+    assert first == b"".join(word.to_bytes(8, "big") for word in expected[:7])
+    assert stream.words_consumed == 4
+    for invalid in (0, -1, 49153, True):
+        with pytest.raises(study.StudyError, match="word_buffer_count"):
+            stream.peek_words(invalid)
+    with pytest.raises(study.StudyError, match="word_buffer_count"):
+        stream.consume_words(18)
+    assert stream.next_word() == expected[4]
+
+
+def test_buffer_overflow_refuses_atomically_then_consumes_valid_suffix() -> None:
+    stream = _stream(study.spec("P1"))
+    stream._counter = (1 << 64) - 1
+    first = stream.next_word()
+    counter = stream._counter
+    with pytest.raises(study.StudyError, match="counter_overflow"):
+        stream.peek_words(4)
+    assert stream._counter == counter and stream.words_consumed == 1
+    oracle = _IndependentStream(stream.prefix, counter=(1 << 64) - 1)
+    assert first == oracle.next_word()
+    assert [stream.next_word() for _ in range(3)] == [oracle.next_word() for _ in range(3)]
+    with pytest.raises(study.StudyError, match="counter_overflow"):
+        stream.next_word()
+    assert stream.words_consumed == 4
+
+
+@pytest.mark.parametrize("item", study.SPECS, ids=lambda item: item.profile_id)
+def test_optimized_full_frozen_payload_matches_old_scalar_and_committed_hash(
+    item: study.StudySpec,
+) -> None:
+    stream = _stream(item, preflight=True)
+    oracle = _IndependentStream(stream.prefix)
+    actual = study.generate_payload(item, stream)
+    expected = study.generate_payload(item, oracle)
+    baseline = json.loads(
+        (study.PROJECT / "docs/reviews/2026-10-04-calendar-score-study-preflight.json").read_bytes()
+    )
+    row = next(row for row in baseline["path_results"] if row["profile_id"] == item.profile_id)
+    assert hashlib.sha256(actual).hexdigest() == row["payload_sha256"]
+    assert actual == expected
+    assert stream.words_consumed == oracle.words_consumed == 6 * len(actual)
+    assert stream.next_word() == oracle.next_word()
+
+
+@pytest.mark.parametrize("root,replicate", [(bytes(range(32)), 7), (b"x" * 32, 19)])
+@pytest.mark.parametrize("profile_id", ["P4", "P7", "L1"])
+def test_test_domain_batch_boundaries_match_independent_scalar(
+    root: bytes, replicate: int, profile_id: str
+) -> None:
+    item = study.spec(profile_id)
+    stream = _stream(item, root, replicate)
+    oracle = _IndependentStream(stream.prefix)
+    assert study.generate_payload(item, stream) == study.generate_payload(item, oracle)
+    assert stream.words_consumed == oracle.words_consumed
+    assert stream.next_word() == oracle.next_word()
+
+
+@pytest.mark.parametrize("fail_at", [None, 0, 65536])
+def test_callback_consumption_and_exception_boundary_match_scalar(fail_at: int | None) -> None:
+    item = study.spec("P7")
+    stream = _stream(item)
+    oracle = _IndependentStream(stream.prefix)
+    observations: list[list[tuple[int, int]]] = [[], []]
+
+    def run(source: Any, log: list[tuple[int, int]]) -> bytes | None:
+        def progress(index: int) -> None:
+            log.append((index, source.words_consumed))
+            if index == fail_at:
+                raise ValueError("callback stopped")
+
+        if fail_at is not None:
+            with pytest.raises(ValueError, match="callback stopped"):
+                study.generate_payload(item, source, progress=progress)
+            return None
+        return study.generate_payload(item, source, progress=progress)
+
+    assert run(stream, observations[0]) == run(oracle, observations[1])
+    assert observations[0] == observations[1]
+    assert observations[0][0] == (0, 6)
+    assert stream.words_consumed == oracle.words_consumed
+    assert stream.next_word() == oracle.next_word()
+
+
+@pytest.mark.parametrize("rejection_index", [2, 49148, 49154])
+def test_actual_batch_rejection_shifts_rows_without_redrawing(
+    monkeypatch: Any, rejection_index: int
+) -> None:
+    # Use enlarged L1 geometry to cross the 8192-date boundary.
+    item = study.StudySpec("L1", 16384, 2, False)
+    values = [0] * (6 * study.source_length(item) + 32)
+    limit = (1 << 64) // 50 * 50
+    values[rejection_index] = limit
+
+    def digest(prefix: bytes, counter: int) -> bytes:
+        return b"".join(v.to_bytes(8, "big") for v in values[4 * counter : 4 * counter + 4])
+
+    monkeypatch.setattr(study, "_counter_digest", digest)
+    stream = _stream(item)
+    oracle = _Words(values)
+    assert study.generate_payload(item, stream) == study.generate_payload(item, oracle)
+    assert stream.words_consumed == oracle.words_consumed
+    assert stream.next_word() == oracle.next_word()
+
+
+def test_actual_batch_rejection_limit_preserves_failed_row_state(monkeypatch: Any) -> None:
+    item = study.spec("L1")
+    values = [0, 0] + [(1 << 64) - 1] * 1024 + [23] * (6 * study.source_length(item))
+
+    def digest(prefix: bytes, counter: int) -> bytes:
+        return b"".join(v.to_bytes(8, "big") for v in values[4 * counter : 4 * counter + 4])
+
+    monkeypatch.setattr(study, "_counter_digest", digest)
+    stream = _stream(item)
+    oracle = _Words(values)
+    for source in (stream, oracle):
+        with pytest.raises(study.StudyError, match="rejection_limit"):
+            study.generate_payload(item, source)
+        assert source.words_consumed == 1026
+    assert stream.next_word() == oracle.next_word() == 23
+
+
+def test_generator_overflow_consumes_partial_failed_row_identically() -> None:
+    item = study.spec("P1")
+    stream = _stream(item)
+    stream._counter = (1 << 64) - 2
+    assert stream.next_word() >= 0
+    oracle = _IndependentStream(stream.prefix, counter=(1 << 64) - 2)
+    oracle.next_word()
+    for source in (stream, oracle):
+        with pytest.raises(study.StudyError, match="counter_overflow"):
+            study.generate_payload(item, source)
+        assert source.words_consumed == 8
+
+
+def test_numpy_version_is_bound_to_manifest(tmp_path: Path) -> None:
+    import importlib.metadata
+
+    assert _test_manifest(tmp_path).payload["libraries"]["numpy"] == importlib.metadata.version(
+        "numpy"
+    )
+
+
+@pytest.mark.parametrize(
+    "word,extra", [((1 << 64) - 17, 0), ((1 << 64) - 16, 1), ((1 << 64) - 1, 1)]
+)
+def test_uint64_acceptance_boundary_in_actual_batch(
+    monkeypatch: Any, word: int, extra: int
+) -> None:
+    item = study.spec("L1")
+    values = [i * 137 + 11 for i in range(6 * study.source_length(item) + 32)]
+    values[2] = word
+
+    def digest(prefix: bytes, counter: int) -> bytes:
+        return b"".join(v.to_bytes(8, "big") for v in values[4 * counter : 4 * counter + 4])
+
+    monkeypatch.setattr(study, "_counter_digest", digest)
+    stream = _stream(item)
+    oracle = _Words(values)
+    assert study.generate_payload(item, stream) == study.generate_payload(item, oracle)
+    assert stream.words_consumed == oracle.words_consumed == 6 * study.source_length(item) + extra
+    assert stream.next_word() == oracle.next_word()
+
+
+def test_custom_counter_subclass_never_enters_trusted_batch() -> None:
+    class Custom(study.CounterStream):
+        def __init__(self) -> None:
+            self.words_consumed = 0
+
+        def next_word(self) -> int:
+            self.words_consumed += 1
+            return 0
+
+        def peek_words(self, count: int) -> bytes:
+            pytest.fail("custom source trusted by batch")
+
+    item = study.spec("P1")
+    custom = Custom()
+    assert study.generate_payload(item, custom) == bytes([31]) * study.source_length(item)
+    assert custom.words_consumed == 6 * study.source_length(item)
+
+
+def test_generator_refuses_output_budget_before_allocation_or_words() -> None:
+    item = study.StudySpec("P1", study.MAX_BUFFER + 1, 2, True)
+    words = _Words([])
+    with pytest.raises(study.StudyError, match="payload_buffer_cap"):
+        study.generate_payload(item, words)
+    assert words.words_consumed == 0

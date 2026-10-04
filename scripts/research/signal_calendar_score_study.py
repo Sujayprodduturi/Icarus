@@ -27,6 +27,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Protocol
 
+import numpy as np
 import psutil  # type: ignore[import-untyped]
 from scripts.research import signal_calendar_evidence as evidence
 from scripts.research import signal_calendar_laws as laws
@@ -227,6 +228,14 @@ class WordSource(Protocol):
     def next_word(self) -> int: ...
 
 
+BATCH_DATES = 8192
+MAX_PEEK_WORDS = 6 * BATCH_DATES
+
+
+def _counter_digest(prefix: bytes, counter: int) -> bytes:
+    return hashlib.sha256(prefix + counter.to_bytes(8, "big")).digest()
+
+
 class CounterStream:
     """Frozen counter-mode SHA-256 word stream; every lane is consumed once."""
 
@@ -272,23 +281,43 @@ class CounterStream:
         ).encode("utf8")
         self.words_consumed = 0
         self._counter = 0
-        self._lanes: tuple[int, ...] = ()
-        self._lane = 0
+        self._buffer = b""
+        self._offset = 0
+
+    def peek_words(self, count: int) -> bytes:
+        """Return an owned immutable prefix without consuming any word."""
+        if type(count) is not int or not 1 <= count <= MAX_PEEK_WORDS:
+            raise StudyError("word_buffer_count")
+        remaining = len(self._buffer) - self._offset
+        blocks = max(0, (8 * count - remaining + 31) // 32)
+        # Refusal is atomic: no hashing, cursor or counter change.
+        if blocks > (1 << 64) - self._counter:
+            raise StudyError("counter_overflow")
+        if blocks:
+            suffix = self._buffer[self._offset :]
+            generated = b"".join(
+                _counter_digest(self.prefix, counter)
+                for counter in range(self._counter, self._counter + blocks)
+            )
+            self._buffer = suffix + generated
+            self._offset = 0
+            self._counter += blocks
+        return self._buffer[self._offset : self._offset + 8 * count]
+
+    def consume_words(self, count: int) -> None:
+        if (
+            type(count) is not int
+            or not 1 <= count <= MAX_PEEK_WORDS
+            or 8 * count > len(self._buffer) - self._offset
+        ):
+            raise StudyError("word_buffer_count")
+        self._offset += 8 * count
+        self.words_consumed += count
 
     def next_word(self) -> int:
-        if self._lane == len(self._lanes):
-            if self._counter >= 1 << 64:
-                raise StudyError("counter_overflow")
-            digest = hashlib.sha256(self.prefix + self._counter.to_bytes(8, "big")).digest()
-            self._lanes = tuple(
-                int.from_bytes(digest[start : start + 8], "big") for start in (0, 8, 16, 24)
-            )
-            self._counter += 1
-            self._lane = 0
-        value = self._lanes[self._lane]
-        self._lane += 1
-        self.words_consumed += 1
-        return value
+        word = int.from_bytes(self.peek_words(1), "big")
+        self.consume_words(1)
+        return word
 
 
 def uniform(source: WordSource, denominator: int) -> int:
@@ -332,26 +361,83 @@ def _jump_index(source: WordSource, profile: laws.LawProfile) -> int:
     raise StudyError("jump_probability_partition")
 
 
+def _scalar_atom(source: WordSource, profile: laws.LawProfile) -> int:
+    s = uniform(source, 2) == 0
+    q = uniform(source, profile.p_volatility.denominator) < profile.p_volatility.numerator
+    g = uniform(source, profile.p_gate.denominator) < profile.p_gate.numerator
+    epsilon1 = uniform(source, 2) == 0
+    epsilon2 = uniform(source, 2) == 0
+    jump = _jump_index(source, profile)
+    return (
+        int(s)
+        | (int(q) << 1)
+        | (int(g) << 2)
+        | (int(epsilon1) << 3)
+        | (int(epsilon2) << 4)
+        | (jump << 5)
+    )
+
+
+def _batch_atoms(source: CounterStream, profile: laws.LawProfile, count: int) -> bytes | None:
+    if type(count) is not int or not 1 <= count <= BATCH_DATES:
+        raise StudyError("word_buffer_count")
+    jump_denominator, edges = _jump_partition(profile.identifier)
+    denominators = (
+        2,
+        profile.p_volatility.denominator,
+        profile.p_gate.denominator,
+        2,
+        2,
+        jump_denominator,
+    )
+    words = np.frombuffer(source.peek_words(6 * count), dtype=">u8").reshape(count, 6)
+    for column, denominator in enumerate(denominators):
+        limit = (1 << 64) // denominator * denominator
+        # 2**64 cannot be represented in uint64 and every word is then accepted.
+        if limit != 1 << 64 and np.any(words[:, column] >= np.uint64(limit)):
+            return None
+    # At most 393240 buffered bytes + immutable peek; input, one remainder,
+    # output and masks each <=393216 bytes. Even overlapping temporaries <4MiB.
+    output = np.zeros(count, dtype=np.uint8)
+    thresholds = (1, profile.p_volatility.numerator, profile.p_gate.numerator, 1, 1)
+    for column, threshold in enumerate(thresholds):
+        accepted = words[:, column] % np.uint64(denominators[column]) < np.uint64(threshold)
+        output |= accepted.astype(np.uint8) << np.uint8(column)
+    jump_draw = words[:, 5] % np.uint64(jump_denominator)
+    for edge in edges[:-1]:
+        output += (jump_draw >= np.uint64(edge)).astype(np.uint8) << np.uint8(5)
+    source.consume_words(6 * count)
+    return output.tobytes()
+
+
 def generate_payload(item: StudySpec, source: WordSource, *, progress: Any | None = None) -> bytes:
     profile = laws.profile(item.profile_id)
-    output = bytearray(source_length(item))
-    for index in range(len(output)):
-        s = uniform(source, 2) == 0
-        q = uniform(source, profile.p_volatility.denominator) < profile.p_volatility.numerator
-        g = uniform(source, profile.p_gate.denominator) < profile.p_gate.numerator
-        epsilon1 = uniform(source, 2) == 0
-        epsilon2 = uniform(source, 2) == 0
-        jump = _jump_index(source, profile)
-        output[index] = (
-            int(s)
-            | (int(q) << 1)
-            | (int(g) << 2)
-            | (int(epsilon1) << 3)
-            | (int(epsilon2) << 4)
-            | (jump << 5)
-        )
-        if progress is not None and index % 65536 == 0:
-            progress(index)
+    length = source_length(item)
+    if not 0 < length <= MAX_BUFFER:
+        raise StudyError("payload_buffer_cap")
+    output = bytearray(length)
+    index = 0
+    while index < len(output):
+        count = min(BATCH_DATES, len(output) - index)
+        if progress is not None:
+            # Baseline callback is after row 0, then row 65536, etc.
+            count = min(count, 65536 - ((index - 1) % 65536))
+        packed = None
+        if type(source) is CounterStream:
+            try:
+                packed = _batch_atoms(source, profile, count)
+            except StudyError as error:
+                if str(error) != "counter_overflow":
+                    raise
+                # Consume valid residual lanes through the unchanged scalar map.
+        if packed is None:
+            for offset in range(count):
+                output[index + offset] = _scalar_atom(source, profile)
+        else:
+            output[index : index + count] = packed
+        index += count
+        if progress is not None and (index - 1) % 65536 == 0:
+            progress(index - 1)
     return bytes(output)
 
 
@@ -700,7 +786,7 @@ def manifest_for_paths(
         "platform": sys.platform,
         "libraries": {
             name: importlib.metadata.version(name)
-            for name in ("psutil",)
+            for name in ("psutil", "numpy")
             if _has_distribution(name)
         },
         "generator": laws.GENERATOR_VERSION,
