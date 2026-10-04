@@ -6,6 +6,8 @@
 
 **Saved verification/cleanup:** Primary and reviewer independently reproduced all10 histories/28 results and confirmed the failed timing. D44 raw-only identity/hash-bound cleanup is complete; [compact evidence](docs/reviews/2026-10-04-calendar-score-verifier-benchmark.json) retains results/sources/receipts/cleanup. Raw replay is now unavailable.
 
+**Final provenance:** Implementation/evidence commit fea6cf3; two post-commit semantic defects were caught and exact approved bytes restored. Fresh396 related regressions pass again in17.81s. Documentation-only provenance follow-up is exempt from another source-review/mutation cycle. D26 requires normal dev push; remote workflow success is not assumed.
+
 **Actual next task:** one reviewed exact-output verifier optimization proposal, then bounded implementation and fresh full-workload timing. Preserve this failed measurement. Unit1 deterministic implementation is complete; its runtime condition remains failed. Units2-3 (once-only claims/reviewer-held validation key/sampled integration) remain OPEN/UNBUILT. No experimental draw/key/reservation or method adoption; goal inference=false, Task3a/M1-M4/F48 OPEN. Real-market/official streams/lockbox/old confirmation remain held. Earlier notices below are dated history; this checkpoint controls restart.
 
 
