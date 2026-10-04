@@ -745,6 +745,8 @@ SOURCE_PATHS = (
     PROTOCOL_PATH,
     "scripts/research/signal_calendar_score_verify.py",
     "docs/plans/2026-10-04-calendar-score-sampled-lifecycle.md",
+    "docs/plans/2026-10-04-calendar-score-verifier-optimization.md",
+    "docs/plans/2026-10-04-calendar-score-verifier-optimization-2.md",
     "scripts/research/signal_calendar_score_study.py",
     "scripts/research/signal_calendar_evidence.py",
     "scripts/research/signal_calendar_laws.py",
@@ -779,6 +781,12 @@ def manifest_for_paths(
         if type(label) is not str or not label or not isinstance(path, Path) or not path.is_file():
             raise StudyError("invalid_manifest_source")
         hashes[label] = hashlib.sha256(path.read_bytes()).hexdigest()
+    libraries: dict[str, str] = {}
+    for name in ("psutil", "numpy"):
+        try:
+            libraries[name] = importlib.metadata.version(name)
+        except importlib.metadata.PackageNotFoundError:
+            continue
     payload: dict[str, Any] = {
         "schema": 2,
         "scope": scope,
@@ -786,25 +794,13 @@ def manifest_for_paths(
         "sources": hashes,
         "python": sys.version,
         "platform": sys.platform,
-        "libraries": {
-            name: importlib.metadata.version(name)
-            for name in ("psutil", "numpy")
-            if _has_distribution(name)
-        },
+        "libraries": libraries,
         "generator": laws.GENERATOR_VERSION,
         "evidence": evidence.VERSION,
         "stream": STREAM_IDENTIFIER,
     }
     blob = canonical_json(payload)
     return Manifest(payload, hashlib.sha256(blob).hexdigest())
-
-
-def _has_distribution(name: str) -> bool:
-    try:
-        importlib.metadata.version(name)
-    except importlib.metadata.PackageNotFoundError:
-        return False
-    return True
 
 
 def source_manifest() -> Manifest:

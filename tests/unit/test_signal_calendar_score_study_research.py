@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.metadata
 import json
 import os
 import subprocess
@@ -814,3 +815,54 @@ def test_generator_refuses_output_budget_before_allocation_or_words() -> None:
     with pytest.raises(study.StudyError, match="payload_buffer_cap"):
         study.generate_payload(item, words)
     assert words.words_consumed == 0
+
+
+def test_manifest_versions_are_fresh_single_lookups(tmp_path: Path, monkeypatch: Any) -> None:
+    source = tmp_path / "source.py"
+    source.write_bytes(b"bound source")
+    calls: list[str] = []
+    versions = {"psutil": "first-psutil", "numpy": "first-numpy"}
+
+    def version(name: str) -> str:
+        calls.append(name)
+        return versions[name]
+
+    monkeypatch.setattr(importlib.metadata, "version", version)
+    first = study.manifest_for_paths({"source": source}, protocol_hash="b" * 64)
+    assert calls == ["psutil", "numpy"]
+    assert first.payload["libraries"] == versions
+    versions = {"psutil": "next-psutil", "numpy": "next-numpy"}
+    calls.clear()
+    second = study.manifest_for_paths({"source": source}, protocol_hash="b" * 64)
+    assert calls == ["psutil", "numpy"]
+    assert second.payload["libraries"] == versions
+    assert first.digest != second.digest
+
+
+def test_manifest_missing_distribution_only_is_omitted(tmp_path: Path, monkeypatch: Any) -> None:
+    source = tmp_path / "source.py"
+    source.write_bytes(b"bound source")
+    calls: list[str] = []
+
+    def version(name: str) -> str:
+        calls.append(name)
+        if name == "psutil":
+            raise importlib.metadata.PackageNotFoundError(name)
+        return "present-numpy"
+
+    monkeypatch.setattr(importlib.metadata, "version", version)
+    result = study.manifest_for_paths({"source": source}, protocol_hash="b" * 64)
+    assert result.payload["libraries"] == {"numpy": "present-numpy"}
+    assert calls == ["psutil", "numpy"]
+
+
+def test_manifest_unexpected_metadata_failure_propagates(tmp_path: Path, monkeypatch: Any) -> None:
+    source = tmp_path / "source.py"
+    source.write_bytes(b"bound source")
+
+    def version(name: str) -> str:
+        raise RuntimeError("metadata corruption")
+
+    monkeypatch.setattr(importlib.metadata, "version", version)
+    with pytest.raises(RuntimeError, match="metadata corruption"):
+        study.manifest_for_paths({"source": source}, protocol_hash="b" * 64)

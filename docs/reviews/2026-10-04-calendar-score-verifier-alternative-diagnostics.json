@@ -1,0 +1,831 @@
+{
+  "decision": "REJECT_BOTH_FOR_CURRENT_SOURCE",
+  "experimental_draws": 0,
+  "fresh_metadata_parse_cache": {
+    "all_source_read_counts_one_fresh_manifest": {
+      "docs/plans/2026-10-04-calendar-score-sampled-lifecycle.md": 2,
+      "docs/plans/2026-10-04-calendar-score-study-protocol.md": 4,
+      "docs/plans/2026-10-04-calendar-score-verifier-optimization-2.md": 2,
+      "docs/plans/2026-10-04-calendar-score-verifier-optimization.md": 2,
+      "goal.yaml": 2,
+      "scripts/research/signal_bounded_uncertainty.py": 2,
+      "scripts/research/signal_calendar_evidence.py": 2,
+      "scripts/research/signal_calendar_laws.py": 2,
+      "scripts/research/signal_calendar_score.py": 2,
+      "scripts/research/signal_calendar_score_study.py": 2,
+      "scripts/research/signal_calendar_score_verify.py": 2,
+      "scripts/research/signal_calendar_uncertainty.py": 2,
+      "scripts/research/signal_moment_uncertainty.py": 2,
+      "uv.lock": 2
+    },
+    "custom_version_override_preserved": true,
+    "experimental_draws": 0,
+    "improvement_nine_seconds": 0.022410300007322803,
+    "measurements": [
+      {
+        "backend": "original",
+        "cache_info": "CacheInfo(hits=0, misses=0, maxsize=2, currsize=0)",
+        "exact_bindings": true,
+        "fresh_metadata_reads": 0,
+        "nine_fresh_manifests_seconds": 0.07499389999429695,
+        "round": 0
+      },
+      {
+        "backend": "text_parse_cache",
+        "cache_info": "CacheInfo(hits=16, misses=2, maxsize=2, currsize=2)",
+        "exact_bindings": true,
+        "fresh_metadata_reads": 18,
+        "nine_fresh_manifests_seconds": 0.05218529999547172,
+        "round": 0
+      },
+      {
+        "backend": "text_parse_cache",
+        "cache_info": "CacheInfo(hits=16, misses=2, maxsize=2, currsize=2)",
+        "exact_bindings": true,
+        "fresh_metadata_reads": 18,
+        "nine_fresh_manifests_seconds": 0.05167220000294037,
+        "round": 1
+      },
+      {
+        "backend": "original",
+        "cache_info": "CacheInfo(hits=0, misses=0, maxsize=2, currsize=0)",
+        "exact_bindings": true,
+        "fresh_metadata_reads": 0,
+        "nine_fresh_manifests_seconds": 0.07260370001313277,
+        "round": 1
+      },
+      {
+        "backend": "original",
+        "cache_info": "CacheInfo(hits=0, misses=0, maxsize=2, currsize=0)",
+        "exact_bindings": true,
+        "fresh_metadata_reads": 0,
+        "nine_fresh_manifests_seconds": 0.07197869999799877,
+        "round": 2
+      },
+      {
+        "backend": "text_parse_cache",
+        "cache_info": "CacheInfo(hits=16, misses=2, maxsize=2, currsize=2)",
+        "exact_bindings": true,
+        "fresh_metadata_reads": 18,
+        "nine_fresh_manifests_seconds": 0.0549031999980798,
+        "round": 2
+      },
+      {
+        "backend": "text_parse_cache",
+        "cache_info": "CacheInfo(hits=16, misses=2, maxsize=2, currsize=2)",
+        "exact_bindings": true,
+        "fresh_metadata_reads": 18,
+        "nine_fresh_manifests_seconds": 0.05588329999591224,
+        "round": 3
+      },
+      {
+        "backend": "original",
+        "cache_info": "CacheInfo(hits=0, misses=0, maxsize=2, currsize=0)",
+        "exact_bindings": true,
+        "fresh_metadata_reads": 0,
+        "nine_fresh_manifests_seconds": 0.08092239999677986,
+        "round": 3
+      },
+      {
+        "backend": "original",
+        "cache_info": "CacheInfo(hits=0, misses=0, maxsize=2, currsize=0)",
+        "exact_bindings": true,
+        "fresh_metadata_reads": 0,
+        "nine_fresh_manifests_seconds": 0.07459560000279453,
+        "round": 4
+      },
+      {
+        "backend": "text_parse_cache",
+        "cache_info": "CacheInfo(hits=16, misses=2, maxsize=2, currsize=2)",
+        "exact_bindings": true,
+        "fresh_metadata_reads": 18,
+        "nine_fresh_manifests_seconds": 0.05210570000053849,
+        "round": 4
+      }
+    ],
+    "median_nine_seconds": {
+      "original": 0.07459560000279453,
+      "text_parse_cache": 0.05218529999547172
+    },
+    "missing_distribution_preserved": true,
+    "observed_metadata_reads": [
+      {
+        "chars": 60838,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "numpy"
+      },
+      {
+        "chars": 22573,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "psutil"
+      },
+      {
+        "chars": 22573,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "psutil"
+      },
+      {
+        "chars": 60838,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "numpy"
+      },
+      {
+        "chars": 22573,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "psutil"
+      },
+      {
+        "chars": 60838,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "numpy"
+      },
+      {
+        "chars": 22573,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "psutil"
+      },
+      {
+        "chars": 60838,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "numpy"
+      },
+      {
+        "chars": 22573,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "psutil"
+      },
+      {
+        "chars": 60838,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "numpy"
+      },
+      {
+        "chars": 22573,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "psutil"
+      },
+      {
+        "chars": 60838,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "numpy"
+      },
+      {
+        "chars": 22573,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "psutil"
+      },
+      {
+        "chars": 60838,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "numpy"
+      },
+      {
+        "chars": 22573,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "psutil"
+      },
+      {
+        "chars": 60838,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "numpy"
+      },
+      {
+        "chars": 22573,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "psutil"
+      },
+      {
+        "chars": 60838,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "numpy"
+      },
+      {
+        "chars": 22573,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "psutil"
+      },
+      {
+        "chars": 60838,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "numpy"
+      },
+      {
+        "chars": 22573,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "psutil"
+      },
+      {
+        "chars": 60838,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "numpy"
+      },
+      {
+        "chars": 22573,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "psutil"
+      },
+      {
+        "chars": 60838,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "numpy"
+      },
+      {
+        "chars": 22573,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "psutil"
+      },
+      {
+        "chars": 60838,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "numpy"
+      },
+      {
+        "chars": 22573,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "psutil"
+      },
+      {
+        "chars": 60838,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "numpy"
+      },
+      {
+        "chars": 22573,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "psutil"
+      },
+      {
+        "chars": 60838,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "numpy"
+      },
+      {
+        "chars": 22573,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "psutil"
+      },
+      {
+        "chars": 60838,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "numpy"
+      },
+      {
+        "chars": 22573,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "psutil"
+      },
+      {
+        "chars": 60838,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "numpy"
+      },
+      {
+        "chars": 22573,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "psutil"
+      },
+      {
+        "chars": 60838,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "numpy"
+      },
+      {
+        "chars": 22573,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "psutil"
+      },
+      {
+        "chars": 60838,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "numpy"
+      },
+      {
+        "chars": 22573,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "psutil"
+      },
+      {
+        "chars": 60838,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "numpy"
+      },
+      {
+        "chars": 22573,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "psutil"
+      },
+      {
+        "chars": 60838,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "numpy"
+      },
+      {
+        "chars": 22573,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "psutil"
+      },
+      {
+        "chars": 60838,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "numpy"
+      },
+      {
+        "chars": 22573,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "psutil"
+      },
+      {
+        "chars": 60838,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "numpy"
+      },
+      {
+        "chars": 22573,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "psutil"
+      },
+      {
+        "chars": 60838,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "numpy"
+      },
+      {
+        "chars": 22573,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "psutil"
+      },
+      {
+        "chars": 60838,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "numpy"
+      },
+      {
+        "chars": 22573,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "psutil"
+      },
+      {
+        "chars": 60838,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "numpy"
+      },
+      {
+        "chars": 22573,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "psutil"
+      },
+      {
+        "chars": 60838,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "numpy"
+      },
+      {
+        "chars": 22573,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "psutil"
+      },
+      {
+        "chars": 60838,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "numpy"
+      },
+      {
+        "chars": 22573,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "psutil"
+      },
+      {
+        "chars": 60838,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "numpy"
+      },
+      {
+        "chars": 22573,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "psutil"
+      },
+      {
+        "chars": 60838,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "numpy"
+      },
+      {
+        "chars": 22573,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "psutil"
+      },
+      {
+        "chars": 60838,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "numpy"
+      },
+      {
+        "chars": 22573,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "psutil"
+      },
+      {
+        "chars": 60838,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "numpy"
+      },
+      {
+        "chars": 22573,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "psutil"
+      },
+      {
+        "chars": 60838,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "numpy"
+      },
+      {
+        "chars": 22573,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "psutil"
+      },
+      {
+        "chars": 60838,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "numpy"
+      },
+      {
+        "chars": 22573,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "psutil"
+      },
+      {
+        "chars": 60838,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "numpy"
+      },
+      {
+        "chars": 22573,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "psutil"
+      },
+      {
+        "chars": 60838,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "numpy"
+      },
+      {
+        "chars": 22573,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "psutil"
+      },
+      {
+        "chars": 60838,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "numpy"
+      },
+      {
+        "chars": 22573,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "psutil"
+      },
+      {
+        "chars": 60838,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "numpy"
+      },
+      {
+        "chars": 22573,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "psutil"
+      },
+      {
+        "chars": 60838,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "numpy"
+      },
+      {
+        "chars": 22573,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "psutil"
+      },
+      {
+        "chars": 60838,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "numpy"
+      },
+      {
+        "chars": 22573,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "psutil"
+      },
+      {
+        "chars": 60838,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "numpy"
+      },
+      {
+        "chars": 22573,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "psutil"
+      },
+      {
+        "chars": 60838,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "numpy"
+      },
+      {
+        "chars": 22573,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "psutil"
+      },
+      {
+        "chars": 60838,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "numpy"
+      },
+      {
+        "chars": 22573,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "psutil"
+      },
+      {
+        "chars": 60838,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "numpy"
+      },
+      {
+        "chars": 22573,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "psutil"
+      },
+      {
+        "chars": 60838,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "numpy"
+      },
+      {
+        "chars": 22573,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "psutil"
+      },
+      {
+        "chars": 60838,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "numpy"
+      },
+      {
+        "chars": 22573,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "psutil"
+      },
+      {
+        "chars": 60838,
+        "distribution_type": "<class 'importlib.metadata.PathDistribution'>",
+        "name": "numpy"
+      }
+    ],
+    "parity_cases": [
+      {
+        "outcome": [
+          "value",
+          "1.0"
+        ],
+        "read_order": [
+          "METADATA"
+        ]
+      },
+      {
+        "outcome": [
+          "value",
+          "2.0"
+        ],
+        "read_order": [
+          "METADATA"
+        ]
+      },
+      {
+        "outcome": [
+          "value",
+          "3.0"
+        ],
+        "read_order": [
+          "METADATA",
+          "PKG-INFO"
+        ]
+      },
+      {
+        "outcome": [
+          "value",
+          "4.0"
+        ],
+        "read_order": [
+          "METADATA",
+          "PKG-INFO",
+          ""
+        ]
+      },
+      {
+        "outcome": [
+          "value",
+          null
+        ],
+        "read_order": [
+          "METADATA"
+        ]
+      },
+      {
+        "outcome": [
+          "value",
+          null
+        ],
+        "read_order": [
+          "METADATA",
+          "PKG-INFO",
+          ""
+        ]
+      },
+      {
+        "outcome": [
+          "value",
+          null
+        ],
+        "read_order": [
+          "METADATA",
+          "PKG-INFO",
+          ""
+        ]
+      },
+      {
+        "outcome": [
+          "error",
+          "OSError",
+          "test-read-error"
+        ],
+        "read_order": [
+          "METADATA"
+        ]
+      }
+    ],
+    "scope": "IN_MEMORY_METADATA_DIAGNOSTICS_NOT_ELIGIBILITY",
+    "source_manifest_digest": "379b51a80a426c018f277eb92a4a1ab79b909c2fcc45ac3dc7a13995e1572adf",
+    "text_cache_max_chars": 262144,
+    "text_cache_max_entries": 2
+  },
+  "native_sha256": {
+    "experimental_draws": 0,
+    "framing_counters": [
+      0,
+      1,
+      4294967296,
+      18446744073709551615
+    ],
+    "framing_profiles": [
+      "P1",
+      "P2",
+      "P3",
+      "P4",
+      "P5",
+      "P6",
+      "P7",
+      "E+",
+      "E-",
+      "L1"
+    ],
+    "identities": [
+      {
+        "bytes": 2050,
+        "profile": "P1",
+        "sha256": "2742b8c7ccb42a0fdf58f7280068fc8557d2cce479cb8aad6d2cc365c4a952a9",
+        "words": 12300
+      },
+      {
+        "bytes": 2050,
+        "profile": "P2",
+        "sha256": "1718a4bf0729b5c312b12f85f50365de205a29fce81525bbfb30ae1b54481e49",
+        "words": 12300
+      },
+      {
+        "bytes": 16393,
+        "profile": "P3",
+        "sha256": "0cf6be9f8feefb6263b9473118fcfe87c93c359e953cf3647e4b805e4ee551f4",
+        "words": 98358
+      },
+      {
+        "bytes": 8197,
+        "profile": "P4",
+        "sha256": "61f6e5dc924bf75df764faeff924c2fda6c04a4a808799ba6aa9c8402914db06",
+        "words": 49182
+      },
+      {
+        "bytes": 32770,
+        "profile": "P5",
+        "sha256": "20786c1f80220695faeaf756bfc46ab8e103f7cd1cf92f48d9933cab0bef7f20",
+        "words": 196620
+      },
+      {
+        "bytes": 32770,
+        "profile": "P6",
+        "sha256": "d6d42f05a6fe982dd2a24b06b6d30dca886470aeb1d045355061b271168c25df",
+        "words": 196620
+      },
+      {
+        "bytes": 131112,
+        "profile": "P7",
+        "sha256": "38548a272543175aa2f2c95762d153482d004e7072c4a0ecf3c7d4a86d01c51d",
+        "words": 786672
+      },
+      {
+        "bytes": 2050,
+        "profile": "E+",
+        "sha256": "6eb73cff244f0edfc51d3505a91b4756f610b588c152b88fc4c61968f575a873",
+        "words": 12300
+      },
+      {
+        "bytes": 2050,
+        "profile": "E-",
+        "sha256": "721eb76e211b8c2b15530d5c995e7e6e2d98f0dc9c7f29ea2014183926422334",
+        "words": 12300
+      },
+      {
+        "bytes": 2050,
+        "profile": "L1",
+        "sha256": "033dd7a4a2b417886c9a98a7dd36f4757db320646db86346d707f9500f6f264b",
+        "words": 12300
+      }
+    ],
+    "improvement_fraction": 0.010904595862425426,
+    "improvement_seconds": 0.0021198000031290576,
+    "known_vectors": 3,
+    "measurements": [
+      {
+        "all_bytes_words_exact": true,
+        "backend": "openssl",
+        "round": 0,
+        "seconds": 0.1990393000014592
+      },
+      {
+        "all_bytes_words_exact": true,
+        "backend": "native",
+        "round": 0,
+        "seconds": 0.19227529999625403
+      },
+      {
+        "all_bytes_words_exact": true,
+        "backend": "native",
+        "round": 1,
+        "seconds": 0.1933650000137277
+      },
+      {
+        "all_bytes_words_exact": true,
+        "backend": "openssl",
+        "round": 1,
+        "seconds": 0.1943950999993831
+      },
+      {
+        "all_bytes_words_exact": true,
+        "backend": "openssl",
+        "round": 2,
+        "seconds": 0.19381980001344346
+      },
+      {
+        "all_bytes_words_exact": true,
+        "backend": "native",
+        "round": 2,
+        "seconds": 0.19219490000978112
+      },
+      {
+        "all_bytes_words_exact": true,
+        "backend": "native",
+        "round": 3,
+        "seconds": 0.19137179999961518
+      },
+      {
+        "all_bytes_words_exact": true,
+        "backend": "openssl",
+        "round": 3,
+        "seconds": 0.19529679999686778
+      },
+      {
+        "all_bytes_words_exact": true,
+        "backend": "openssl",
+        "round": 4,
+        "seconds": 0.19373079999058973
+      },
+      {
+        "all_bytes_words_exact": true,
+        "backend": "native",
+        "round": 4,
+        "seconds": 0.19404709999798797
+      }
+    ],
+    "median_seconds": {
+      "native": 0.19227529999625403,
+      "openssl": 0.1943950999993831
+    },
+    "native_loader": "<class 'type'>",
+    "native_module": "built-in",
+    "paths": 10,
+    "python": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
+    "runtime_executable": "C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+    "runtime_executable_sha256": "4d6f5f81a4bca11191c4c7c6b43632694d0a4ce74e068619d8fdc161d469859a",
+    "scope": "IN_MEMORY_BACKEND_DIAGNOSTICS_NOT_ELIGIBILITY"
+  },
+  "reason": "Native gain1.09percent unstable; metadata diagnostic22.41ms across9 checkpoints does not cover31.29ms worst gate gap and adds parser/absence/custom-distribution/cache contracts. No global optimum claim.",
+  "scope": "DETERMINISTIC_DIAGNOSTICS_ONLY"
+}

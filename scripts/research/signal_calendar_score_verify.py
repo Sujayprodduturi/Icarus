@@ -40,7 +40,7 @@ GRID = 10**60
 MAX_RECORD = 256 * 1024
 PATH_CAP = 8192
 BUFFER_CAP = 16 * 1024**2
-BATCH = 8192
+BATCH = 4096
 MODULE = "scripts.research.signal_calendar_score_verify"
 PROJECT = Path(__file__).resolve().parents[2]
 SCOPE = "DETERMINISTIC_FIXTURE_ONLY"
@@ -102,6 +102,9 @@ def _digest(prefix: bytes, counter: int) -> bytes:
     return hashlib.sha256(prefix + counter.to_bytes(8, "big")).digest()
 
 
+_ORIGINAL_DIGEST = _digest
+
+
 class ReferenceWords:
     """Separately framed SHA reconstruction with independently counted consumption."""
 
@@ -119,6 +122,8 @@ class ReferenceWords:
         self.prefix = (json.dumps(fields, separators=(",", ":"), ensure_ascii=True) + "\n").encode(
             "utf8"
         )
+        self._hashed_prefix = self.prefix
+        self._prefix_hash = hashlib.sha256(self.prefix)
         self.counter = 0
         self.pending = b""
         self.words = 0
@@ -130,9 +135,27 @@ class ReferenceWords:
         if self.counter + blocks > 1 << 64:
             raise VerificationError("counter_overflow")
         if blocks:
-            self.pending += b"".join(
-                _digest(self.prefix, k) for k in range(self.counter, self.counter + blocks)
-            )
+            if _digest is _ORIGINAL_DIGEST:
+                # Hash state belongs to this stream; mutable public prefix changes
+                # affect only newly generated blocks, retaining buffered lanes.
+                if self.prefix != self._hashed_prefix:
+                    self._hashed_prefix = self.prefix
+                    self._prefix_hash = hashlib.sha256(self.prefix)
+                copy = self._prefix_hash.copy
+                chunks: list[bytes] = []
+                append = chunks.append
+                for k in range(self.counter, self.counter + blocks):
+                    block = copy()
+                    block.update(k.to_bytes(8, "big"))
+                    append(block.digest())
+                generated = b"".join(chunks)
+            else:
+                # Preserve the independent deterministic digest seam used for
+                # rejection/overflow fixtures, never silently cache a custom hook.
+                generated = b"".join(
+                    _digest(self.prefix, k) for k in range(self.counter, self.counter + blocks)
+                )
+            self.pending += generated
             self.counter += blocks
         return self.pending[: count * 8]
 
@@ -498,13 +521,71 @@ def binomial_tail(n: int, p: F, k: int, *, lower: bool) -> F:
     return F(total, d**n)
 
 
+def prove_cutoff_pair(n: int, p: F, k: int, *, lower: bool, alpha: F = F(1, 1760)) -> int:
+    """Prove tail(k)<=alpha<tail(neighbor), returning exact visited-term count."""
+    if (
+        type(n) is not int
+        or not 1 <= n <= 32768
+        or type(k) is not int
+        or not 0 <= k <= n
+        or type(p) is not F
+        or not 0 < p < 1
+        or p.denominator > 200
+        or type(lower) is not bool
+        or type(alpha) is not F
+        or not 0 < alpha < 1
+        or max(alpha.numerator.bit_length(), alpha.denominator.bit_length()) > 32
+    ):
+        raise VerificationError("binomial")
+    if (lower and k == n) or (not lower and k == 0):
+        raise VerificationError("cutoff")
+    if lower:
+        # P(X<=k)=P(n-X>=n-k); the failing k+1 becomes n-k-1.
+        p, k = 1 - p, n - k
+    a, d = p.numerator, p.denominator
+    b = d - a
+    if (k + 1) * b <= (n - k) * a:
+        # Outside decreasing-ratio geometry, retain the exact generic oracle.
+        accepted = binomial_tail(n, p, k, lower=False)
+        neighbor = binomial_tail(n, p, k - 1, lower=False)
+        if not accepted <= alpha < neighbor:
+            raise VerificationError("cutoff")
+        return 2 * (n - k) + 3
+    term = math.comb(n, k) * a**k * b ** (n - k)
+    neighbor_term, remainder = divmod(term * k * b, (n - k + 1) * a)
+    if remainder:
+        raise VerificationError("binomial_recurrence")
+    denominator = d**n
+    target = denominator * alpha.numerator
+    weight = alpha.denominator
+    total = 0
+    for j in range(k, n + 1):
+        total += term
+        if total * weight > target:
+            raise VerificationError("cutoff")
+        numerator = (n - j) * a
+        remainder_denominator = (j + 1) * b - numerator
+        # Ratios decrease with j. ALL omitted mass is bounded by
+        # term*r/(1-r), including the next term; never use a partial tail alone.
+        upper_numerator = total * remainder_denominator + term * numerator
+        if (
+            remainder_denominator > 0
+            and upper_numerator * weight <= target * remainder_denominator
+            and (total + neighbor_term) * weight > target
+        ):
+            return j - k + 1
+        if j < n:
+            term, remainder = divmod(term * numerator, (j + 1) * b)
+            if remainder:
+                raise VerificationError("binomial_recurrence")
+    # At j=n the omitted mass is zero, so equality is exact and inclusive.
+    raise VerificationError("cutoff")
+
+
 @cache
 def check_frozen_cutoffs() -> None:
     for p, k, left in ((F(19, 20), 31258, False), (F(1, 100), 270, True), (F(9, 10), 29668, False)):
-        accepted = binomial_tail(32768, p, k, lower=left)
-        adjacent = binomial_tail(32768, p, k + 1 if left else k - 1, lower=left)
-        if not accepted <= F(1, 1760) < adjacent:
-            raise VerificationError("cutoff")
+        prove_cutoff_pair(32768, p, k, lower=left)
 
 
 def fixed_gate(kind: str, count: int, n: int, phase: str) -> bool:
@@ -1114,7 +1195,10 @@ def _supervise(process: subprocess.Popen[bytes], root: Path) -> int:
             raise VerificationError("worker_disappeared") from None
         peak = max(peak, rss)
         _sample(root, started, rss, require_heartbeat=False)
-        time.sleep(0.25)
+        try:
+            process.wait(timeout=0.25)
+        except subprocess.TimeoutExpired:
+            pass
     _sample(root, started, 0, require_heartbeat=True)
     if process.returncode != 0:
         raise VerificationError("worker_failed")

@@ -637,3 +637,196 @@ def test_publication_never_overwrites_preexisting_receipt(tmp_path: Path) -> Non
     with pytest.raises(verify.VerificationError):
         verify.verify_fixture(root, expected_manifest=manifest, expected_paths=paths)
     assert (root / "verified.json").read_bytes() == protected
+
+
+def test_geometric_cutoff_proof_matches_exhaustive_exact_small_tails() -> None:
+    verify = _verify()
+    for n in range(1, 13):
+        for p in (F(1, 3), F(1, 2), F(2, 3)):
+            for alpha in (F(1, 10), F(1, 4), F(1, 2), F(9, 10)):
+                for lower in (False, True):
+                    for k in range(n) if lower else range(1, n + 1):
+                        accepted = verify.binomial_tail(n, p, k, lower=lower)
+                        neighbor = verify.binomial_tail(
+                            n, p, k + 1 if lower else k - 1, lower=lower
+                        )
+                        if accepted <= alpha < neighbor:
+                            assert verify.prove_cutoff_pair(n, p, k, lower=lower, alpha=alpha) >= 1
+                        else:
+                            with pytest.raises(verify.VerificationError, match="cutoff"):
+                                verify.prove_cutoff_pair(n, p, k, lower=lower, alpha=alpha)
+
+
+def test_geometric_cutoff_equality_reflection_and_inconclusive_remainder() -> None:
+    verify = _verify()
+    assert verify.prove_cutoff_pair(2, F(1, 2), 2, lower=False, alpha=F(1, 4)) == 1
+    assert verify.prove_cutoff_pair(2, F(1, 2), 0, lower=True, alpha=F(1, 4)) == 1
+    # Exact tail1/16+4/16=5/16; equality cannot be proved from first partial term.
+    assert verify.prove_cutoff_pair(4, F(1, 2), 3, lower=False, alpha=F(5, 16)) == 2
+    # Below-mode accepted cutoff requires exact fallback, never partial mass.
+    assert verify.prove_cutoff_pair(4, F(3, 4), 1, lower=False, alpha=F(255, 256)) >= 4
+
+
+@pytest.mark.parametrize(
+    "n,p,k,lower,alpha",
+    [
+        (True, F(1, 2), 1, False, F(1, 4)),
+        (32769, F(1, 2), 1, False, F(1, 4)),
+        (2, 0.5, 1, False, F(1, 4)),
+        (2, F(1, 1000), 1, False, F(1, 4)),
+        (2, F(1, 2), True, False, F(1, 4)),
+        (2, F(1, 2), 0, False, F(1, 4)),
+        (2, F(1, 2), 2, True, F(1, 4)),
+        (2, F(1, 2), 1, 1, F(1, 4)),
+        (2, F(1, 2), 1, False, 0.25),
+        (2, F(1, 2), 1, False, F(0)),
+    ],
+)
+def test_geometric_cutoff_invalid_inputs_refuse(
+    n: Any, p: Any, k: Any, lower: Any, alpha: Any
+) -> None:
+    verify = _verify()
+    with pytest.raises(verify.VerificationError, match=r"binomial|cutoff"):
+        verify.prove_cutoff_pair(n, p, k, lower=lower, alpha=alpha)
+
+
+def test_registered_geometric_cutoff_proofs_and_independent_generic_api() -> None:
+    verify = _verify()
+    assert [
+        verify.prove_cutoff_pair(32768, p, k, lower=left)
+        for p, k, left in (
+            (F(19, 20), 31258, False),
+            (F(1, 100), 270, True),
+            (F(9, 10), 29668, False),
+        )
+    ] == [51, 8, 61]
+    verify.check_frozen_cutoffs.cache_clear()
+    verify.check_frozen_cutoffs()
+
+
+def test_reference_sha_prefix_reuse_preserves_partial_lanes_and_ownership(monkeypatch: Any) -> None:
+    verify = _verify()
+    stream = verify.ReferenceWords(_identity("P1", 2048))
+    literal_prefix = stream.prefix
+    original = b"".join(
+        hashlib.sha256(literal_prefix + k.to_bytes(8, "big")).digest() for k in range(4)
+    )
+    snapshot = stream.peek(7)
+    assert snapshot == original[:56]
+    stream.consume(3)
+    assert stream.word() == int.from_bytes(original[24:32], "big")
+    assert stream.peek(9) == original[32:104]
+    assert snapshot == original[:56] and type(snapshot) is bytes
+    stream.consume(9)
+    # Public prefix mutation changes only subsequently generated blocks.
+    stream.prefix = literal_prefix + b"fixture mutation"
+    expected_tail = original[104:128]
+    new_block = hashlib.sha256(stream.prefix + (4).to_bytes(8, "big")).digest()
+    assert stream.peek(7) == expected_tail + new_block
+    assert stream.words == 13
+    stream.counter = 1 << 64
+    before = stream.pending
+    with pytest.raises(verify.VerificationError, match="counter_overflow"):
+        stream.peek(8)
+    assert stream.pending == before and stream.words == 13
+
+
+def test_supervisor_wait_timeouts_resample_then_wake_on_actual_exit(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    verify = _verify()
+
+    class Process:
+        pid = 123
+        returncode: int | None = None
+
+        def __init__(self) -> None:
+            self.waits: list[float] = []
+
+        def poll(self) -> int | None:
+            return self.returncode
+
+        def wait(self, timeout: float) -> int:
+            self.waits.append(timeout)
+            if len(self.waits) == 1:
+                raise subprocess.TimeoutExpired("fixture", timeout)
+            self.returncode = 0
+            return 0
+
+    class Worker:
+        def memory_info(self) -> Any:
+            class Info:
+                rss = 123
+
+            return Info()
+
+        def children(self, recursive: bool) -> list[Any]:
+            return []
+
+    samples: list[bool] = []
+    monkeypatch.setattr(verify.psutil, "Process", lambda pid: Worker())
+    monkeypatch.setattr(
+        verify, "_sample", lambda *args, **kwargs: samples.append(kwargs["require_heartbeat"])
+    )
+    monkeypatch.setattr(
+        verify.time, "sleep", lambda seconds: pytest.fail("unconditional supervisor sleep")
+    )
+    process = Process()
+    assert verify._supervise(process, tmp_path) == 123
+    assert process.waits == [0.25, 0.25]
+    assert samples == [False, False, True]
+
+
+def test_reference_sha_hashes_prefix_once_per_stream(monkeypatch: Any) -> None:
+    verify = _verify()
+    original = hashlib.sha256
+    inputs: list[bytes] = []
+
+    def counted(blob: bytes = b"") -> Any:
+        inputs.append(blob)
+        return original(blob)
+
+    monkeypatch.setattr(hashlib, "sha256", counted)
+    stream = verify.ReferenceWords(_identity("P1", 2048))
+    actual = stream.peek(64)
+    expected = b"".join(original(stream.prefix + k.to_bytes(8, "big")).digest() for k in range(16))
+    assert actual == expected
+    assert inputs == [stream.prefix]
+    stream.consume(64)
+    assert stream.word() == int.from_bytes(
+        original(stream.prefix + (16).to_bytes(8, "big")).digest()[:8], "big"
+    )
+    assert inputs == [stream.prefix]
+
+
+def test_reference_native_peek_binds_copy_once_and_preserves_literal_blocks(
+    monkeypatch: Any,
+) -> None:
+    verify = _verify()
+    original = hashlib.sha256
+    lookups: list[int] = []
+
+    class HashState:
+        def __init__(self, blob: bytes):
+            self.state = original(blob)
+
+        @property
+        def copy(self) -> Any:
+            lookups.append(1)
+            return self.state.copy
+
+    monkeypatch.setattr(hashlib, "sha256", HashState)
+    stream = verify.ReferenceWords(_identity("P1", 2048))
+    stream.counter = 255
+    actual = stream.peek(65)
+    expected = b"".join(
+        original(stream.prefix + k.to_bytes(8, "big")).digest() for k in range(255, 272)
+    )
+    assert actual == expected[:520]
+    assert lookups == [1]
+    assert stream.counter == 272
+    assert stream.words == 0
+    stream.consume(64)
+    assert stream.peek(4) == expected[512:544]
+    assert lookups == [1]
+    assert stream.words == 64
