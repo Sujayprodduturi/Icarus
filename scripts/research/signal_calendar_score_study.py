@@ -552,7 +552,7 @@ def _is_reparse(path: Path) -> bool:
         return False
     attributes = getattr(info, "st_file_attributes", 0)
     reparse = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
-    return path.is_symlink() or bool(attributes & reparse)
+    return stat.S_ISLNK(info.st_mode) or bool(attributes & reparse)
 
 
 def _guard_reparse_chain(path: Path) -> None:
@@ -910,6 +910,7 @@ SOURCE_PATHS = (
     "docs/plans/2026-10-04-calendar-score-sampled-lifecycle.md",
     "docs/plans/2026-10-04-calendar-score-verifier-optimization.md",
     "docs/plans/2026-10-04-calendar-score-verifier-optimization-2.md",
+    "docs/plans/2026-10-04-calendar-score-verifier-optimization-3.md",
     "scripts/research/signal_calendar_score_study.py",
     "scripts/research/signal_calendar_evidence.py",
     "scripts/research/signal_calendar_laws.py",

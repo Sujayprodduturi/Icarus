@@ -6,6 +6,7 @@ import hashlib
 import importlib.metadata
 import json
 import os
+import stat
 import subprocess
 import threading
 from fractions import Fraction as F
@@ -1141,3 +1142,84 @@ def test_supervised_failure_secondary_errors_preserve_original_and_attempt_evide
         failure_record = json.loads((root / "preflight-failure.json").read_bytes())
         assert failure_record["reason"] == "original_refusal"
         assert failure_record["state"] == "ERROR"
+
+
+@pytest.mark.parametrize(
+    "mode,attributes,expected",
+    [
+        (stat.S_IFREG | 0o644, None, False),
+        (stat.S_IFDIR | 0o755, 0, False),
+        (stat.S_IFLNK | 0o777, 0, True),
+        (stat.S_IFREG | 0o644, 0x400, True),
+        (stat.S_IFREG | 0o644, 0x20, False),
+    ],
+)
+def test_reparse_predicate_uses_one_realistic_fresh_status(
+    tmp_path: Path, monkeypatch: Any, mode: int, attributes: int | None, expected: bool
+) -> None:
+    from types import SimpleNamespace
+
+    calls: list[Path] = []
+    status = SimpleNamespace(st_mode=mode)
+    if attributes is not None:
+        status.st_file_attributes = attributes
+
+    def lstat(path: Path) -> Any:
+        calls.append(path)
+        return status
+
+    monkeypatch.setattr(Path, "lstat", lstat)
+    path = tmp_path / "status"
+    assert study._is_reparse(path) is expected
+    assert calls == [path]
+    assert study._is_reparse(path) is expected
+    assert calls == [path, path]
+
+
+def test_reparse_predicate_uses_coherent_snapshot_but_next_call_is_fresh(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    from types import SimpleNamespace
+
+    snapshots = iter(
+        [
+            SimpleNamespace(st_mode=stat.S_IFREG | 0o644, st_file_attributes=0),
+            SimpleNamespace(st_mode=stat.S_IFLNK | 0o777, st_file_attributes=0),
+        ]
+    )
+    calls: list[Path] = []
+
+    def lstat(path: Path) -> Any:
+        calls.append(path)
+        return next(snapshots)
+
+    monkeypatch.setattr(Path, "lstat", lstat)
+    path = tmp_path / "status"
+    assert study._is_reparse(path) is False
+    assert calls == [path]
+    assert study._is_reparse(path) is True
+    assert calls == [path, path]
+
+
+@pytest.mark.parametrize(
+    "error", [FileNotFoundError("missing"), PermissionError("denied"), OSError("status failed")]
+)
+def test_reparse_predicate_missing_and_original_errors_remain_fresh(
+    tmp_path: Path, monkeypatch: Any, error: OSError
+) -> None:
+    calls: list[Path] = []
+
+    def lstat(path: Path) -> Any:
+        calls.append(path)
+        raise error
+
+    monkeypatch.setattr(Path, "lstat", lstat)
+    path = tmp_path / "status"
+    for _ in range(2):
+        if isinstance(error, FileNotFoundError):
+            assert study._is_reparse(path) is False
+        else:
+            with pytest.raises(type(error)) as caught:
+                study._is_reparse(path)
+            assert caught.value is error
+    assert calls == [path, path]
