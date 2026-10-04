@@ -830,3 +830,156 @@ def test_reference_native_peek_binds_copy_once_and_preserves_literal_blocks(
     assert stream.peek(4) == expected[512:544]
     assert lookups == [1]
     assert stream.words == 64
+
+
+def test_fixture_operational_binding_is_direct_and_transitive(tmp_path: Path) -> None:
+    from scripts.research import signal_calendar_score_study as study
+
+    verify, manifest, paths = _fixture(tmp_path / "evidence")
+    root = tmp_path / "evidence"
+    expected = study.load_operational_resources().binding()
+    for name in ("fixture-claim.json", "fixture-report.json", "fixture-terminal.json"):
+        assert json.loads((root / name).read_bytes())["operational_resources"] == expected
+    receipt = verify.verify_fixture(root, expected_manifest=manifest, expected_paths=paths)
+    assert receipt.binding["resource_contract_sha256"] == expected["resource_contract_sha256"]
+    assert json.loads((root / "verified.json").read_bytes())["operational_resources"] == expected
+
+
+@pytest.mark.parametrize(
+    "name", ["fixture-claim.json", "fixture-report.json", "fixture-terminal.json"]
+)
+def test_rehashed_operational_binding_contradiction_refuses(tmp_path: Path, name: str) -> None:
+    verify, manifest, paths = _fixture(tmp_path / "evidence")
+    root = tmp_path / "evidence"
+    value = verify._load(root, name)
+    value["operational_resources"] = {"resource_contract_id": "old"}
+    (root / name).write_bytes(verify.canonical(verify._seal(value)))
+    with pytest.raises(verify.VerificationError):
+        verify.verify_fixture(root, expected_manifest=manifest, expected_paths=paths)
+    assert not (root / "verified.json").exists()
+
+
+def test_benchmark_missing_contract_retains_failure_without_reloading(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    from scripts.research import signal_calendar_score_study as study
+
+    verify = _verify()
+    monkeypatch.setattr(verify, "_trusted_benchmark_parent", lambda: tmp_path)
+    monkeypatch.setattr(study, "RESOURCE_PATH", tmp_path / "missing.json")
+    root = tmp_path / "benchmark"
+    with pytest.raises(verify.VerificationError, match="resource_contract"):
+        verify.run_benchmark(root)
+    failure = json.loads((root / "benchmark-failure.json").read_bytes())
+    assert failure["operational_resources"] is None
+    assert failure["resource_contract_error"] is True
+    assert not (root / "benchmark-result.json").exists()
+
+
+def test_fixture_policy_drift_failure_retains_captured_binding(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    from scripts.research import signal_calendar_score_study as study
+
+    verify, manifest, paths = _fixture(tmp_path / "evidence")
+    captured = study.load_operational_resources().binding()
+    original = verify.current_manifest
+
+    def drift() -> Any:
+        monkeypatch.setattr(study, "RESOURCE_PATH", tmp_path / "missing.json")
+        return original()
+
+    monkeypatch.setattr(verify, "current_manifest", drift)
+    root = tmp_path / "evidence"
+    with pytest.raises(verify.VerificationError, match="resource_contract"):
+        verify.verify_fixture(root, expected_manifest=manifest, expected_paths=paths)
+    failure = json.loads((root / "fixture-verification-failure.json").read_bytes())
+    assert failure["operational_resources"] == captured
+    assert failure["resource_contract_error"] is False
+    assert not (root / "verified.json").exists()
+
+
+def test_fixture_write_missing_contract_retains_null_failure(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    from scripts.research import signal_calendar_score_study as study
+
+    verify = _verify()
+    monkeypatch.setattr(study, "RESOURCE_PATH", tmp_path / "missing.json")
+    root = tmp_path / "fixture"
+    with pytest.raises(study.StudyError, match="resource_contract"):
+        verify.write_fixture(root, paths=(("P1", 2048, 0),))
+    failure = json.loads((root / "fixture-write-failure.json").read_bytes())
+    assert failure["operational_resources"] is None
+    assert failure["resource_contract_error"] is True
+    assert not (root / "fixture-terminal.json").exists()
+
+
+def test_benchmark_contract_drift_retains_original_binding(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    from scripts.research import signal_calendar_score_study as study
+
+    verify = _verify()
+    captured = study.load_operational_resources().binding()
+    original = verify.current_manifest
+
+    def drift() -> Any:
+        monkeypatch.setattr(study, "RESOURCE_PATH", tmp_path / "missing.json")
+        return original()
+
+    monkeypatch.setattr(verify, "current_manifest", drift)
+    monkeypatch.setattr(verify, "_trusted_benchmark_parent", lambda: tmp_path)
+    root = tmp_path / "benchmark"
+    with pytest.raises(verify.VerificationError, match="resource_contract"):
+        verify.run_benchmark(root)
+    failure = json.loads((root / "benchmark-failure.json").read_bytes())
+    assert failure["operational_resources"] == captured
+    assert failure["resource_contract_error"] is False
+    assert not (root / "benchmark-result.json").exists()
+
+
+@pytest.mark.parametrize("failure", ["exists", "open", "binding"])
+def test_failure_persistence_secondary_errors_never_mask_original(
+    tmp_path: Path, monkeypatch: Any, failure: str
+) -> None:
+    from scripts.research import signal_calendar_score_study as study
+
+    verify, manifest, paths = _fixture(tmp_path / "evidence")
+    original_error = verify.VerificationError("original_refusal")
+
+    def refuse(*args: Any, **kwargs: Any) -> Any:
+        raise original_error
+
+    monkeypatch.setattr(verify, "_verify_fixture", refuse)
+    if failure == "exists":
+        original_exists = Path.exists
+
+        def denied_exists(path: Path) -> bool:
+            if path.name == "fixture-verification-failure.json":
+                raise OSError("failure existence denied")
+            return original_exists(path)
+
+        monkeypatch.setattr(Path, "exists", denied_exists)
+    elif failure == "open":
+        original_open = study._open_exclusive
+
+        def denied_open(path: Path) -> Any:
+            if path.name == "fixture-verification-failure.json":
+                raise OSError("failure open denied")
+            return original_open(path)
+
+        monkeypatch.setattr(study, "_open_exclusive", denied_open)
+    else:
+
+        def denied_binding(self: Any) -> Any:
+            raise OSError("failure binding denied")
+
+        monkeypatch.setattr(study.OperationalResources, "binding", denied_binding)
+    with pytest.raises(verify.VerificationError) as caught:
+        verify.verify_fixture(
+            tmp_path / "evidence", expected_manifest=manifest, expected_paths=paths
+        )
+    assert caught.value is original_error
+    assert "Failure evidence could not be persisted" in original_error.__notes__[0]
+    assert not (tmp_path / "evidence/verified.json").exists()

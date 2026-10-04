@@ -330,6 +330,7 @@ def test_supervisor_limits_fail_closed(
 def test_resource_limits_are_explicitly_monitored_not_claimed_hard() -> None:
     disclosure = study.resource_disclosure()
     assert disclosure == {
+        "operational_resources": study.load_operational_resources().binding(),
         "rss_enforcement": "MONITORED_CANCELLATION_LIMIT",
         "sample_interval_seconds": "<=0.25",
         "transient_peaks_between_samples": "UNPROVED",
@@ -459,6 +460,7 @@ def test_worker_propagates_fast_heartbeat_io_failure_before_complete(
     (root / "preflight-claim.json").write_bytes(
         study.canonical_json(
             {
+                "operational_resources": study.load_operational_resources().binding(),
                 "manifest": {"digest": manifest.digest, "payload": manifest.payload},
                 "nonce": nonce,
                 "plan": study._plan_record(plan),
@@ -866,3 +868,276 @@ def test_manifest_unexpected_metadata_failure_propagates(tmp_path: Path, monkeyp
     monkeypatch.setattr(importlib.metadata, "version", version)
     with pytest.raises(RuntimeError, match="metadata corruption"):
         study.manifest_for_paths({"source": source}, protocol_hash="b" * 64)
+
+
+def test_operational_contract_is_explicit_and_gates_keep_legacy_comparison() -> None:
+    resources = study.load_operational_resources()
+    binding = resources.binding()
+    assert binding["legacy_verifier_seconds"] == 43200
+    assert binding["effective_verifier_seconds"] == 50400
+    comparison = resources.compare(2 * 8192 * 0.70, 2 * 32768 * 0.70)
+    assert comparison["legacy_validation_eligible"] is False
+    assert comparison["effective_validation_eligible"] is True
+    for seconds, old, new in (
+        (43200.0, True, True),
+        (43200.0001, False, True),
+        (50400.0, False, True),
+        (50400.0001, False, False),
+    ):
+        actual = resources.compare(seconds, seconds)
+        assert actual["legacy_validation_eligible"] is old
+        assert actual["effective_validation_eligible"] is new
+
+
+@pytest.mark.parametrize(
+    "damage",
+    [
+        "missing",
+        "oversize",
+        "noncanonical",
+        "duplicate",
+        "unknown",
+        "schema_bool",
+        "sequence_bool",
+        "seconds_bool",
+        "baseline",
+        "predecessor",
+        "effective",
+        "third",
+        "ack",
+        "timestamp",
+        "evidence",
+        "pin",
+    ],
+)
+def test_operational_contract_refuses_corruption(tmp_path: Path, damage: str) -> None:
+    source = study.PROJECT / "docs/plans/calendar-score-operational-resources.json"
+    path = tmp_path / "contract.json"
+    blob = source.read_bytes()
+    value = json.loads(blob)
+    if damage == "missing":
+        pass
+    elif damage == "oversize":
+        path.write_bytes(b"x" * 16385)
+    elif damage == "noncanonical":
+        path.write_bytes(json.dumps(value).encode() + b"\n")
+    elif damage == "duplicate":
+        path.write_bytes(blob.replace(b'{"effective_id":', b'{"schema":1,"effective_id":', 1))
+    else:
+        if damage == "unknown":
+            value["extra"] = 1
+        elif damage == "schema_bool":
+            value["schema"] = True
+        elif damage == "sequence_bool":
+            value["history"][1]["sequence"] = True
+        elif damage == "seconds_bool":
+            value["history"][1]["verifier_seconds"] = True
+        elif damage == "baseline":
+            value["history"][0]["verifier_seconds"] = 50400
+        elif damage == "predecessor":
+            value["history"][1]["predecessor_sha256"] = "0" * 64
+        elif damage == "effective":
+            value["effective_id"] = "unapproved"
+        elif damage == "third":
+            value["history"].append(dict(value["history"][1]))
+        elif damage == "ack":
+            value["history"][1]["acknowledged_post_hoc"] = False
+        elif damage == "timestamp":
+            value["history"][1]["amended_at_utc"] = "2026-10-04"
+        elif damage == "evidence":
+            value["history"][1]["evidence"][0]["path"] = "../outside"
+        elif damage == "pin":
+            value["history"][1]["amended_at_utc"] = "2026-10-04T17:14:01Z"
+        # Rehash malicious history: internal consistency must not authorize edits.
+        for entry in value["history"]:
+            entry["entry_sha256"] = hashlib.sha256(
+                study.canonical_json({k: v for k, v in entry.items() if k != "entry_sha256"})
+            ).hexdigest()
+        path.write_bytes(study.canonical_json(value))
+    expected = hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else "0" * 64
+    if damage == "pin":
+        expected = hashlib.sha256(blob).hexdigest()
+    with pytest.raises(study.StudyError, match="resource_contract"):
+        study._load_operational_resources(path, expected_sha256=expected)
+
+
+def test_operational_contract_is_fresh_and_missing_has_no_fallback(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    path = tmp_path / "contract.json"
+    path.write_bytes(
+        (study.PROJECT / "docs/plans/calendar-score-operational-resources.json").read_bytes()
+    )
+    monkeypatch.setattr(study, "RESOURCE_PATH", path)
+    assert study.load_operational_resources().effective_verifier_seconds == 50400
+    path.write_bytes(path.read_bytes() + b" ")
+    with pytest.raises(study.StudyError, match="resource_contract"):
+        study.load_operational_resources()
+
+
+def test_preflight_missing_policy_after_root_creation_is_durable_error(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    root = tmp_path / "new-root"
+    manifest = _test_manifest(tmp_path / "manifest")
+    plan = study.test_preflight_plan(root, (study.spec("P1"),))
+    monkeypatch.setattr(study, "RESOURCE_PATH", tmp_path / "missing.json")
+    with pytest.raises(study.StudyError, match="resource_contract"):
+        study.run_supervised_preflight(root, plan=plan, manifest=manifest)
+    failure = json.loads((root / "preflight-failure.json").read_bytes())
+    assert failure["operational_resources"] is None
+    assert failure["resource_contract_error"] is True
+    assert not (root / "preflight-receipt.json").exists()
+
+
+@pytest.mark.parametrize("value", [True, -1.0, float("nan"), float("inf"), 1 << 4096])
+def test_operational_projection_invalid_values_refuse(value: Any) -> None:
+    with pytest.raises(study.StudyError, match="invalid_resource_projection"):
+        study.load_operational_resources().compare(value, 0.0)
+
+
+def test_operational_evidence_source_drift_is_rechecked(monkeypatch: Any) -> None:
+    original = Path.open
+
+    def drift(path: Path, *args: Any, **kwargs: Any) -> Any:
+        if path.name == "2026-10-04-calendar-score-verifier-optimization-2-benchmarks.json":
+            raise OSError("changed evidence source")
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", drift)
+    with pytest.raises(study.StudyError, match="resource_contract"):
+        study.load_operational_resources()
+
+
+@pytest.mark.parametrize(
+    "damage", ["verification", "generation", "count_bool", "eligible_int", "rss", "disk"]
+)
+def test_rehashed_preflight_composite_eligibility_is_not_trusted(
+    tmp_path: Path, damage: str
+) -> None:
+    root = tmp_path / "evidence"
+    manifest = _test_manifest(tmp_path / "manifest")
+    plan = study.test_preflight_plan(root, (study.spec("P1"),))
+    receipt = study.execute_preflight(plan, manifest)
+    assert receipt.eligible
+    row = json.loads((root / "preflight-receipt.json").read_bytes())
+    if damage == "verification":
+        row["replay_seconds"] = 60000.0 / (2 * 32768)
+        row["projected_development_verify_seconds"] = 15000.0
+        row["projected_validation_verify_seconds"] = 60000.0
+        row["verification_budget_comparison"] = study.load_operational_resources().compare(
+            15000.0, 60000.0
+        )
+    elif damage == "generation":
+        row["generation_seconds"] = 30000.0 / (2 * 8192)
+        row["projected_development_seconds"] = 30000.0
+        row["projected_validation_seconds"] = 120000.0
+    elif damage == "count_bool":
+        row["generated_paths"] = True
+    elif damage == "eligible_int":
+        row["eligible"] = 1
+    elif damage == "rss":
+        row["peak_rss_bytes"] = study.WORKER_RSS_CAP + 1
+    elif damage == "disk":
+        row["free_disk_bytes"] = 0
+    row["digest"] = hashlib.sha256(
+        study.canonical_json(
+            {k: v for k, v in row.items() if k not in ("digest", "resource_disclosure")}
+        )
+    ).hexdigest()
+    (root / "preflight-receipt.json").write_bytes(study.canonical_json(row))
+    with pytest.raises(study.StudyError):
+        study._read_preflight_receipt(root, manifest, plan=plan)
+
+
+@pytest.mark.parametrize("damage", ["missing", "corrupt", "drift"])
+def test_direct_preflight_contract_error_is_durable_after_root_guard(
+    tmp_path: Path, monkeypatch: Any, damage: str
+) -> None:
+    root = tmp_path / "evidence"
+    manifest = _test_manifest(tmp_path / "manifest")
+    captured = study.load_operational_resources().binding()
+    plan = study.test_preflight_plan(root, (study.spec("P1"),))
+    path = tmp_path / "policy.json"
+    if damage == "corrupt":
+        path.write_bytes(b"broken")
+    if damage in ("missing", "corrupt"):
+        monkeypatch.setattr(study, "RESOURCE_PATH", path)
+    else:
+
+        def drift(*args: Any, **kwargs: Any) -> Any:
+            monkeypatch.setattr(study, "RESOURCE_PATH", path)
+            raise study.StudyError("resource_contract_drift")
+
+        monkeypatch.setattr(study, "generate_payload", drift)
+    with pytest.raises(study.StudyError, match="resource_contract"):
+        study.execute_preflight(plan, manifest)
+    row = json.loads((root / "preflight-failure.json").read_bytes())
+    assert row["operational_resources"] == (captured if damage == "drift" else None)
+    assert row["resource_contract_error"] is (damage != "drift")
+    assert not (root / "preflight-receipt.json").exists()
+
+
+def test_preflight_receipt_reader_recomputes_valid_plan_and_counts(tmp_path: Path) -> None:
+    root = tmp_path / "evidence"
+    manifest = _test_manifest(tmp_path / "manifest")
+    plan = study.test_preflight_plan(root, (study.spec("P1"),))
+    expected = study.execute_preflight(plan, manifest)
+    assert study._read_preflight_receipt(root, manifest, plan=plan) == expected
+    with pytest.raises(study.StudyError, match="preflight_receipt_plan"):
+        study._read_preflight_receipt(root, manifest)
+
+
+@pytest.mark.parametrize("failure", ["exists", "binding", "poll", "kill"])
+def test_supervised_failure_secondary_errors_preserve_original_and_attempt_evidence(
+    tmp_path: Path, monkeypatch: Any, failure: str
+) -> None:
+    root = tmp_path / "supervised"
+    manifest = _test_manifest(tmp_path / "manifest")
+    plan = study.test_preflight_plan(root, (study.spec("P1"),))
+    original_error = study.StudyError("original_refusal")
+
+    class Process:
+        pid = -1
+
+        def poll(self) -> int | None:
+            if failure == "poll":
+                raise OSError("poll denied")
+            return None if failure == "kill" else 0
+
+    monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: Process())
+
+    def kill(process: Any) -> None:
+        if failure == "kill":
+            raise OSError("kill denied")
+
+    monkeypatch.setattr(study, "_kill_tree", kill)
+    original_exists = Path.exists
+
+    def supervise(*args: Any) -> Any:
+        if failure == "exists":
+
+            def denied(path: Path) -> bool:
+                if path.name == "preflight-failure.json":
+                    raise OSError("failure existence denied")
+                return original_exists(path)
+
+            monkeypatch.setattr(Path, "exists", denied)
+        elif failure == "binding":
+
+            def denied_binding(self: Any) -> Any:
+                raise OSError("failure binding denied")
+
+            monkeypatch.setattr(study.OperationalResources, "binding", denied_binding)
+        raise original_error
+
+    monkeypatch.setattr(study, "_supervise_preflight", supervise)
+    with pytest.raises(study.StudyError) as caught:
+        study.run_supervised_preflight(root, plan=plan, manifest=manifest)
+    assert caught.value is original_error
+    assert original_error.__notes__
+    assert not (root / "preflight-receipt.json").exists()
+    if failure in ("poll", "kill"):
+        failure_record = json.loads((root / "preflight-failure.json").read_bytes())
+        assert failure_record["reason"] == "original_refusal"
+        assert failure_record["state"] == "ERROR"

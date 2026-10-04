@@ -671,7 +671,34 @@ def _paths(paths: tuple[tuple[str, int, int], ...]) -> tuple[tuple[str, int, int
 def _record(root: Path, name: str, record: dict[str, object]) -> None:
     from scripts.research import signal_calendar_score_study as io
 
+    if "operational_resources" not in record:
+        record["operational_resources"] = io.load_operational_resources().binding()
     io._exclusive_record(root / name, _seal(record), root=root)
+
+
+def _failure_record(root: Path, name: str, error: BaseException, resources: object) -> None:
+    from scripts.research import signal_calendar_score_study as io
+
+    try:
+        binding = resources.binding() if isinstance(resources, io.OperationalResources) else None
+        if not (root / name).exists():
+            _record(
+                root,
+                name,
+                {
+                    "schema": 1,
+                    "scope": SCOPE,
+                    "state": "ERROR",
+                    "reason": str(error)
+                    if isinstance(error, (VerificationError, io.StudyError))
+                    else "io_failure",
+                    "operational_resources": binding,
+                    "resource_contract_error": binding is None,
+                    "experimental_draws": 0,
+                },
+            )
+    except BaseException as persistence:
+        error.add_note("Failure evidence could not be persisted: " + type(persistence).__name__)
 
 
 def _load(root: Path, name: str) -> dict[str, Any]:
@@ -681,7 +708,11 @@ def _load(root: Path, name: str) -> dict[str, Any]:
     rows = list(io.read_canonical_records(path, total_cap=MAX_RECORD, record_cap=MAX_RECORD))
     if len(rows) != 1:
         raise VerificationError("record_count")
-    return _unseal(rows[0])
+    value = _unseal(rows[0])
+    binding = value.pop("operational_resources", None)
+    if canonical(binding) != canonical(io.load_operational_resources().binding()):
+        raise VerificationError("resource_contract_binding")
+    return value
 
 
 def _cells() -> dict[str, Any]:
@@ -827,12 +858,28 @@ def write_fixture(
 
     if type(namespace) is not str or namespace not in (TEST, PREFLIGHT):
         raise VerificationError("identity")
-    paths = _paths(paths)
+    _paths(paths)
     if root.exists():
         raise VerificationError("destination")
-    # Guard every lexical ancestor BEFORE creating the new leaf.
     io._guard_path(root, root.parent)
     root.mkdir()
+    resources: io.OperationalResources | None = None
+    try:
+        resources = io.load_operational_resources()
+        return _write_fixture(root, paths=paths, namespace=namespace)
+    except BaseException as error:
+        _failure_record(root, "fixture-write-failure.json", error, resources)
+        raise
+
+
+def _write_fixture(
+    root: Path, *, paths: tuple[tuple[str, int, int], ...] = FULL_PATHS, namespace: str = PREFLIGHT
+) -> str:
+    from scripts.research import signal_calendar_score_study as io
+
+    if type(namespace) is not str or namespace not in (TEST, PREFLIGHT):
+        raise VerificationError("identity")
+    paths = _paths(paths)
     manifest_digest, manifest_payload = current_manifest()
     phase = "test_preflight" if namespace == PREFLIGHT else "test_fixture"
     claim: dict[str, object] = {
@@ -956,6 +1003,7 @@ def _verify_fixture(
 
     started = time.perf_counter()
     paths = _paths(expected_paths)
+    resources = io.load_operational_resources()
     actual_manifest, manifest_payload = current_manifest()
     if actual_manifest != expected_manifest:
         raise VerificationError("source_drift")
@@ -1066,6 +1114,8 @@ def _verify_fixture(
     if canonical(terminal) != canonical(expected_terminal):
         raise VerificationError("terminal")
     binding = {
+        "resource_contract_id": resources.resource_contract_id,
+        "resource_contract_sha256": resources.resource_contract_sha256,
         "protocol_digest": PROTOCOL_DIGEST,
         "source_manifest_digest": actual_manifest,
         "attempt_id": "deterministic_fixture",
@@ -1134,12 +1184,17 @@ def verify_fixture(
         "verified-reviewer.json",
     ):
         raise VerificationError("receipt_name")
+    resources: io.OperationalResources | None = None
     try:
+        resources = io.load_operational_resources()
         return _verify_fixture(root, expected_manifest, expected_paths, receipt_name)
-    except (io.StudyError, OSError) as error:
-        raise VerificationError(
-            str(error) if isinstance(error, io.StudyError) else "io_failure"
-        ) from error
+    except BaseException as error:
+        _failure_record(root, "fixture-verification-failure.json", error, resources)
+        if isinstance(error, (io.StudyError, OSError)):
+            raise VerificationError(
+                str(error) if isinstance(error, io.StudyError) else "io_failure"
+            ) from error
+        raise
 
 
 def benchmark_geometry() -> tuple[tuple[str, int, int], ...]:
@@ -1300,7 +1355,9 @@ def run_benchmark(root: Path) -> dict[str, object]:
     root.mkdir()
     process: subprocess.Popen[bytes] | None = None
     started = time.perf_counter()
+    resources: io.OperationalResources | None = None
     try:
+        resources = io.load_operational_resources()
         manifest_digest, manifest_payload = current_manifest()
         required = 20 * 1024**3 + io.PHASE_BOUNDED_ESTIMATES["validation"]
         if psutil.disk_usage(str(root)).free < required:
@@ -1370,6 +1427,9 @@ def run_benchmark(root: Path) -> dict[str, object]:
         _sample(root, launch, 0, require_heartbeat=True)
         if current_manifest()[0] != manifest_digest:
             raise VerificationError("source_drift")
+        disclosure = io.resource_disclosure()
+        if io.load_operational_resources() != resources:
+            raise VerificationError("resource_contract_drift")
         wall = time.perf_counter() - started
         # Conservatively retain process startup, parent source/receipt work,
         # polling delay, child cold initialization and final checks in per-set timing.
@@ -1395,11 +1455,16 @@ def run_benchmark(root: Path) -> dict[str, object]:
             "fixture_creation_seconds": creation,
             "process_startup_seconds": max(0.0, ready["monotonic"] - launch),
             "peak_worker_rss": peak,
-            "resource_disclosure": io.resource_disclosure(),
+            "resource_disclosure": disclosure,
             "validation_projection_seconds": 2 * 32768 * per_set,
             "development_projection_seconds": 2 * 8192 * per_set,
-            "per_set_limit_seconds": 43200 / (2 * 32768),
-            "eligible": 2 * 32768 * per_set <= 43200,
+            "operational_resources": resources.binding(),
+            "verification_budget_comparison": resources.compare(
+                2 * 8192 * per_set, 2 * 32768 * per_set
+            ),
+            "legacy_per_set_limit_seconds": resources.legacy_verifier_seconds / (2 * 32768),
+            "per_set_limit_seconds": resources.effective_verifier_seconds / (2 * 32768),
+            "eligible": 2 * 32768 * per_set <= resources.effective_verifier_seconds,
         }
         _record(root, "benchmark-result.json", result)
         _sample(root, launch, 0, require_heartbeat=True)
@@ -1412,17 +1477,7 @@ def run_benchmark(root: Path) -> dict[str, object]:
         reason = (
             str(error) if isinstance(error, (VerificationError, io.StudyError)) else "io_failure"
         )
-        _record(
-            root,
-            "benchmark-failure.json",
-            {
-                "schema": 1,
-                "scope": SCOPE,
-                "state": "ERROR",
-                "reason": reason,
-                "experimental_draws": 0,
-            },
-        )
+        _failure_record(root, "benchmark-failure.json", error, resources)
         if isinstance(error, VerificationError):
             raise
         raise VerificationError(reason) from error

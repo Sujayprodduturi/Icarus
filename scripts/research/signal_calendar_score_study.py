@@ -22,6 +22,7 @@ import threading
 import time
 from collections.abc import Iterator, Mapping
 from dataclasses import asdict, dataclass, replace
+from datetime import UTC, datetime
 from fractions import Fraction
 from functools import lru_cache
 from pathlib import Path
@@ -44,7 +45,6 @@ STREAM_IDENTIFIER = "sha256-counter-u64x4-big-endian/v2"
 EXPERIMENT_ROOT = PROJECT / "var/research/calendar_score_v2"
 PHASE_REPLICATES = {"development": 8192, "validation": 32768}
 PHASE_DEADLINES = {"development": 21600.0, "validation": 43200.0}
-VERIFY_DEADLINE = 43200.0
 PREFLIGHT_DEADLINE = 600.0
 PHASE_CAPS = {"development": 3 * 1024**3, "validation": 12 * 1024**3}
 PHASE_BOUNDED_ESTIMATES = {"development": 2584248320, "validation": 10286661632}
@@ -741,8 +741,171 @@ def read_canonical_records(
             yield value
 
 
+RESOURCE_PATH = PROJECT / "docs/plans/calendar-score-operational-resources.json"
+RESOURCE_SHA256 = "8a2225727e08cb7eb848e46ab856eca5649d727c15a101f0ab1bb3d9a1d313bc"
+RESOURCE_BASELINE_SHA256 = "e13f6e229442c07edd5f559c878a2c5a1a176080f1c3d7f963914cc63dbd4434"
+RESOURCE_ID = "calendar-score-verification-resources/v2"
+
+
+@dataclass(frozen=True, slots=True)
+class OperationalResources:
+    resource_contract_id: str
+    resource_contract_sha256: str
+    legacy_verifier_seconds: int
+    effective_verifier_seconds: int
+
+    def binding(self) -> dict[str, Any]:
+        return asdict(self)
+
+    def compare(self, development: float, validation: float) -> dict[str, Any]:
+        if any(
+            type(v) not in (int, float)
+            or (type(v) is int and v.bit_length() > 63)
+            or not math.isfinite(v)
+            or v < 0
+            for v in (development, validation)
+        ):
+            raise StudyError("invalid_resource_projection")
+        return {
+            "legacy_verifier_seconds": self.legacy_verifier_seconds,
+            "effective_verifier_seconds": self.effective_verifier_seconds,
+            "projected_development_verify_seconds": development,
+            "projected_validation_verify_seconds": validation,
+            "legacy_development_eligible": development <= self.legacy_verifier_seconds,
+            "legacy_validation_eligible": validation <= self.legacy_verifier_seconds,
+            "effective_development_eligible": development <= self.effective_verifier_seconds,
+            "effective_validation_eligible": validation <= self.effective_verifier_seconds,
+        }
+
+
+def _load_operational_resources(path: Path, *, expected_sha256: str) -> OperationalResources:
+    """Explicit private fixture seam; production always uses the reviewed whole-file pin."""
+    try:
+        guarded = _guard_path(path, path.parent, existing=True)
+        before = guarded.stat()
+        with guarded.open("rb") as stream:
+            blob = stream.read(16385)
+        after = guarded.stat()
+        if (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns) != (
+            after.st_dev,
+            after.st_ino,
+            after.st_size,
+            after.st_mtime_ns,
+        ) or len(blob) > 16384:
+            raise StudyError("resource_contract_bound")
+        value = json.loads(blob)
+        digest = hashlib.sha256(blob).hexdigest()
+        if canonical_json(value) != blob or digest != expected_sha256:
+            raise StudyError("resource_contract_digest")
+        if (
+            type(value) is not dict
+            or set(value) != {"schema", "family", "protocol_sha256", "effective_id", "history"}
+            or canonical_json({k: v for k, v in value.items() if k != "history"})
+            != canonical_json(
+                {
+                    "schema": 1,
+                    "family": "calendar-score-operational-resources/v1",
+                    "protocol_sha256": PROTOCOL_SHA256,
+                    "effective_id": RESOURCE_ID,
+                }
+            )
+        ):
+            raise StudyError("resource_contract_schema")
+        history = value["history"]
+        if type(history) is not list or len(history) != 2:
+            raise StudyError("resource_contract_history")
+        keys = {
+            "id",
+            "sequence",
+            "recorded_on",
+            "amended_at_utc",
+            "verifier_seconds",
+            "acknowledged_post_hoc",
+            "reason",
+            "predecessor_sha256",
+            "evidence",
+            "entry_sha256",
+        }
+        for entry in history:
+            if type(entry) is not dict or set(entry) != keys:
+                raise StudyError("resource_contract_schema")
+            if (
+                entry["entry_sha256"]
+                != hashlib.sha256(
+                    canonical_json({k: v for k, v in entry.items() if k != "entry_sha256"})
+                ).hexdigest()
+            ):
+                raise StudyError("resource_contract_history")
+        if history[0]["entry_sha256"] != RESOURCE_BASELINE_SHA256:
+            raise StudyError("resource_contract_baseline")
+        amendment = history[1]
+        stamp = amendment["amended_at_utc"]
+        if type(stamp) is not str or len(stamp) != 20:
+            raise StudyError("resource_contract_timestamp")
+        parsed = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+        if (
+            parsed.tzinfo is None
+            or parsed.utcoffset() != UTC.utcoffset(parsed)
+            or parsed.isoformat().replace("+00:00", "Z") != stamp
+            or stamp[:10] != "2026-10-04"
+        ):
+            raise StudyError("resource_contract_timestamp")
+        expected_evidence = []
+        for relative in (
+            "docs/plans/2026-10-04-calendar-score-verification-budget-amendment-proposal.md",
+            "docs/reviews/2026-10-04-calendar-score-verifier-optimization-2-benchmarks.json",
+        ):
+            source = _guard_path(PROJECT / relative, PROJECT, existing=True)
+            with source.open("rb") as stream:
+                data = stream.read(MAX_RECORD + 1)
+            if len(data) > MAX_RECORD:
+                raise StudyError("resource_contract_evidence")
+            expected_evidence.append({"path": relative, "sha256": hashlib.sha256(data).hexdigest()})
+        expected_amendment = {
+            "id": RESOURCE_ID,
+            "sequence": 1,
+            "recorded_on": "2026-10-04",
+            "amended_at_utc": stamp,
+            "verifier_seconds": 50400,
+            "acknowledged_post_hoc": True,
+            "reason": (
+                "Deterministic cold full-workload verification exceeded the original twelve-hour "
+                "resource budget; separately reviewed fourteen-hour operational amendment; "
+                "statistical gates unchanged"
+            ),
+            "predecessor_sha256": RESOURCE_BASELINE_SHA256,
+            "evidence": expected_evidence,
+            "entry_sha256": amendment["entry_sha256"],
+        }
+        if canonical_json(amendment) != canonical_json(expected_amendment):
+            raise StudyError("resource_contract_amendment")
+        return OperationalResources(
+            RESOURCE_ID, digest, history[0]["verifier_seconds"], amendment["verifier_seconds"]
+        )
+    except StudyError as error:
+        if str(error).startswith("resource_contract"):
+            raise
+        raise StudyError("resource_contract_path") from error
+    except (OSError, ValueError, TypeError, KeyError, UnicodeError) as error:
+        raise StudyError("resource_contract_invalid") from error
+
+
+def load_operational_resources() -> OperationalResources:
+    return _load_operational_resources(RESOURCE_PATH, expected_sha256=RESOURCE_SHA256)
+
+
+def _operational_record(path: Path, payload: dict[str, Any], *, root: Path) -> None:
+    if "operational_resources" not in payload:
+        payload["operational_resources"] = load_operational_resources().binding()
+    _exclusive_record(path, payload, root=root)
+
+
 SOURCE_PATHS = (
     PROTOCOL_PATH,
+    "docs/plans/calendar-score-operational-resources.json",
+    "docs/plans/2026-10-04-calendar-score-verification-budget-amendment-proposal.md",
+    "docs/plans/2026-10-04-calendar-score-verification-budget-amendment-build.md",
+    "docs/reviews/2026-10-04-calendar-score-verifier-optimization-2-benchmarks.json",
     "scripts/research/signal_calendar_score_verify.py",
     "docs/plans/2026-10-04-calendar-score-sampled-lifecycle.md",
     "docs/plans/2026-10-04-calendar-score-verifier-optimization.md",
@@ -788,6 +951,7 @@ def manifest_for_paths(
         except importlib.metadata.PackageNotFoundError:
             continue
     payload: dict[str, Any] = {
+        "operational_resources": load_operational_resources().binding(),
         "schema": 2,
         "scope": scope,
         "protocol_sha256": protocol_hash,
@@ -817,6 +981,10 @@ def verify_manifest(manifest: Manifest, paths: Mapping[str, Path], *, protocol_h
         raise StudyError("protocol_drift")
     if hashlib.sha256(canonical_json(manifest.payload)).hexdigest() != manifest.digest:
         raise StudyError("manifest_digest")
+    if canonical_json(manifest.payload.get("operational_resources")) != canonical_json(
+        load_operational_resources().binding()
+    ):
+        raise StudyError("resource_contract_binding")
     expected = manifest.payload.get("sources")
     if type(expected) is not dict or set(expected) != set(paths):
         raise StudyError("source_closure")
@@ -861,8 +1029,9 @@ def check_supervision(
         raise StudyError("disk_reserve")
 
 
-def resource_disclosure() -> dict[str, str]:
+def resource_disclosure() -> dict[str, Any]:
     return {
+        "operational_resources": load_operational_resources().binding(),
         "rss_enforcement": "MONITORED_CANCELLATION_LIMIT",
         "sample_interval_seconds": "<=0.25",
         "transient_peaks_between_samples": "UNPROVED",
@@ -932,6 +1101,8 @@ class PreflightReceipt:
     projected_development_verify_seconds: float
     projected_validation_seconds: float
     projected_validation_verify_seconds: float
+    operational_resources: dict[str, Any]
+    verification_budget_comparison: dict[str, Any]
     eligible: bool
     digest: str
 
@@ -1009,6 +1180,38 @@ def execute_preflight(plan: PreflightPlan, manifest: Manifest) -> PreflightRecei
             raise StudyError("preflight_destination")
         _guard_path(plan.evidence_root, plan.evidence_root.parent)
         plan.evidence_root.mkdir()
+    resources: OperationalResources | None = None
+    try:
+        resources = load_operational_resources()
+        return _execute_preflight_work(plan, manifest, resources)
+    except BaseException as error:
+        try:
+            failure_path = plan.evidence_root / "preflight-failure.json"
+            if not failure_path.exists():
+                failure: dict[str, Any] = {
+                    "state": "ERROR",
+                    "stage": "direct_preflight",
+                    "error_type": type(error).__name__,
+                    "operational_resources": None if resources is None else resources.binding(),
+                    "resource_contract_error": resources is None,
+                }
+                reason = _stable_failure_reason(error)
+                if reason is not None:
+                    failure["reason"] = reason
+                _operational_record(failure_path, failure, root=plan.evidence_root)
+        except BaseException as persistence:
+            error.add_note("Failure evidence could not be persisted: " + type(persistence).__name__)
+        raise
+
+
+def _execute_preflight_work(
+    plan: PreflightPlan, manifest: Manifest, resources: OperationalResources
+) -> PreflightReceipt:
+    assert plan.evidence_root is not None
+    if canonical_json(manifest.payload.get("operational_resources")) != canonical_json(
+        resources.binding()
+    ):
+        raise StudyError("resource_contract_binding")
     started = time.monotonic()
     generation_seconds = replay_seconds = 0.0
     generated = replayed = 0
@@ -1042,6 +1245,7 @@ def execute_preflight(plan: PreflightPlan, manifest: Manifest) -> PreflightRecei
                 payload = generate_payload(item, stream)
                 generated_result = evaluate_payload(item, payload)
                 record = {
+                    "operational_resources": resources.binding(),
                     "offset": offset,
                     "payload_sha256": hashlib.sha256(payload).hexdigest(),
                     "profile_id": item.profile_id,
@@ -1074,7 +1278,9 @@ def execute_preflight(plan: PreflightPlan, manifest: Manifest) -> PreflightRecei
             item = spec(phase.profile_id)
             size = source_length(item)
             if (
-                row.get("profile_id") != item.profile_id
+                canonical_json(row.get("operational_resources"))
+                != canonical_json(resources.binding())
+                or row.get("profile_id") != item.profile_id
                 or row.get("offset") != payload_reader.tell()
                 or row.get("size") != size
             ):
@@ -1127,7 +1333,7 @@ def execute_preflight(plan: PreflightPlan, manifest: Manifest) -> PreflightRecei
     payload_digest = _hash_file(payload_path, expected_size=offset)
     index_digest = _hash_file(index_path)
     cleanup_targets = (probe,)
-    _exclusive_record(
+    _operational_record(
         plan.evidence_root / "preflight-cleanup-intent.json",
         {
             "allowlist": [path.name for path in cleanup_targets],
@@ -1148,17 +1354,22 @@ def execute_preflight(plan: PreflightPlan, manifest: Manifest) -> PreflightRecei
             _guard_path(target, plan.evidence_root, existing=True).unlink()
             deleted.append(target.name)
     except BaseException as error:
-        _exclusive_record(
-            plan.evidence_root / "preflight-cleanup-failure.json",
-            {
-                "deleted": deleted,
-                "error_type": type(error).__name__,
-                "state": "PARTIAL_FAILURE",
-            },
-            root=plan.evidence_root,
-        )
+        try:
+            _operational_record(
+                plan.evidence_root / "preflight-cleanup-failure.json",
+                {
+                    "deleted": deleted,
+                    "operational_resources": resources.binding(),
+                    "resource_contract_error": False,
+                    "error_type": type(error).__name__,
+                    "state": "PARTIAL_FAILURE",
+                },
+                root=plan.evidence_root,
+            )
+        except BaseException as persistence:
+            error.add_note("Failure evidence could not be persisted: " + type(persistence).__name__)
         raise StudyError("preflight_cleanup_failure") from error
-    _exclusive_record(
+    _operational_record(
         plan.evidence_root / "preflight-probe-cleanup.json",
         {
             "bytes": plan.disk_probe_bytes,
@@ -1177,18 +1388,23 @@ def execute_preflight(plan: PreflightPlan, manifest: Manifest) -> PreflightRecei
     )
     validation_verify_seconds = plan.safety_factor * replay_seconds * PHASE_REPLICATES["validation"]
     free_disk_bytes = psutil.disk_usage(str(plan.evidence_root)).free
+    comparison = resources.compare(development_verify_seconds, validation_verify_seconds)
+    if load_operational_resources() != resources:
+        raise StudyError("resource_contract_drift")
     eligible = (
         generated == replayed == sum(phase.replicates for phase in plan.phases)
         and development_seconds <= PHASE_DEADLINES["development"]
         and validation_seconds <= PHASE_DEADLINES["validation"]
-        and development_verify_seconds <= VERIFY_DEADLINE
-        and validation_verify_seconds <= VERIFY_DEADLINE
+        and comparison["effective_development_eligible"]
+        and comparison["effective_validation_eligible"]
         and peak_rss <= WORKER_RSS_CAP
         and free_disk_bytes >= FREE_RESERVE + PHASE_BOUNDED_ESTIMATES["validation"]
         and PHASE_BOUNDED_ESTIMATES["development"] <= PHASE_CAPS["development"]
         and PHASE_BOUNDED_ESTIMATES["validation"] <= PHASE_CAPS["validation"]
     )
     fields: dict[str, Any] = {
+        "operational_resources": resources.binding(),
+        "verification_budget_comparison": comparison,
         "disk_probe_bytes": plan.disk_probe_bytes,
         "disk_read_seconds": read_seconds,
         "disk_write_seconds": write_seconds,
@@ -1207,7 +1423,7 @@ def execute_preflight(plan: PreflightPlan, manifest: Manifest) -> PreflightRecei
     }
     digest = hashlib.sha256(canonical_json(fields)).hexdigest()
     receipt = PreflightReceipt(**fields, digest=digest)
-    _exclusive_record(
+    _operational_record(
         plan.evidence_root / "preflight-receipt.json",
         {**fields, "digest": digest, "resource_disclosure": resource_disclosure()},
         root=plan.evidence_root,
@@ -1326,6 +1542,9 @@ def _internal_preflight_worker(root: Path, nonce: str) -> None:
     if len(claim_rows) != 1:
         raise StudyError("preflight_claim")
     claim = claim_rows[0]
+    resources = load_operational_resources()
+    if canonical_json(claim.get("operational_resources")) != canonical_json(resources.binding()):
+        raise StudyError("resource_contract_binding")
     manifest_record = claim.get("manifest")
     if (
         claim.get("nonce") != nonce
@@ -1340,6 +1559,10 @@ def _internal_preflight_worker(root: Path, nonce: str) -> None:
     plan_record = claim.get("plan")
     if type(plan_record) is not dict or type(plan_record.get("phases")) is not list:
         raise StudyError("preflight_claim")
+    if canonical_json(plan_record.get("operational_resources")) != canonical_json(
+        resources.binding()
+    ):
+        raise StudyError("resource_contract_binding")
     try:
         plan = PreflightPlan(
             plan_record["namespace"],
@@ -1371,14 +1594,18 @@ def _internal_preflight_worker(root: Path, nonce: str) -> None:
             raise StudyError("heartbeat_join")
         if heartbeat_errors:
             raise StudyError("heartbeat_io") from heartbeat_errors[0]
-    _exclusive_record(
+    _operational_record(
         root / "preflight-terminal.json",
         {"digest": receipt.digest, "state": "COMPLETE"},
         root=root,
     )
 
 
-def _read_preflight_receipt(root: Path, manifest: Manifest) -> PreflightReceipt:
+def _read_preflight_receipt(
+    root: Path, manifest: Manifest, *, plan: PreflightPlan | None = None
+) -> PreflightReceipt:
+    if type(plan) is not PreflightPlan or plan.evidence_root != root:
+        raise StudyError("preflight_receipt_plan")
     rows = list(read_canonical_records(root / "preflight-receipt.json", total_cap=MAX_RECORD))
     if len(rows) != 1:
         raise StudyError("preflight_receipt")
@@ -1386,17 +1613,95 @@ def _read_preflight_receipt(root: Path, manifest: Manifest) -> PreflightReceipt:
     disclosure = row.pop("resource_disclosure", None)
     digest = row.pop("digest", None)
     if (
-        disclosure != resource_disclosure()
+        set(row) != set(PreflightReceipt.__dataclass_fields__) - {"digest"}
+        or canonical_json(disclosure) != canonical_json(resource_disclosure())
         or digest != hashlib.sha256(canonical_json(row)).hexdigest()
+        or row.get("source_manifest_digest") != manifest.digest
     ):
         raise StudyError("preflight_receipt")
-    if row.get("source_manifest_digest") != manifest.digest:
-        raise StudyError("preflight_receipt")
+    integers = (
+        "generated_paths",
+        "replayed_paths",
+        "disk_probe_bytes",
+        "peak_rss_bytes",
+        "free_disk_bytes",
+    )
+    floats = (
+        "generation_seconds",
+        "replay_seconds",
+        "disk_write_seconds",
+        "disk_read_seconds",
+        "projected_development_seconds",
+        "projected_validation_seconds",
+        "projected_development_verify_seconds",
+        "projected_validation_verify_seconds",
+    )
+    if (
+        any(type(row[k]) is not int or row[k] < 0 or row[k].bit_length() > 63 for k in integers)
+        or any(type(row[k]) is not float or not math.isfinite(row[k]) or row[k] < 0 for k in floats)
+        or type(row["eligible"]) is not bool
+    ):
+        raise StudyError("preflight_receipt_types")
+    if (
+        type(plan.safety_factor) is not int
+        or plan.safety_factor != 2
+        or any(
+            type(phase) is not PreflightPhase
+            or type(phase.replicates) is not int
+            or phase.replicates != 1
+            or phase.n != spec(phase.profile_id).n
+            for phase in plan.phases
+        )
+    ):
+        raise StudyError("preflight_receipt_plan")
+    expected_projections = {
+        "projected_development_seconds": plan.safety_factor
+        * row["generation_seconds"]
+        * PHASE_REPLICATES["development"],
+        "projected_validation_seconds": plan.safety_factor
+        * row["generation_seconds"]
+        * PHASE_REPLICATES["validation"],
+        "projected_development_verify_seconds": plan.safety_factor
+        * row["replay_seconds"]
+        * PHASE_REPLICATES["development"],
+        "projected_validation_verify_seconds": plan.safety_factor
+        * row["replay_seconds"]
+        * PHASE_REPLICATES["validation"],
+    }
+    if canonical_json({k: row[k] for k in expected_projections}) != canonical_json(
+        expected_projections
+    ):
+        raise StudyError("preflight_receipt_projection")
+    resources = load_operational_resources()
+    comparison = resources.compare(
+        row["projected_development_verify_seconds"], row["projected_validation_verify_seconds"]
+    )
+    if canonical_json(row["operational_resources"]) != canonical_json(
+        resources.binding()
+    ) or canonical_json(row["verification_budget_comparison"]) != canonical_json(comparison):
+        raise StudyError("resource_contract_binding")
+    expected_count = sum(phase.replicates for phase in plan.phases)
+    eligible = (
+        row["generated_paths"] == row["replayed_paths"] == expected_count
+        and expected_count > 0
+        and row["disk_probe_bytes"] == plan.disk_probe_bytes
+        and row["projected_development_seconds"] <= PHASE_DEADLINES["development"]
+        and row["projected_validation_seconds"] <= PHASE_DEADLINES["validation"]
+        and comparison["effective_development_eligible"]
+        and comparison["effective_validation_eligible"]
+        and row["peak_rss_bytes"] <= WORKER_RSS_CAP
+        and row["free_disk_bytes"] >= FREE_RESERVE + PHASE_BOUNDED_ESTIMATES["validation"]
+        and PHASE_BOUNDED_ESTIMATES["development"] <= PHASE_CAPS["development"]
+        and PHASE_BOUNDED_ESTIMATES["validation"] <= PHASE_CAPS["validation"]
+    )
+    if row["eligible"] is not eligible:
+        raise StudyError("preflight_receipt_eligibility")
     return PreflightReceipt(**row, digest=digest)
 
 
 def _plan_record(plan: PreflightPlan) -> dict[str, Any]:
     return {
+        "operational_resources": load_operational_resources().binding(),
         "disk_probe_bytes": plan.disk_probe_bytes,
         "namespace": plan.namespace,
         "phase": plan.phase,
@@ -1427,7 +1732,6 @@ def run_supervised_preflight(
         raise StudyError("preflight_configuration")
     if production:
         plan = replace(preflight_plan(), evidence_root=root)
-        manifest = source_manifest()
         trusted_root = Path(os.path.abspath(PROJECT / "var/verification"))
     else:
         assert plan is not None and manifest is not None
@@ -1443,7 +1747,11 @@ def run_supervised_preflight(
     root.mkdir()
     process: subprocess.Popen[bytes] | None = None
     stage = "startup"
+    resources: OperationalResources | None = None
     try:
+        resources = load_operational_resources()
+        if production:
+            manifest = source_manifest()
         assert plan is not None and manifest is not None
         if production:
             current = source_manifest()
@@ -1454,7 +1762,7 @@ def run_supervised_preflight(
             raise StudyError("disk_reserve")
         nonce = secrets.token_hex(32)
         stage = "claim"
-        _exclusive_record(
+        _operational_record(
             root / "preflight-claim.json",
             {
                 "manifest": {"digest": manifest.digest, "payload": manifest.payload},
@@ -1498,7 +1806,7 @@ def run_supervised_preflight(
                 if log_failure is None:
                     raise StudyError("close_failure") from error
         stage = "supervision_record"
-        _exclusive_record(
+        _operational_record(
             root / "preflight-supervision.json",
             {
                 "peak_worker_rss_bytes": supervisor_peak_rss,
@@ -1511,30 +1819,46 @@ def run_supervised_preflight(
         if production and source_manifest() != manifest:
             raise StudyError("source_drift")
         stage = "receipt"
-        receipt = _read_preflight_receipt(root, manifest)
+        receipt = _read_preflight_receipt(root, manifest, plan=plan)
         terminal = list(
             read_canonical_records(root / "preflight-terminal.json", total_cap=MAX_RECORD)
         )
-        if terminal != [{"digest": receipt.digest, "state": "COMPLETE"}]:
+        if canonical_json(terminal) != canonical_json(
+            [
+                {
+                    "digest": receipt.digest,
+                    "state": "COMPLETE",
+                    "operational_resources": resources.binding(),
+                }
+            ]
+        ):
             raise StudyError("preflight_terminal")
         return receipt
     except BaseException as error:
-        if process is not None and process.poll() is None:
-            _kill_tree(process)
-        if not (root / "preflight-failure.json").exists():
-            failure_payload: dict[str, Any] = {
-                "error_type": type(error).__name__,
-                "stage": stage,
-                "state": "ERROR",
-            }
-            reason = _stable_failure_reason(error)
-            if reason is not None:
-                failure_payload["reason"] = reason
-            _exclusive_record(
-                root / "preflight-failure.json",
-                failure_payload,
-                root=root,
-            )
+        try:
+            if process is not None and process.poll() is None:
+                _kill_tree(process)
+        except BaseException as cleanup:
+            error.add_note("Worker termination could not be completed: " + type(cleanup).__name__)
+        try:
+            if not (root / "preflight-failure.json").exists():
+                failure_payload: dict[str, Any] = {
+                    "operational_resources": None if resources is None else resources.binding(),
+                    "resource_contract_error": resources is None,
+                    "error_type": type(error).__name__,
+                    "stage": stage,
+                    "state": "ERROR",
+                }
+                reason = _stable_failure_reason(error)
+                if reason is not None:
+                    failure_payload["reason"] = reason
+                _operational_record(
+                    root / "preflight-failure.json",
+                    failure_payload,
+                    root=root,
+                )
+        except BaseException as persistence:
+            error.add_note("Failure evidence could not be persisted: " + type(persistence).__name__)
         raise
 
 
