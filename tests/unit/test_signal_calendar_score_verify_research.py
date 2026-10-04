@@ -983,3 +983,22 @@ def test_failure_persistence_secondary_errors_never_mask_original(
     assert caught.value is original_error
     assert "Failure evidence could not be persisted" in original_error.__notes__[0]
     assert not (tmp_path / "evidence/verified.json").exists()
+
+
+def test_sixteen_hour_fixture_binding_is_current_without_phase_authority(tmp_path: Path) -> None:
+    verify, manifest, paths = _fixture(tmp_path / "evidence")
+    root = tmp_path / "evidence"
+    expected_hash = "96199af0f371c34e1d99371e1629dfb0d61e6bb32e59f41fddcacc6746e43bcd"
+    expected = {
+        "resource_contract_id": "calendar-score-verification-resources/v3",
+        "resource_contract_sha256": expected_hash,
+        "legacy_verifier_seconds": 43200,
+        "effective_verifier_seconds": 57600,
+    }
+    for name in ("fixture-claim.json", "fixture-report.json", "fixture-terminal.json"):
+        record = json.loads((root / name).read_bytes())
+        assert verify.canonical(record["operational_resources"]) == verify.canonical(expected)
+    receipt = verify.verify_fixture(root, expected_manifest=manifest, expected_paths=paths)
+    assert receipt.binding["resource_contract_id"] == expected["resource_contract_id"]
+    report = json.loads((root / "fixture-report.json").read_bytes())
+    assert report["summary"]["phase_verdict"] == "UNAVAILABLE_DETERMINISTIC_FIXTURE"

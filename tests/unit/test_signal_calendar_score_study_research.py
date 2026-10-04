@@ -875,15 +875,15 @@ def test_operational_contract_is_explicit_and_gates_keep_legacy_comparison() -> 
     resources = study.load_operational_resources()
     binding = resources.binding()
     assert binding["legacy_verifier_seconds"] == 43200
-    assert binding["effective_verifier_seconds"] == 50400
-    comparison = resources.compare(2 * 8192 * 0.70, 2 * 32768 * 0.70)
+    assert binding["effective_verifier_seconds"] == 57600
+    comparison = resources.compare(2 * 8192 * 0.85, 2 * 32768 * 0.85)
     assert comparison["legacy_validation_eligible"] is False
     assert comparison["effective_validation_eligible"] is True
     for seconds, old, new in (
         (43200.0, True, True),
         (43200.0001, False, True),
-        (50400.0, False, True),
-        (50400.0001, False, False),
+        (57600.0, False, True),
+        (57600.0001, False, False),
     ):
         actual = resources.compare(seconds, seconds)
         assert actual["legacy_validation_eligible"] is old
@@ -904,7 +904,7 @@ def test_operational_contract_is_explicit_and_gates_keep_legacy_comparison() -> 
         "baseline",
         "predecessor",
         "effective",
-        "third",
+        "fourth",
         "ack",
         "timestamp",
         "evidence",
@@ -930,25 +930,32 @@ def test_operational_contract_refuses_corruption(tmp_path: Path, damage: str) ->
         elif damage == "schema_bool":
             value["schema"] = True
         elif damage == "sequence_bool":
-            value["history"][1]["sequence"] = True
+            value["history"][2]["sequence"] = True
         elif damage == "seconds_bool":
-            value["history"][1]["verifier_seconds"] = True
+            value["history"][2]["verifier_seconds"] = True
         elif damage == "baseline":
             value["history"][0]["verifier_seconds"] = 50400
         elif damage == "predecessor":
-            value["history"][1]["predecessor_sha256"] = "0" * 64
+            value["history"][2]["predecessor_sha256"] = "0" * 64
         elif damage == "effective":
             value["effective_id"] = "unapproved"
-        elif damage == "third":
-            value["history"].append(dict(value["history"][1]))
+        elif damage == "fourth":
+            value["history"].append(dict(value["history"][2]))
         elif damage == "ack":
-            value["history"][1]["acknowledged_post_hoc"] = False
+            value["history"][2]["acknowledged_post_hoc"] = False
         elif damage == "timestamp":
-            value["history"][1]["amended_at_utc"] = "2026-10-04"
+            value["history"][2]["amended_at_utc"] = "2026-10-04"
         elif damage == "evidence":
-            value["history"][1]["evidence"][0]["path"] = "../outside"
+            value["history"][2]["evidence"][0]["path"] = "../outside"
         elif damage == "pin":
-            value["history"][1]["amended_at_utc"] = "2026-10-04T17:14:01Z"
+            from datetime import datetime, timedelta
+
+            stamp = datetime.fromisoformat(
+                value["history"][2]["amended_at_utc"].replace("Z", "+00:00")
+            )
+            value["history"][2]["amended_at_utc"] = (
+                (stamp + timedelta(seconds=1)).isoformat().replace("+00:00", "Z")
+            )
         # Rehash malicious history: internal consistency must not authorize edits.
         for entry in value["history"]:
             entry["entry_sha256"] = hashlib.sha256(
@@ -970,7 +977,7 @@ def test_operational_contract_is_fresh_and_missing_has_no_fallback(
         (study.PROJECT / "docs/plans/calendar-score-operational-resources.json").read_bytes()
     )
     monkeypatch.setattr(study, "RESOURCE_PATH", path)
-    assert study.load_operational_resources().effective_verifier_seconds == 50400
+    assert study.load_operational_resources().effective_verifier_seconds == 57600
     path.write_bytes(path.read_bytes() + b" ")
     with pytest.raises(study.StudyError, match="resource_contract"):
         study.load_operational_resources()
@@ -1223,3 +1230,150 @@ def test_reparse_predicate_missing_and_original_errors_remain_fresh(
                 study._is_reparse(path)
             assert caught.value is error
     assert calls == [path, path]
+
+
+def test_sixteen_hour_contract_preserves_exact_prior_document() -> None:
+    value = json.loads(study.RESOURCE_PATH.read_bytes())
+    assert len(value["history"]) == 3
+    prior = {
+        **value,
+        "effective_id": "calendar-score-verification-resources/v2",
+        "history": value["history"][:2],
+    }
+    assert hashlib.sha256(study.canonical_json(prior)).hexdigest() == (
+        "8a2225727e08cb7eb848e46ab856eca5649d727c15a101f0ab1bb3d9a1d313bc"
+    )
+    assert value["history"][1]["entry_sha256"] == (
+        "2aee5ce03467704dc40ea41930a7b1242ffe398011b62ab63b13a0bfcad40bc2"
+    )
+    assert value["history"][2]["sequence"] == 2
+    assert value["history"][2]["predecessor_sha256"] == value["history"][1]["entry_sha256"]
+    assert value["history"][2]["amended_at_utc"] > value["history"][1]["amended_at_utc"]
+    assert study.load_operational_resources().effective_verifier_seconds == 57600
+    assert F(57600, 2 * 32768) == F(225, 256)
+
+
+@pytest.mark.parametrize("entry", [0, 1])
+def test_sixteen_hour_rehashed_prior_history_is_never_rewritten(tmp_path: Path, entry: int) -> None:
+    value = json.loads(study.RESOURCE_PATH.read_bytes())
+    value["history"][entry]["verifier_seconds"] = 57600
+    for record in value["history"]:
+        record["entry_sha256"] = hashlib.sha256(
+            study.canonical_json({k: v for k, v in record.items() if k != "entry_sha256"})
+        ).hexdigest()
+    for index in range(1, len(value["history"])):
+        value["history"][index]["predecessor_sha256"] = value["history"][index - 1]["entry_sha256"]
+        value["history"][index]["entry_sha256"] = hashlib.sha256(
+            study.canonical_json(
+                {k: v for k, v in value["history"][index].items() if k != "entry_sha256"}
+            )
+        ).hexdigest()
+    blob = study.canonical_json(value)
+    path = tmp_path / "policy.json"
+    path.write_bytes(blob)
+    with pytest.raises(study.StudyError, match="resource_contract"):
+        study._load_operational_resources(path, expected_sha256=hashlib.sha256(blob).hexdigest())
+
+
+def test_sixteen_hour_distinct_evidence_is_fresh_once_per_load(monkeypatch: Any) -> None:
+    paths = {
+        "2026-10-04-calendar-score-verification-budget-amendment-proposal.md",
+        "2026-10-04-calendar-score-verifier-optimization-2-benchmarks.json",
+        "2026-10-04-calendar-score-sixteen-hour-budget-amendment.md",
+        "2026-10-04-calendar-score-verifier-optimization-3-benchmarks.json",
+    }
+    calls: list[str] = []
+    original = Path.open
+
+    def opened(path: Path, *args: Any, **kwargs: Any) -> Any:
+        if path.name in paths:
+            calls.append(path.name)
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", opened)
+    for _ in range(2):
+        before = len(calls)
+        study.load_operational_resources()
+        assert set(calls[before:]) == paths
+        assert len(calls[before:]) == 4
+
+
+def test_sixteen_hour_rehashed_prior_timestamp_is_immutable(tmp_path: Path) -> None:
+    value = json.loads(study.RESOURCE_PATH.read_bytes())
+    value["history"][1]["amended_at_utc"] = "2026-10-04T17:14:01Z"
+    for index, entry in enumerate(value["history"]):
+        if index:
+            entry["predecessor_sha256"] = value["history"][index - 1]["entry_sha256"]
+        entry["entry_sha256"] = hashlib.sha256(
+            study.canonical_json({k: v for k, v in entry.items() if k != "entry_sha256"})
+        ).hexdigest()
+    blob = study.canonical_json(value)
+    path = tmp_path / "policy.json"
+    path.write_bytes(blob)
+    with pytest.raises(study.StudyError, match="resource_contract_prior"):
+        study._load_operational_resources(path, expected_sha256=hashlib.sha256(blob).hexdigest())
+
+
+@pytest.mark.parametrize("damage", ["chronology", "date", "value"])
+def test_sixteen_hour_rehashed_latest_scope_and_chronology_refuse(
+    tmp_path: Path, damage: str
+) -> None:
+    value = json.loads(study.RESOURCE_PATH.read_bytes())
+    latest = value["history"][2]
+    if damage == "chronology":
+        latest["amended_at_utc"] = value["history"][1]["amended_at_utc"]
+    elif damage == "date":
+        latest["recorded_on"] = "2026-10-05"
+    else:
+        latest["verifier_seconds"] = 50400
+    latest["entry_sha256"] = hashlib.sha256(
+        study.canonical_json({k: v for k, v in latest.items() if k != "entry_sha256"})
+    ).hexdigest()
+    blob = study.canonical_json(value)
+    path = tmp_path / "policy.json"
+    path.write_bytes(blob)
+    with pytest.raises(study.StudyError, match="resource_contract"):
+        study._load_operational_resources(path, expected_sha256=hashlib.sha256(blob).hexdigest())
+
+
+@pytest.mark.parametrize("kind", [stat.S_IFDIR, stat.S_IFIFO, stat.S_IFCHR])
+@pytest.mark.parametrize(
+    "target", ["contract", "prior_plan", "prior_result", "latest_plan", "latest_result"]
+)
+def test_resource_contract_nonregular_leaf_refuses_before_open(
+    tmp_path: Path, monkeypatch: Any, kind: int, target: str
+) -> None:
+    from types import SimpleNamespace
+
+    blob = study.RESOURCE_PATH.read_bytes()
+    policy = tmp_path / "policy.json"
+    policy.write_bytes(blob)
+    value = json.loads(blob)
+    paths = [item["path"] for entry in value["history"][1:] for item in entry["evidence"]]
+    selected = (
+        policy
+        if target == "contract"
+        else study.PROJECT
+        / paths[["prior_plan", "prior_result", "latest_plan", "latest_result"].index(target)]
+    )
+    original_stat, original_open = Path.stat, Path.open
+    info = original_stat(selected)
+    status = SimpleNamespace(
+        **{name: getattr(info, name) for name in dir(info) if name.startswith("st_")}
+    )
+    status.st_mode = kind | 0o600
+    opened: list[Path] = []
+
+    def fake_stat(path: Path, *args: Any, **kwargs: Any) -> Any:
+        return status if path == selected else original_stat(path, *args, **kwargs)
+
+    def tracked_open(path: Path, *args: Any, **kwargs: Any) -> Any:
+        if path == selected:
+            opened.append(path)
+        return original_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", fake_stat)
+    monkeypatch.setattr(Path, "open", tracked_open)
+    with pytest.raises(study.StudyError, match="resource_contract_nonregular"):
+        study._load_operational_resources(policy, expected_sha256=hashlib.sha256(blob).hexdigest())
+    assert opened == []

@@ -742,9 +742,10 @@ def read_canonical_records(
 
 
 RESOURCE_PATH = PROJECT / "docs/plans/calendar-score-operational-resources.json"
-RESOURCE_SHA256 = "8a2225727e08cb7eb848e46ab856eca5649d727c15a101f0ab1bb3d9a1d313bc"
+RESOURCE_SHA256 = "96199af0f371c34e1d99371e1629dfb0d61e6bb32e59f41fddcacc6746e43bcd"
+RESOURCE_PREVIOUS_SHA256 = "8a2225727e08cb7eb848e46ab856eca5649d727c15a101f0ab1bb3d9a1d313bc"
 RESOURCE_BASELINE_SHA256 = "e13f6e229442c07edd5f559c878a2c5a1a176080f1c3d7f963914cc63dbd4434"
-RESOURCE_ID = "calendar-score-verification-resources/v2"
+RESOURCE_ID = "calendar-score-verification-resources/v3"
 
 
 @dataclass(frozen=True, slots=True)
@@ -783,6 +784,8 @@ def _load_operational_resources(path: Path, *, expected_sha256: str) -> Operatio
     try:
         guarded = _guard_path(path, path.parent, existing=True)
         before = guarded.stat()
+        if not stat.S_ISREG(before.st_mode):
+            raise StudyError("resource_contract_nonregular")
         with guarded.open("rb") as stream:
             blob = stream.read(16385)
         after = guarded.stat()
@@ -812,7 +815,7 @@ def _load_operational_resources(path: Path, *, expected_sha256: str) -> Operatio
         ):
             raise StudyError("resource_contract_schema")
         history = value["history"]
-        if type(history) is not list or len(history) != 2:
+        if type(history) is not list or len(history) != 3:
             raise StudyError("resource_contract_history")
         keys = {
             "id",
@@ -838,6 +841,13 @@ def _load_operational_resources(path: Path, *, expected_sha256: str) -> Operatio
                 raise StudyError("resource_contract_history")
         if history[0]["entry_sha256"] != RESOURCE_BASELINE_SHA256:
             raise StudyError("resource_contract_baseline")
+        prior = {
+            **value,
+            "effective_id": "calendar-score-verification-resources/v2",
+            "history": history[:2],
+        }
+        if hashlib.sha256(canonical_json(prior)).hexdigest() != RESOURCE_PREVIOUS_SHA256:
+            raise StudyError("resource_contract_prior")
         amendment = history[1]
         stamp = amendment["amended_at_utc"]
         if type(stamp) is not str or len(stamp) != 20:
@@ -850,19 +860,26 @@ def _load_operational_resources(path: Path, *, expected_sha256: str) -> Operatio
             or stamp[:10] != "2026-10-04"
         ):
             raise StudyError("resource_contract_timestamp")
-        expected_evidence = []
-        for relative in (
+        prior_paths = (
             "docs/plans/2026-10-04-calendar-score-verification-budget-amendment-proposal.md",
             "docs/reviews/2026-10-04-calendar-score-verifier-optimization-2-benchmarks.json",
-        ):
+        )
+        current_paths = (
+            "docs/plans/2026-10-04-calendar-score-sixteen-hour-budget-amendment.md",
+            "docs/reviews/2026-10-04-calendar-score-verifier-optimization-3-benchmarks.json",
+        )
+        evidence: dict[str, dict[str, str]] = {}
+        for relative in dict.fromkeys(prior_paths + current_paths):
             source = _guard_path(PROJECT / relative, PROJECT, existing=True)
+            if not stat.S_ISREG(source.stat().st_mode):
+                raise StudyError("resource_contract_nonregular")
             with source.open("rb") as stream:
                 data = stream.read(MAX_RECORD + 1)
             if len(data) > MAX_RECORD:
                 raise StudyError("resource_contract_evidence")
-            expected_evidence.append({"path": relative, "sha256": hashlib.sha256(data).hexdigest()})
+            evidence[relative] = {"path": relative, "sha256": hashlib.sha256(data).hexdigest()}
         expected_amendment = {
-            "id": RESOURCE_ID,
+            "id": "calendar-score-verification-resources/v2",
             "sequence": 1,
             "recorded_on": "2026-10-04",
             "amended_at_utc": stamp,
@@ -874,14 +891,45 @@ def _load_operational_resources(path: Path, *, expected_sha256: str) -> Operatio
                 "statistical gates unchanged"
             ),
             "predecessor_sha256": RESOURCE_BASELINE_SHA256,
-            "evidence": expected_evidence,
+            "evidence": [evidence[relative] for relative in prior_paths],
             "entry_sha256": amendment["entry_sha256"],
         }
         if canonical_json(amendment) != canonical_json(expected_amendment):
             raise StudyError("resource_contract_amendment")
+        latest = history[2]
+        current_stamp = latest["amended_at_utc"]
+        if type(current_stamp) is not str or len(current_stamp) != 20:
+            raise StudyError("resource_contract_timestamp")
+        current_time = datetime.fromisoformat(current_stamp.replace("Z", "+00:00"))
+        if (
+            current_time.tzinfo is None
+            or current_time.utcoffset() != UTC.utcoffset(current_time)
+            or current_time.isoformat().replace("+00:00", "Z") != current_stamp
+            or current_time <= parsed
+        ):
+            raise StudyError("resource_contract_timestamp")
+        expected_latest = {
+            "id": RESOURCE_ID,
+            "sequence": 2,
+            "recorded_on": current_stamp[:10],
+            "amended_at_utc": current_stamp,
+            "verifier_seconds": 57600,
+            "acknowledged_post_hoc": True,
+            "reason": (
+                "Reviewed fourteen-hour cold full-workload qualification failed; separately "
+                "reviewed sixteen-hour operational allowance for observed startup variation "
+                "and amendment overhead; statistical gates unchanged"
+            ),
+            "predecessor_sha256": amendment["entry_sha256"],
+            "evidence": [evidence[relative] for relative in current_paths],
+            "entry_sha256": latest["entry_sha256"],
+        }
+        if canonical_json(latest) != canonical_json(expected_latest):
+            raise StudyError("resource_contract_amendment")
         return OperationalResources(
-            RESOURCE_ID, digest, history[0]["verifier_seconds"], amendment["verifier_seconds"]
+            RESOURCE_ID, digest, history[0]["verifier_seconds"], latest["verifier_seconds"]
         )
+
     except StudyError as error:
         if str(error).startswith("resource_contract"):
             raise
@@ -911,6 +959,8 @@ SOURCE_PATHS = (
     "docs/plans/2026-10-04-calendar-score-verifier-optimization.md",
     "docs/plans/2026-10-04-calendar-score-verifier-optimization-2.md",
     "docs/plans/2026-10-04-calendar-score-verifier-optimization-3.md",
+    "docs/plans/2026-10-04-calendar-score-sixteen-hour-budget-amendment.md",
+    "docs/reviews/2026-10-04-calendar-score-verifier-optimization-3-benchmarks.json",
     "scripts/research/signal_calendar_score_study.py",
     "scripts/research/signal_calendar_evidence.py",
     "scripts/research/signal_calendar_laws.py",
