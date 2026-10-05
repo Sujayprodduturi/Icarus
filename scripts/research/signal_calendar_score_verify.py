@@ -109,7 +109,9 @@ class ReferenceWords:
     """Separately framed SHA reconstruction with independently counted consumption."""
 
     def __init__(self, identity: dict[str, object]) -> None:
-        identity = _identity(identity)
+        self._initialize(_identity(identity))
+
+    def _initialize(self, identity: dict[str, object]) -> None:
         fields = [
             identity["namespace"],
             "finite-calendar-law/v1",
@@ -183,8 +185,11 @@ class ReferenceWords:
 
 def reconstruct(identity: dict[str, object]) -> tuple[bytes, int]:
     identity = _identity(identity)
+    return _reconstruct_words(identity, ReferenceWords(identity))
+
+
+def _reconstruct_words(identity: dict[str, object], stream: ReferenceWords) -> tuple[bytes, int]:
     profile, _, length = _geometry(identity["profile_id"], identity["n"])  # type: ignore[arg-type]
-    stream = ReferenceWords(identity)
     partition = math.lcm(*(prob.denominator for _, prob in profile.jump_atoms))
     jump_edges = []
     edge = 0
@@ -1536,3 +1541,65 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+def _claimed_reference_path(
+    profile_id: str,
+    n: int,
+    payload: bytes,
+    identity: dict[str, object],
+    phase_root: Path,
+    claim_bytes: bytes,
+    source_binding: object,
+    *,
+    _permit: object | None = None,
+) -> ReferenceResult:
+    """Private read-only claim replay; public reconstruction stays fixture-only."""
+    from scripts.research import signal_calendar_score_phase as phase_contract
+
+    if type(source_binding) is not phase_contract.SourceBinding:
+        raise VerificationError("claimed_identity")
+    plan, claim = phase_contract.validate_claim(phase_root, claim_bytes, source_binding)
+    if plan.namespace == "icarus/calendar-score-research/v2":
+        phase_contract._check_replay_permit(_permit, phase_root, claim_bytes, source_binding)
+    elif _permit is not None:
+        phase_contract._check_replay_permit(
+            _permit,
+            phase_root,
+            claim_bytes,
+            source_binding,
+            _fixture=True,
+        )
+    _geometry(profile_id, n)
+    expected_phase = (
+        plan.phase
+        if plan.namespace == "icarus/calendar-score-research/v2"
+        else ("test_preflight" if plan.namespace == PREFLIGHT else "test_fixture")
+    )
+    required = {"namespace", "phase", "profile_id", "n", "replicate", "root"}
+    if type(identity) is not dict or set(identity) != required:
+        raise VerificationError("claimed_identity")
+    replicate = identity["replicate"]
+    if type(replicate) is not int or not 0 <= replicate < plan.replicates:
+        raise VerificationError("claimed_identity")
+    expected = {
+        "namespace": plan.namespace,
+        "phase": expected_phase,
+        "profile_id": profile_id,
+        "n": n,
+        "replicate": replicate,
+        "root": claim["root"],
+    }
+    if canonical(identity) != canonical(expected) or (profile_id, n) not in {
+        (p, nn) for p, nn, _ in plan.geometries
+    }:
+        raise VerificationError("claimed_identity")
+    stream = object.__new__(ReferenceWords)
+    stream._initialize(identity)
+    expected_payload, words = _reconstruct_words(identity, stream)
+    if payload != expected_payload:
+        raise VerificationError("reconstruction")
+    count, raw, wins, excess = trade_totals(profile_id, n, payload)
+    return ReferenceResult(
+        count, raw, wins, excess, calculate_rows(profile_id, n, count, raw, wins, excess), words
+    )

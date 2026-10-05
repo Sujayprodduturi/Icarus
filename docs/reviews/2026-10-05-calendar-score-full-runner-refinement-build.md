@@ -1,0 +1,30 @@
+# Full calendar-score runner timing refinement build evidence
+
+Approved original plan SHA256 `5818b08667992d82764d1a469f165186f301f0806fd98cde3d825972f0c2a31a`; approved refinement SHA256 `ae14fa202451d98a858cf437e4f33ebfeb8076d8b17bf5be7e370e9f9d249278`. Both remain unchanged. The original full-runner build record and failed32-file baseline evidence are unchanged.
+
+This implements the approved measured startup branch. Each owned stage uses authenticated, source/owner/child/claim/kind/role-bound zero-progress READY/START barriers. A live immutable parent-issued observation binds entry, READY, START and timing issuance. Only entry-to-READY is fixed; all work after READY, capability/permit checks, scans, durable output, joins and publication stays repetitive. Original stage deadlines are never reset.
+
+Readiness retains the original ALL_REPEATED projection and adds independently maximized fixed/repetitive role costs across both phases and all three cases. Control setup is independently maximized; the complete measured residual is independently maximized and charged repetitively at32768. Global mixed maxima, rather than three local favorable booleans, govern the group. Complete ownership intervals remain disjoint and reconcile to the whole clock. Saved records confer no authority.
+
+The meaningful delayed-barrier RED `startup-late-barriers-red.log` failed both delayed duplicate START during data work and READY after the final finished heartbeat. Child post-START heartbeat/progress checks now detect extra bootstrap bytes; the child explicitly closes bootstrap before durable ACK. After captured child exit0 and joined heartbeat monitor, the parent requires bounded bootstrap retirement to EOF before success. Every queued byte refuses; the original stage deadline bounds retirement. Windows named-pipe poll closure reports WinError109, accepted only at that final post-exit/post-join retirement. The original failure, deadline and every owned close action are preserved.
+
+Builder logs remain under `var/verification/2026-10-05/calendar-score-runner/`. Delayed-barrier GREEN2 passed3.91s. The initial full refinement run `refinement-focused-final.log` reported117 passed/31 failed120.52s:30 Windows poll-closure failures and one earlier authenticated READY receive exception in the hard-exit test. The repair accepts only the known Windows closure at final retirement; the hard-exit test accepts both existing fail-closed exception classes rather than replacing the original exception. The final repaired production suite `refinement-focused-final-second.log` passed148 tests206.61s, EXIT0.
+
+A power-failure-corrupted Ruff cache caused the first formatter panic (`refinement-format.log`, EXIT2). The subsequent `--no-cache` formatter succeeded. Initial strict checks retained one missing empty-list annotation and one non-raw intentional regex (`refinement-mypy-first.log`, `refinement-ruff-first.log`). After the passing full focused run, only those two test-only static repairs plus formatting were applied; production bytes did not change. The primary's fresh broad run must cover the resulting final test-byte closure. Final strict no-incremental mypy checked8 files clean; no-cache Ruff/format and git diff check all passed (`refinement-mypy.log`, `refinement-ruff.log`, `refinement-format-check.log`, `refinement-diff-check.log`). No broad or cold qualification is claimed by the builder.
+
+Frozen complete33-file manifest: `118de9238fde266c3171409adc5c9ace3d1839fbeccd503bfd2412406a842e4a`. Complete payload retained in `builder-refinement-frozen-manifest.json`, record SHA256 `6c604bf6b6f101ca35f152da88eb3c8e0a5152829cfe17ece70e1266ec3e9ef7`; all exact hashes in `refinement-freeze-hashes.log`. The refinement document is the33rd source. Original protocol130569a7/resource96199af0, statistical criteria, streams, counts and2x margin are unchanged.
+
+| Owned file | SHA256 |
+| --- | --- |
+| signal_calendar_score_study.py | f9e2e9dfc2c7b400763e771cbb60125b33671bb150a60e0b4cc280eb9c72c41a |
+| signal_calendar_score_verify.py | 5789cd940c879632c951d5a9f96228fed73856e8c537e1afac70c785625bafa7 |
+| signal_calendar_score_phase.py | fa1070eba8892e5606ed045455e8281d830841411bc570ffdc3cd0f245c38c08 |
+| signal_calendar_score_runner.py | d38c7b9793022f8ae8c1177e7e73946a6095f7a3d746a7b720ad8205333fee72 |
+| signal_calendar_score_runner_service.py | 5ac9292d7e5ff421bc91be996edcb57f9e401ccb5b6a090e8fb7ab6641845eba |
+| test_signal_calendar_score_phase_research.py | d82f520a78b78e9fcbdbf81610a306bd231314d3507da34f954d72f66a680f94 |
+| test_signal_calendar_score_runner_research.py | 342af1a290d50bd0d5012098440de268c9fc10e2d4e8d64e7ca0e425b2bfd763 |
+| test_signal_calendar_score_runner_preflight_research.py | 87624a393cfd3b2b5bf8c2fe1f6714a295b45310399080fca64ab7b62a2abc09 |
+
+Fresh full TEST fixture `builder-refinement-full-20261005-01` is retained at `var/verification/2026-10-05/calendar-score-runner/attempts/819d8b2eab0688627330fa399351492d1730cd5cf7f3dafb88c9d56f1ed344a5/`. Its development and validation each contain10 full geometries/28 metrics/1388952 consumed words/231492 raw bytes, six parent-observed stage rows and captured exit0/ACK/joined-monitor proofs. One inert release transfer; all owned children exited; FINAL_VERDICT with sampling_executed=false and study_permission=false. Its complete source payload is also retained in `builder-source-manifest.json`. Both raw payloads remain pending independent primary and reviewer complete checks. `builder-retained-refinement-demo.log` is supplemental TEST evidence, not cold feasibility qualification or an experimental draw.
+
+Final source review, broad tests/static, three NEW cold complete PREF workloads and two independent complete saved-result checks remain primary-owned. Numerical feasibility is not promised; this refinement may still fail unchanged operational limits. No actual study reservation, key selection, experimental stream hash/draw, real-market/official/lockbox/broker or live path was executed. No commit or push. Sampled RSS, process-clock resolution and Windows directory/power-loss durability limitations from the original build record remain.

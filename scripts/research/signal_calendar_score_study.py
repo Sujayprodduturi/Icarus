@@ -248,6 +248,7 @@ class CounterStream:
         n: int,
         replicate: int,
         root: bytes,
+        _capability: object | None = None,
     ) -> None:
         if (
             type(namespace) is not str
@@ -264,9 +265,27 @@ class CounterStream:
             or type(root) is not bytes
             or len(root) != 32
         ):
+            if _capability is not None:
+                from scripts.research import signal_calendar_score_phase as phase_contract
+
+                phase_contract._revoke(_capability)
             raise StudyError("invalid_stream_identity")
-        if namespace == EXPERIMENT_NAMESPACE:
+        if namespace == EXPERIMENT_NAMESPACE and _capability is None:
             raise StudyError("unclaimed_experimental_stream")
+        if _capability is not None:
+            from scripts.research import signal_calendar_score_phase as phase_contract
+
+            phase_contract._authorize_stream(
+                _capability,
+                {
+                    "namespace": namespace,
+                    "phase": phase,
+                    "profile_id": profile_id,
+                    "n": n,
+                    "replicate": replicate,
+                    "root": root,
+                },
+            )
         identity = [
             namespace,
             laws.GENERATOR_VERSION,
@@ -970,6 +989,14 @@ SOURCE_PATHS = (
     "scripts/research/signal_bounded_uncertainty.py",
     "goal.yaml",
     "uv.lock",
+    "scripts/research/signal_calendar_score_phase.py",
+    "scripts/research/signal_calendar_score_runner.py",
+    "scripts/research/signal_calendar_score_runner_service.py",
+    "tests/unit/test_signal_calendar_score_phase_research.py",
+    "tests/unit/test_signal_calendar_score_runner_research.py",
+    "tests/unit/test_signal_calendar_score_runner_preflight_research.py",
+    "docs/plans/2026-10-05-calendar-score-full-runner.md",
+    "docs/reviews/2026-10-05-calendar-score-full-runner-timing-refinement.md",
 )
 
 
