@@ -1,0 +1,298 @@
+{
+  "actual_attempt_absent": true,
+  "code_commit": "e744519ca80ab95102b3b75bc928a3be1e7131a7",
+  "logs": {
+    "var/verification/2026-10-05/calendar-score-runner/postcommit-refinement-defects-e744519ca80a/coordinator-approval.log": {
+      "sha256": "f64451c4f8f39857e043bda2c75e53367105caf9b050ab0b6eb99c3f9fee8cdf",
+      "text": "F                                                                        [100%]\n================================== FAILURES ===================================\n______ test_real_separate_reviewer_pipeline[coordinator-approval-ERROR] _______\n\nmode = 'coordinator-approval', state = 'ERROR'\n\n    @pytest.mark.parametrize(\n        \"mode,state\",\n        [\n            (\"full\", \"FINAL_VERDICT\"),\n            (\"development-failed\", \"DEVELOPMENT_FAILED\"),\n            (\"coordinator-approval\", \"ERROR\"),\n            (\"second-release\", \"ERROR\"),\n        ],\n    )\n    def test_real_separate_reviewer_pipeline(mode: str, state: str) -> None:\n        runner = runner_module()\n        result = runner._run_test_pipeline(case_id(), mode=mode)\n        assert result[\"state\"] == state\n        assert result[\"namespace\"] == runner.io.TEST_NAMESPACE\n        assert result[\"study_permission\"] is False\n        assert result[\"children_exited\"] is True\n        if mode == \"coordinator-approval\":\n            assert result[\"failure_stage\"] == mode\n>           assert result[\"failure_reason\"] == \"coordinator_action\"\nE           AssertionError: assert 'forbidden_approval_accepted' == 'coordinator_action'\nE             \nE             - coordinator_action\nE             + forbidden_approval_accepted\n\ntests\\unit\\test_signal_calendar_score_runner_research.py:203: AssertionError\n---------------------------- Captured stderr call -----------------------------\nProcess SpawnProcess-1:\n\nTraceback (most recent call last):\n\nProcess SpawnProcess-2:\n\n  File \"C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\multiprocessing\\process.py\", line 314, in _bootstrap\n\n    self.run()\n\n  File \"C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\multiprocessing\\process.py\", line 108, in run\n\n    self._target(*self._args, **self._kwargs)\n\n  File \"C:\\ICARUS\\scripts\\research\\signal_calendar_score_runner.py\", line 1512, in _run_coordinator\n\n    raise RunnerError(\"forbidden_approval_accepted\")\n\nscripts.research.signal_calendar_score_runner.RunnerError: forbidden_approval_accepted\n\nTraceback (most recent call last):\n\n  File \"C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\multiprocessing\\connection.py\", line 317, in _recv_bytes\n\n    ov, err = _winapi.ReadFile(self._handle, bsize,\n\n              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\nBrokenPipeError: [WinError 109] The pipe has been ended\n\n\n\nDuring handling of the above exception, another exception occurred:\n\n\n\nTraceback (most recent call last):\n\n  File \"C:\\ICARUS\\scripts\\research\\signal_calendar_score_lifecycle_service.py\", line 72, in receive\n\n    blob = self.connection.recv_bytes(life.MAX_RECORD)\n\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\n  File \"C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\multiprocessing\\connection.py\", line 216, in recv_bytes\n\n    buf = self._recv_bytes(maxlength)\n\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\n  File \"C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\multiprocessing\\connection.py\", line 337, in _recv_bytes\n\n    raise EOFError\n\nEOFError\n\n\n\nThe above exception was the direct cause of the following exception:\n\n\n\nTraceback (most recent call last):\n\n  File \"C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\multiprocessing\\process.py\", line 314, in _bootstrap\n\n    self.run()\n\n  File \"C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\multiprocessing\\process.py\", line 108, in run\n\n    self._target(*self._args, **self._kwargs)\n\n  File \"C:\\ICARUS\\scripts\\research\\signal_calendar_score_runner_service.py\", line 377, in run_reviewer_service\n\n    request = coordinate.receive()\n\n              ^^^^^^^^^^^^^^^^^^^^\n\n  File \"C:\\ICARUS\\scripts\\research\\signal_calendar_score_lifecycle_service.py\", line 99, in receive\n\n    raise life.LifecycleError(\"authentication\") from error\n\nscripts.research.signal_calendar_score_lifecycle.LifecycleError: authentication\n\n=========================== short test summary info ===========================\nFAILED tests/unit/test_signal_calendar_score_runner_research.py::test_real_separate_reviewer_pipeline[coordinator-approval-ERROR]\n1 failed in 6.97s\n"
+    },
+    "var/verification/2026-10-05/calendar-score-runner/postcommit-refinement-defects-e744519ca80a/hash-before-claim.log": {
+      "sha256": "9078b60299e0b778e1961695f1ee0efb8fa5daf0f27f0101fc2e3fbdc62e2a09",
+      "text": "F                                                                        [100%]\n================================== FAILURES ===================================\n_____ test_public_stream_stays_refused_before_hash_with_forged_capability _____\n\nmonkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x00000253470DC260>\n\n    def test_public_stream_stays_refused_before_hash_with_forged_capability(\n        monkeypatch: pytest.MonkeyPatch,\n    ) -> None:\n        from scripts.research import signal_calendar_score_study as study\n    \n        called: list[Any] = []\n        monkeypatch.setattr(study, \"_counter_digest\", lambda *args: called.append(args))\n        with pytest.raises(study.StudyError):\n            study.CounterStream(\n                namespace=study.EXPERIMENT_NAMESPACE,\n                phase=\"development\",\n                profile_id=\"P1\",\n                n=2048,\n                replicate=0,\n                root=bytes(32),\n                _capability=object(),\n            )\n>       assert called == []\nE       AssertionError: assert [(b'postcommit-defect', 0)] == []\nE         \nE         Left contains one more item: (b'postcommit-defect', 0)\nE         Use -v to get more diff\n\ntests\\unit\\test_signal_calendar_score_phase_research.py:87: AssertionError\n=========================== short test summary info ===========================\nFAILED tests/unit/test_signal_calendar_score_phase_research.py::test_public_stream_stays_refused_before_hash_with_forged_capability\n1 failed in 0.40s\n"
+    },
+    "var/verification/2026-10-05/calendar-score-runner/postcommit-refinement-defects-e744519ca80a/missing-row-shortcut.log": {
+      "sha256": "c681d7ab9e653f437df1180e2db3facb273dc3d8737a27dfd286be208b0ce2d0",
+      "text": "F                                                                        [100%]\n================================== FAILURES ===================================\n__________ test_saved_phase_corruption_never_emits_receipt[missing] ___________\n\nsaved_phase = (<module 'scripts.research.signal_calendar_score_phase' from 'C:\\\\ICARUS\\\\scripts\\\\research\\\\signal_calendar_score_pha...2858b30ed2a9d', terminal_digest='1af9977c5735018957b4643769fb58ea983ab717baba3d2c34b4cbd51c25843b', receipt_digest=''))\nfault = 'missing'\n\n    @pytest.mark.parametrize(\n        \"fault\",\n        [\n            \"missing\",\n            \"duplicate\",\n            \"reorder\",\n            \"extra\",\n            \"bool_words\",\n            \"bool_n\",\n            \"unknown_schema\",\n            \"unknown_field\",\n            \"word_count\",\n            \"endpoint\",\n            \"payload_hash\",\n            \"noncanonical\",\n            \"truncated\",\n            \"extra_payload\",\n            \"false_report\",\n            \"false_terminal\",\n        ],\n    )\n    def test_saved_phase_corruption_never_emits_receipt(\n        saved_phase: tuple[ModuleType, Path, bytes, Any], fault: str\n    ) -> None:\n        import json\n    \n        phase, root, claim, _ = saved_phase\n        path = root / \"phase-index.jsonl\"\n        rows = [json.loads(line) for line in path.read_bytes().splitlines()]\n        if fault == \"missing\":\n            rows.pop(2)\n        elif fault == \"duplicate\":\n            rows.insert(2, rows[1])\n        elif fault == \"reorder\":\n            rows[1], rows[2] = rows[2], rows[1]\n        elif fault == \"extra\":\n            rows.append(rows[-1])\n        elif fault == \"bool_words\":\n            rows[1][\"words\"] = True\n        elif fault == \"bool_n\":\n            rows[1][\"n\"] = True\n        elif fault == \"unknown_schema\":\n            rows[1][\"schema\"] = 2\n        elif fault == \"unknown_field\":\n            rows[1][\"ignored\"] = \"no\"\n        elif fault == \"word_count\":\n            rows[1][\"words\"] += 1\n        elif fault == \"endpoint\":\n            rows[1][\"results\"][0][\"lower\"][0] += 1\n        elif fault == \"payload_hash\":\n            rows[1][\"payload_sha256\"] = \"0\" * 64\n        if fault in {\"truncated\", \"extra_payload\"}:\n            payload = root / \"phase-payload.bin\"\n            content = payload.read_bytes()\n            payload.write_bytes(content[:-1] if fault == \"truncated\" else content + b\"x\")\n        elif fault in {\"false_report\", \"false_terminal\"}:\n            record_path = root / (\n                \"phase-report.json\" if fault == \"false_report\" else \"phase-terminal.json\"\n            )\n            value = json.loads(record_path.read_bytes())\n            value[\"counts\"][\"paths\"] = True\n            record_path.write_bytes(phase.io.canonical_json(value))\n        elif fault == \"noncanonical\":\n            path.write_bytes(b\" \" + path.read_bytes())\n        else:\n            path.write_bytes(b\"\".join(phase.io.canonical_json(row) for row in rows))\n>       with pytest.raises(phase.io.StudyError):\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nE       Failed: DID NOT RAISE <class 'scripts.research.signal_calendar_score_study.StudyError'>\n\ntests\\unit\\test_signal_calendar_score_phase_research.py:212: Failed\n=========================== short test summary info ===========================\nFAILED tests/unit/test_signal_calendar_score_phase_research.py::test_saved_phase_corruption_never_emits_receipt[missing]\n1 failed in 1.36s\n"
+    },
+    "var/verification/2026-10-05/calendar-score-runner/postcommit-restored-diff.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "text": ""
+    },
+    "var/verification/2026-10-05/calendar-score-runner/postcommit-restored-format.log": {
+      "sha256": "ecaa2e8f9b922fae6f107aae55b6a6346badcd2bfb4b00a4a17fdade65e8aa81",
+      "text": "348 files already formatted\n"
+    },
+    "var/verification/2026-10-05/calendar-score-runner/postcommit-restored-mypy.log": {
+      "sha256": "b8af8ca9240c85de5385e71ecdf6d5fc3afac4b2e531a13bd474250f8a21b009",
+      "text": "Success: no issues found in 179 source files\n"
+    },
+    "var/verification/2026-10-05/calendar-score-runner/postcommit-restored-ruff.log": {
+      "sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+      "text": "All checks passed!\n"
+    },
+    "var/verification/2026-10-05/calendar-score-runner/primary-postcommit-restored-regression.log": {
+      "sha256": "a1ac677dfa1e872ae208afcda10968771c04020df6864c089818b241426c7360",
+      "text": "........................................................................ [ 17%]\n........................................................................ [ 34%]\n........................................................................ [ 51%]\n........................................................................ [ 68%]\n........................................................................ [ 85%]\n..............................................................           [100%]\n422 passed in 205.48s (0:03:25)\n"
+    }
+  },
+  "manifest": {
+    "evidence": "finite-calendar-bytes/v1",
+    "generator": "finite-calendar-law/v1",
+    "libraries": {
+      "numpy": "2.1.3",
+      "psutil": "6.1.1"
+    },
+    "operational_resources": {
+      "effective_verifier_seconds": 57600,
+      "legacy_verifier_seconds": 43200,
+      "resource_contract_id": "calendar-score-verification-resources/v3",
+      "resource_contract_sha256": "96199af0f371c34e1d99371e1629dfb0d61e6bb32e59f41fddcacc6746e43bcd"
+    },
+    "platform": "win32",
+    "protocol_sha256": "130569a78811e9ad4f9dcdb915410b3c350e137a78bc70974eb81ac4daf13b71",
+    "python": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
+    "schema": 2,
+    "scope": "synthetic_only",
+    "sources": {
+      "docs/plans/2026-10-04-calendar-score-sampled-lifecycle.md": "c12129e2799e580cb0d4a7541ac304598c8ad953034eabfe2f9cd69b920a8e61",
+      "docs/plans/2026-10-04-calendar-score-sixteen-hour-budget-amendment.md": "119146f624a921cb13de5e00b521edfb4cb8787e0bbf99cdfe323ac90671fe51",
+      "docs/plans/2026-10-04-calendar-score-study-protocol.md": "130569a78811e9ad4f9dcdb915410b3c350e137a78bc70974eb81ac4daf13b71",
+      "docs/plans/2026-10-04-calendar-score-verification-budget-amendment-build.md": "791c0a23b43dce002d6ecbeeccf610a679f91ae63f22d6561f6a35fc226c4849",
+      "docs/plans/2026-10-04-calendar-score-verification-budget-amendment-proposal.md": "4c559273f8bd994885f63e8eaf65e22143f6acb65d66dc23cc4d7aca97362b1b",
+      "docs/plans/2026-10-04-calendar-score-verifier-optimization-2.md": "b2d913f0ec455fd5c612c703e835b95beaa66a38aa3a0e226d72c4aa685d4387",
+      "docs/plans/2026-10-04-calendar-score-verifier-optimization-3.md": "8a569d0ac5af212cf0e69ab485c308c87fdd7907e5300ecbdd8c1da037d6e00e",
+      "docs/plans/2026-10-04-calendar-score-verifier-optimization.md": "6b3f07957092dc70540dda253aa6fab1675b377d3682a278fd36fcf81874b217",
+      "docs/plans/2026-10-05-calendar-score-full-runner.md": "5818b08667992d82764d1a469f165186f301f0806fd98cde3d825972f0c2a31a",
+      "docs/plans/2026-10-05-calendar-score-lifecycle-authority.md": "f27fa39463eaf8e6e16bc3b4ac805ba402dbae0722b50ee4324ad5c828a05744",
+      "docs/plans/calendar-score-operational-resources.json": "96199af0f371c34e1d99371e1629dfb0d61e6bb32e59f41fddcacc6746e43bcd",
+      "docs/reviews/2026-10-04-calendar-score-verifier-optimization-2-benchmarks.json": "324dc9e71c7ae837466f9e411b7c2c4b449b7345367e7c5a2dec4ac5dad68544",
+      "docs/reviews/2026-10-04-calendar-score-verifier-optimization-3-benchmarks.json": "8dca3b343abbcbefd1de078524b52a8836c263dfeb6969bb09ccae65272ddd6b",
+      "docs/reviews/2026-10-05-calendar-score-full-runner-timing-refinement.md": "ae14fa202451d98a858cf437e4f33ebfeb8076d8b17bf5be7e370e9f9d249278",
+      "goal.yaml": "c886aca6b198257486d0daefc484f818458e60fa32a5aa861b95d1413282fa0c",
+      "scripts/research/signal_bounded_uncertainty.py": "4995e3ed835d59ee79cff00fe76bc390f7699c1e8bffc04abe9265d68ebadd3a",
+      "scripts/research/signal_calendar_evidence.py": "b6cf2087c5d830a004b5696d6599c2d64d00c73394464b5030cd39d5d16f6052",
+      "scripts/research/signal_calendar_laws.py": "811070fa4247a10c5aad612829a6b3f20421f04793a77a3b44017e7ee18b6ba4",
+      "scripts/research/signal_calendar_score.py": "7b19acfe21715fe082b13879ea9d3348d769131ab596553baf0c20fd5c600fc7",
+      "scripts/research/signal_calendar_score_lifecycle.py": "ba67c3e163b4d9fb9a3fd816e2d5a4677046c3b938779820186468024a41bdb3",
+      "scripts/research/signal_calendar_score_lifecycle_service.py": "35a8d68f80c723e309531984e16940f0a6f0587075ea434e97b7919862f559b8",
+      "scripts/research/signal_calendar_score_phase.py": "fa1070eba8892e5606ed045455e8281d830841411bc570ffdc3cd0f245c38c08",
+      "scripts/research/signal_calendar_score_runner.py": "d38c7b9793022f8ae8c1177e7e73946a6095f7a3d746a7b720ad8205333fee72",
+      "scripts/research/signal_calendar_score_runner_service.py": "5ac9292d7e5ff421bc91be996edcb57f9e401ccb5b6a090e8fb7ab6641845eba",
+      "scripts/research/signal_calendar_score_study.py": "f9e2e9dfc2c7b400763e771cbb60125b33671bb150a60e0b4cc280eb9c72c41a",
+      "scripts/research/signal_calendar_score_verify.py": "5789cd940c879632c951d5a9f96228fed73856e8c537e1afac70c785625bafa7",
+      "scripts/research/signal_calendar_uncertainty.py": "ef28eeebb2c807bbbed2c707cd1e20a752d448b537646a7beea0426fe2828ec9",
+      "scripts/research/signal_moment_uncertainty.py": "852723b844920a005d17889bde1977a88763533d37c75da00769ae60b5057111",
+      "tests/unit/test_signal_calendar_score_lifecycle_research.py": "e74ca719249de89937e3a366c682a23b69794f5bdb08486d0f543df5acc16ca5",
+      "tests/unit/test_signal_calendar_score_phase_research.py": "d82f520a78b78e9fcbdbf81610a306bd231314d3507da34f954d72f66a680f94",
+      "tests/unit/test_signal_calendar_score_runner_preflight_research.py": "87624a393cfd3b2b5bf8c2fe1f6714a295b45310399080fca64ab7b62a2abc09",
+      "tests/unit/test_signal_calendar_score_runner_research.py": "342af1a290d50bd0d5012098440de268c9fc10e2d4e8d64e7ca0e425b2bfd763",
+      "uv.lock": "f97c9a52f21a91a1ff1f7a087d53e2deda000873e9f67971c3d9f51f1e5875e5"
+    },
+    "stream": "sha256-counter-u64x4-big-endian/v2"
+  },
+  "postcommit": {
+    "actual_attempt_absent": true,
+    "defects": [
+      {
+        "defect": "hash-before-claim",
+        "elapsed": 1.2029999999999745,
+        "log": "C:\\ICARUS\\var\\verification\\2026-10-05\\calendar-score-runner\\postcommit-refinement-defects-e744519ca80a\\hash-before-claim.log",
+        "mutated_sha256": "c522ebcf6a4e58c37ba381bc56536d2f80cde78f4da0af163c3492ea4d0af49a",
+        "returncode": 1,
+        "source": "scripts/research/signal_calendar_score_study.py",
+        "target": "tests/unit/test_signal_calendar_score_phase_research.py::test_public_stream_stays_refused_before_hash_with_forged_capability",
+        "witness": null
+      },
+      {
+        "defect": "coordinator-approval",
+        "elapsed": 7.530999999999949,
+        "log": "C:\\ICARUS\\var\\verification\\2026-10-05\\calendar-score-runner\\postcommit-refinement-defects-e744519ca80a\\coordinator-approval.log",
+        "mutated_sha256": "fee63c8b4960871c805cddab8f0a9e9af29ed67a3a29c456dd3644f8a2b97d07",
+        "returncode": 1,
+        "source": "scripts/research/signal_calendar_score_runner_service.py",
+        "target": "tests/unit/test_signal_calendar_score_runner_research.py::test_real_separate_reviewer_pipeline[coordinator-approval-ERROR]",
+        "witness": {
+          "path": "C:\\ICARUS\\var\\verification\\2026-10-05\\calendar-score-runner\\attempts\\0e028f3730110ce5071928477407ff0790c9aaa0e10e15f9bed720f074b8d3ce\\development-reviewer-approved.json",
+          "record": {
+            "action": "approve-development",
+            "control_decision": "TEST_PASS",
+            "evidence": {
+              "binding": {
+                "attempt_id": "0e028f3730110ce5071928477407ff0790c9aaa0e10e15f9bed720f074b8d3ce",
+                "claim_digest": "111c157b97fef1a6addadc142129cc1d774373ae9a05ceb2f2534db525fc48f1",
+                "phase": "development",
+                "seed_commitment": "66687aadf862bd776c8fc18b8e9f8e20089714856ee233b3902a591d0d5f2925",
+                "session_id": "90b281d75c0e41bfa2d8181e2d5034f94afd322f57784af88bc1588142ab9516",
+                "source_binding": {
+                  "manifest_digest": "9ca73048bbe32b6d0d4224f3bd43469dead865ea7828852c4c104aeeb6fe52b5",
+                  "protocol_digest": "130569a78811e9ad4f9dcdb915410b3c350e137a78bc70974eb81ac4daf13b71",
+                  "resource_digest": "96199af0f371c34e1d99371e1629dfb0d61e6bb32e59f41fddcacc6746e43bcd",
+                  "resource_id": "calendar-score-verification-resources/v3"
+                }
+              },
+              "counts": {
+                "active_words": 0,
+                "metrics": 28,
+                "paths": 10,
+                "payload_bytes": 231492,
+                "words": 1388952
+              },
+              "decision": "UNAVAILABLE_TEST_ONLY",
+              "index_digest": "51dea5f218f9af1e2df874e08e482ffa567126b28d63020efd21130636c04be5",
+              "payload_digest": "127fcbaddbdcc2bf2d3607b6065ecbdf40d002a4a5ff18e8d32198595ce3447f",
+              "phase": "development",
+              "primary_receipt_digest": "0e876ed829a1661754e45c19bc5364a8f664438d41b556b9278ee7961928bc85",
+              "report_digest": "d45582b02350e2013addcb3dd025b942afd31ef9fcb5dfb00186df24969cdd7a",
+              "reviewer_receipt_digest": "b7292594761a7e53068744c466a1d9a579704f291f627623e86c2416fbbcd954",
+              "terminal_digest": "d46d23131a5b15af6f83972c8662ff45b423a0929210c22b507b081e22eeefda"
+            },
+            "helper": {
+              "creation_time_ns": 1791224589473235712,
+              "pid": 23344
+            },
+            "reviewer": {
+              "creation_time_ns": 1791224588361078784,
+              "pid": 3244
+            },
+            "schema": 1,
+            "scope": "UNAVAILABLE_TEST_ONLY",
+            "source_review_digest": "9ca73048bbe32b6d0d4224f3bd43469dead865ea7828852c4c104aeeb6fe52b5",
+            "state": "REVIEW_APPROVED",
+            "utc": "2026-10-05T18:23:15Z"
+          },
+          "sha256": "1e96d27c98781d26a796e9674e937a69929ae49b4d50130c8ba0622ac6b8199e"
+        }
+      },
+      {
+        "defect": "missing-row-shortcut",
+        "elapsed": 2.032000000000153,
+        "log": "C:\\ICARUS\\var\\verification\\2026-10-05\\calendar-score-runner\\postcommit-refinement-defects-e744519ca80a\\missing-row-shortcut.log",
+        "mutated_sha256": "42879916f24a8e16f198025308d04fa15f554b5c027493940d75caf578d72c10",
+        "returncode": 1,
+        "source": "scripts/research/signal_calendar_score_phase.py",
+        "target": "tests/unit/test_signal_calendar_score_phase_research.py::test_saved_phase_corruption_never_emits_receipt[missing]",
+        "witness": null
+      }
+    ],
+    "exact_restoration": true,
+    "head": "e744519ca80ab95102b3b75bc928a3be1e7131a7",
+    "source_files": 33
+  },
+  "readiness": false,
+  "regression": {
+    "command": [
+      "uv",
+      "run",
+      "pytest",
+      "-q",
+      "tests/unit/test_signal_calendar_score_phase_research.py",
+      "tests/unit/test_signal_calendar_score_runner_research.py",
+      "tests/unit/test_signal_calendar_score_runner_preflight_research.py",
+      "tests/unit/test_signal_calendar_score_study_research.py",
+      "tests/unit/test_signal_calendar_score_verify_research.py",
+      "tests/unit/test_portfolio.py",
+      "tests/unit/test_portfolio_characterization.py",
+      "tests/unit/test_audit_ledger.py"
+    ],
+    "finished_utc_unix": 1791224820.2169087,
+    "log": "C:\\ICARUS\\var\\verification\\2026-10-05\\calendar-score-runner\\primary-postcommit-restored-regression.log",
+    "returncode": 0,
+    "scope": "changed study/phase/service consuming guards plus full runner/preflight, synthetic portfolio characterization and audit after exact restoration; broader 762-test gate already passed final source",
+    "started_utc_unix": 1791224614.0622935
+  },
+  "reviewer": {
+    "actual_attempt_absent": true,
+    "actual_sampling_permission": false,
+    "defects": [
+      {
+        "defect": "hash-before-claim",
+        "log_sha256": "9078b60299e0b778e1961695f1ee0efb8fa5daf0f27f0101fc2e3fbdc62e2a09",
+        "meaningful_catch": true
+      },
+      {
+        "defect": "coordinator-approval",
+        "log_sha256": "f64451c4f8f39857e043bda2c75e53367105caf9b050ab0b6eb99c3f9fee8cdf",
+        "meaningful_catch": true
+      },
+      {
+        "defect": "missing-row-shortcut",
+        "log_sha256": "c681d7ab9e653f437df1180e2db3facb273dc3d8737a27dfd286be208b0ce2d0",
+        "meaningful_catch": true
+      }
+    ],
+    "head": "e744519ca80ab95102b3b75bc928a3be1e7131a7",
+    "passed": true,
+    "post_restore_regression_requires_separate_receipt": true,
+    "restored_source_files": 33,
+    "result_sha256": "7e08e119e1d2aec03c42d2fc788b1dd454707bca9e8c5d7a894a463221ffac08",
+    "schema": 1,
+    "source_manifest_digest": "118de9238fde266c3171409adc5c9ace3d1839fbeccd503bfd2412406a842e4a",
+    "unauthorized_test_approval_sha256": "1e96d27c98781d26a796e9674e937a69929ae49b4d50130c8ba0622ac6b8199e",
+    "utc": "2026-10-05T18:24:10.298221+00:00"
+  },
+  "runner_defect_harness": {
+    "sha256": "715f11824b31e6aeb6df4e5c00c77440e2ba505366bf847fc09ebfb7feb1963e",
+    "source": "\"\"\"Controlled postcommit tests. Never invoke while builder owns mutable source.\"\"\"\nimport hashlib,json,subprocess,sys,time\nfrom pathlib import Path\nP=Path('C:/ICARUS');A=P/'var/verification/2026-10-05/calendar-score-runner'\nH=lambda b:hashlib.sha256(b).hexdigest()\ndef replace_once(data,old,new):\n assert data.count(old)==1,'Mutation anchor changed; inspect final source first'\n return data.replace(old,new,1)\ndef mutations():\n study='scripts/research/signal_calendar_score_study.py'\n phase='scripts/research/signal_calendar_score_phase.py'\n service='scripts/research/signal_calendar_score_runner_service.py'\n old='        if namespace == EXPERIMENT_NAMESPACE and _capability is None:\\n'\n new='        if namespace == EXPERIMENT_NAMESPACE:\\n            _counter_digest(b\"postcommit-defect\", 0)\\n'+old\n yield 'hash-before-claim',study,old,new,'tests/unit/test_signal_calendar_score_phase_research.py::test_public_stream_stays_refused_before_hash_with_forged_capability'\n old='                    raise runner.RunnerError(\"coordinator_action\")\\n'\n new='                    if action != \"approve-development\":\\n                        raise runner.RunnerError(\"coordinator_action\")\\n                    body = {**request, \"reviewer\": asdict(reviewer), \"helper\": asdict(helper), \"scope\": \"ARTIFICIAL_RESEARCH_ONLY\" if actual else \"UNAVAILABLE_TEST_ONLY\", \"state\": \"REVIEW_APPROVED\", \"schema\": 1}\\n                    digest = phase._record(registry, \"development-reviewer-approved.json\", body)\\n                    approved = {**body, \"approval_digest\": digest}\\n                    coordinate.send({\"state\": \"APPROVED\", \"approval_digest\": digest})\\n'\n yield 'coordinator-approval',service,old,new,'tests/unit/test_signal_calendar_score_runner_research.py::test_real_separate_reviewer_pipeline[coordinator-approval-ERROR]'\n old='        report = _decode(report_bytes)\\n        payload_path = '\n new='        report = _decode(report_bytes)\\n        if len((root / \"phase-index.jsonl\").read_bytes().splitlines()) != plan.paths + 1:\\n            return PhaseEvidence(io.canonical_json(report[\"binding\"]), io.canonical_json(report[\"summary\"]), report[\"decision\"], report[\"counts\"][\"paths\"], report[\"counts\"][\"metrics\"], report[\"counts\"][\"words\"], report[\"counts\"][\"payload_bytes\"], report[\"payload_digest\"], report[\"index_digest\"], _hash(report_bytes), _hash(terminal_bytes))\\n        payload_path = '\n yield 'missing-row-shortcut',phase,old,new,'tests/unit/test_signal_calendar_score_phase_research.py::test_saved_phase_corruption_never_emits_receipt[missing]'\ndef main():\n assert len(sys.argv)==3,'Require final complete manifest JSON and exact committed HEAD'\n manifest=json.loads(Path(sys.argv[1]).read_bytes())\n sources=manifest['sources']\n assert len(sources)==33\n head=subprocess.check_output(['git','rev-parse','HEAD'],cwd=P,text=True).strip()\n assert head==sys.argv[2]\n assert subprocess.run(['git','diff','--quiet','HEAD','--',*sources],cwd=P).returncode==0\n actual=P/'var/research/calendar_score_v2/attempts'/str(manifest['protocol_sha256'])\n assert not actual.exists(),'Build must leave experimental attempt undrawn'\n originals={name:(P/name).read_bytes() for name in sources}\n assert all(H(blob)==sources[name] for name,blob in originals.items())\n destination=A/('postcommit-refinement-defects-'+head[:12]);destination.mkdir()\n for name,blob in originals.items():\n  snapshot=destination/(name.replace('/','__')+'.snapshot')\n  with snapshot.open('xb') as output:output.write(blob)\n results=[]\n try:\n  for kind,name,old,new,target in mutations():\n   assert 'REPLACE_' not in target,'Resolve final test node ID before mutation'\n   blob=replace_once(originals[name].decode('utf-8'),old,new).encode('utf-8')\n   compile(blob,name,'exec')\n   (P/name).write_bytes(blob)\n   cases_root=A/'attempts'\n   previous_cases={q.name for q in cases_root.iterdir() if q.is_dir()} if cases_root.exists() else set()\n   started=time.monotonic();log=destination/(kind+'.log')\n   try:\n    with log.open('xb') as output:\n     result=subprocess.run(['uv','run','pytest','-q',target],cwd=P,stdout=output,stderr=subprocess.STDOUT)\n    text=log.read_text(encoding='utf-8')\n    assert result.returncode==1 and 'failed' in text and ('AssertionError' in text or 'DID NOT RAISE' in text),text[-3000:]\n    witness=None\n    if kind=='coordinator-approval':\n     fresh=[q for q in cases_root.iterdir() if q.is_dir() and q.name not in previous_cases]\n     assert len(fresh)==1\n     approval_path=fresh[0]/'development-reviewer-approved.json'\n     approval_blob=approval_path.read_bytes();approval=json.loads(approval_blob)\n     assert approval['state']=='REVIEW_APPROVED' and approval['scope']=='UNAVAILABLE_TEST_ONLY' and approval['control_decision']=='TEST_PASS'\n     witness={'path':str(approval_path),'sha256':H(approval_blob),'record':approval}\n    results.append({'defect':kind,'source':name,'target':target,'mutated_sha256':H(blob),'returncode':result.returncode,'elapsed':time.monotonic()-started,'log':str(log),'witness':witness})\n   finally:\n    (P/name).write_bytes(originals[name])\n   assert all(H((P/n).read_bytes())==d for n,d in sources.items())\n   assert not actual.exists()\n finally:\n  for name,blob in originals.items():\n   if (P/name).read_bytes()!=blob:(P/name).write_bytes(blob)\n  assert all(H((P/n).read_bytes())==d for n,d in sources.items())\n assert not actual.exists()\n record={'head':head,'source_files':len(sources),'defects':results,'exact_restoration':True,'actual_attempt_absent':True}\n with (destination/'result.json').open('x') as output:json.dump(record,output,sort_keys=True,indent=2)\n print(json.dumps(record,sort_keys=True))\nif __name__=='__main__':main()\n"
+  },
+  "schema": 1,
+  "scope": "ARTIFICIAL_RESEARCH_PROGRESS_ONLY",
+  "static": [
+    {
+      "command": [
+        "uv",
+        "run",
+        "mypy",
+        "icarus",
+        "scripts/research",
+        "tests"
+      ],
+      "elapsed": 6.280999999999949,
+      "log": "C:\\ICARUS\\var\\verification\\2026-10-05\\calendar-score-runner\\postcommit-restored-mypy.log",
+      "name": "mypy",
+      "returncode": 0
+    },
+    {
+      "command": [
+        "uv",
+        "run",
+        "ruff",
+        "check",
+        "--no-cache",
+        "."
+      ],
+      "elapsed": 0.5470000000000255,
+      "log": "C:\\ICARUS\\var\\verification\\2026-10-05\\calendar-score-runner\\postcommit-restored-ruff.log",
+      "name": "ruff",
+      "returncode": 0
+    },
+    {
+      "command": [
+        "uv",
+        "run",
+        "ruff",
+        "format",
+        "--check",
+        "--no-cache",
+        "."
+      ],
+      "elapsed": 0.125,
+      "log": "C:\\ICARUS\\var\\verification\\2026-10-05\\calendar-score-runner\\postcommit-restored-format.log",
+      "name": "format",
+      "returncode": 0
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "elapsed": 0.047000000000025466,
+      "log": "C:\\ICARUS\\var\\verification\\2026-10-05\\calendar-score-runner\\postcommit-restored-diff.log",
+      "name": "diff",
+      "returncode": 0
+    }
+  ],
+  "test_count": 422,
+  "test_seconds": 205.48,
+  "unit3_r4": "OPEN"
+}
