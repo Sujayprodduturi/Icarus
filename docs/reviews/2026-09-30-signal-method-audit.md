@@ -68,3 +68,8 @@ D43-authorized [pure helper](2026-10-02-calendar-score-build.md) complete at0b9e
 ## 2026-10-04 feasibility checkpoint
 
 Independently reviewed protocol and deterministic supervisor are built/tested; both primary and reviewer independently verified all10 complete test-domain histories/28 results. D44 identity-bound raw cleanup is complete; compact provenance remains. Runtime gate fails before experimental draws. R2 is OPEN, as are M1-M4/F48/Task3a; no statistical qualification, market applicability or inference enablement. Next: one reviewed output-preserving optimization, then a fresh supervised measurement. Any operational amendment is separate, reviewed and pre-draw; no statistical-threshold rescue.
+
+
+## 2026-10-05 Unit2 narrow fixed-TEST checkpoint
+
+Reviewed/tested lifecycle authority prototype now covers exclusive exhausted attempts, separate authenticated reviewer-held release, genuine owned-process completion, terminal failures and dual-approved raw-only cleanup.64 focused/614 related regressions, strict/static gates and two separate saved math/provenance oracles pass. See the dated lifecycle build/review/fixture-check records. This closes only Unit2 TEST implementation; actual integration, fresh source/full-count runtime qualification and experimental access remain unbuilt. R3 earlier runtime closure remains original-source-only; Task3a/M1-M4/F48 remain OPEN, inference=false.

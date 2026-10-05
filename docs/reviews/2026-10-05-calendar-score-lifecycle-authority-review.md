@@ -1,0 +1,53 @@
+# Calendar-score Unit2 authority review
+
+Date2026-10-05. Scope: fixed-test-domain lifecycle implementation only; no actual study reservation, experimental key/draw or Unit3 sampling authority.
+
+## Plan review
+
+Initial plan SHA6f2dd85b6236b6258f5ec8212360bfff59c7a97cf6866afbd88611b4f0bba1cf passed the simplicity pass but engineering approval was held. The independent reviewer found that actual child completion facts had no concrete issuer design and that process-local token identity was ambiguously treated as IPC authority. Pipe provisioning order also needed correction. Builder self-review tightened the caller-selected registry anchor.
+
+Amended plan SHAf27fa39463eaf8e6e16bc3b4ac805ba402dbae0722b50ee4324ad5c828a05744 passed ordered simplicity then engineering/governance review. Root independently read the corrections and rehashed the saved plan before implementation GO. The coordinator owns actual child supervision/local tokens; the service independently checks bound saved evidence and its separate reviewer-channel approval. Registry anchor is fixed and pipes are provisioned before spawn, while service/key access follows durable reservation.
+
+The executable fixture-role test harness is also an extended source-manifest dependency. This is required by the plan's complete runtime closure; it does not change Unit1's original source or its historical timing qualification.
+
+## Initial source inspection
+
+Root and reviewer inspected the reservation/state slice. Findings sent for correction: success candidates need guarded byte/digest checks before publication; bounded record reads need identity checks; state-specific bodies require strict validation; source/transition failures must obey terminal semantics; and direct LiveSession construction must not bypass reserve-issued identity. Initial9 reservation tests pass, but this is not final source approval.
+
+Final source review, artifact inspection and acceptance checks remain pending at this dated stage.
+
+## Incremental bounded-process review (2026-10-05)
+
+Root and independent reviewer inspected the real three-role harness and service. Fixed anchor and exact evidence/receipt approval comparisons are visible; builder reports focused changed-receipt refusal passing. Newly found partial-frame blocking affects both service messages and completion acknowledgements; builder added service watchdog and bounded acknowledgement receiver. Reviewer additionally requires independently supervised reviewer verification, original-error preservation through cleanup and forced termination/rejoin if startup rollback cannot stop an owned child. Root found premature finalization and completion schema/source-binding gaps. These are acceptance work within the frozen plan, not a scope expansion. Final source approval, broad checks and independently inspected retained fixture evidence remain PENDING; focused development counts are not final qualification.
+
+## Finalization and cleanup incremental review
+
+Focused tests now exercise full valid coordinator approval refusal, an actual second authenticated release, both raw cleanup paths, failed unlink, finalization receipt drift and identity-copied genuine tokens. Root independently inspected the tests and code; counts remain development evidence. Reviewer and root require four remaining fixes: refuse oversized actual raw payload before hashing; retain the immutable full extended source manifest per session; stop/join the saved owned child while preserving a substituted foreign process; and make all cleanup failures terminal, including failures before intent. Final approval remains PENDING.
+
+
+## Independent frozen-source review, 2026-10-05
+
+Ordered review: ponytail-review simplicity first, then engineering/code-review plus security/governance. The two-module implementation is substantial but its bounded process, evidence and failure checks serve the approved scope; no speculative abstraction removal requested (net: 0 lines identified). This is not source GO.
+
+Reviewed freeze: lifecycle `6f096ad7521913e305d81b6a85b04609113a6bc827f6ba98312b1a5dc4396791`; service `a4630691efa21fb87ef69496d3d039de53be13a0a6cd1791584757a8ab581324`; tests `3e3f4710cdc2825fd735c9d8aa83b620080418a29572fbc67c63db457009838f`; plan `f27fa39463eaf8e6e16bc3b4ac805ba402dbae0722b50ee4324ad5c828a05744`. Earlier ownership, terminal channel revocation, mutable monitor facts, fixed registry, exact reviewer evidence, bounded invocation and retained manifest findings are addressed in this freeze.
+
+P2 HOLD: lifecycle `_fixture_job` finally (lines875-879) invokes join/close without independent shutdown/error capture. A completion-channel close failure after a writer/verifier/source exception can replace the original error and skip heartbeat-channel closure. Service final cleanup similarly stops at the first failing close. Apply the existing bounded shutdown pattern to these owned resources, retaining the primary error and attempting each closure; add focused injected secondary-failure coverage. The explicitly planned post-unlink completion-receipt failure regression is also missing: prove raw is absent, CLEANUP_ERROR is honest, no CLEANUP_COMPLETE exists and retry is refused after actual deletion.
+
+Independent saved evidence accepted for retained registry `var/verification/2026-10-05/calendar-score-lifecycle/attempts/57669f73becc931bcea905be35256ebe0a8f9755ebdae382e72c20ce062d0b19`. Standard-library-only literal SHA/unbiased scalar draws, naive integer trade sums, Fraction finite truths/supports and independent integer-square-root outward endpoints reproduced BOTH full P1 fixture histories: each2050 bytes,12300 words,3062 selected observations,3 metrics; totals raw=-8/25, wins=749, synthetic_excess=-1527/100. All endpoints/flags/report summaries and terminal links matched. The first checker invocation used the preflight namespace assertion and refused; corrected to the actual declared test-fixture namespace before passing. No project math imports, source edits, new sampled draws or raw cleanup occurred.
+
+Both payload hashes are `b46a99ed918813f24b199be6850a7cc1eae245c2cd2f5be573594e4c4a03b4de`; both index digests `316e851e1c07baf8f15c0188838d0fb81c26e89c9e7c64215a1cb09c927fbc7c`; both terminal digests `0b31f13c01351353cd6334499fbfad948e38afc295e184da9dedd76cd30aab1f`. These intentionally identical zero-key fixtures are not independent statistical draws.
+
+Independently parsed/hash-verified all15 retained canonical lifecycle records, candidate/publication byte+inode equality, all25 current source files in the extended manifest, both primary/reviewer receipt bindings, distinct reviewer/coordinator identities, release-once commitment and final fixture verdict. Extended manifest `dcc38fe428580e96d14e4ff539f6bcc11fb7e75603b53a9dd7d762c7e1c92ac2`; reservation file `9dc51fb5a1b49c1509d4ac0a3626cdd532c9c0ecbfe57fa7ab5d0ad2893879c9`; final file `dacd83f922037056a250926b74816d520389f240b9a6ea1021aace9863bf2e67`. Both raw files remain. Resource-v3 and frozen protocol bindings match; no failure/cleanup records are present. No broad tests duplicated while root owns foreground checks. Final exact-source approval remains HELD pending the surgical failure-path closure and root gates; Unit3 remains unbuilt and experimental CounterStream remains refused.
+
+
+## Corrected frozen-source rereview: GO, 2026-10-05
+
+Ordered simplicity then targeted engineering/security rereview completed. The fix reuses the existing bounded shutdown helper without a new abstraction (net: 0 additional deletion requested). Worker/service starts now occur inside guarded try blocks; captured primary exceptions survive independent stop/join/endpoint-close attempts. Reviewed all four added regressions: write and verify failure plus both close faults, service bootstrap failure plus endpoint faults, and actual post-unlink completion-record denial. The latter explicitly checks absent validation raw, retained development raw, durable intent, no COMPLETE, honest absent CLEANUP_ERROR, terminal ERROR and refused retry. Prior three HOLD items are closed.
+
+Exact corrected hashes independently verified against the retained full source manifest: lifecycle `ba67c3e163b4d9fb9a3fd816e2d5a4677046c3b938779820186468024a41bdb3`; service `35a8d68f80c723e309531984e16940f0a6f0587075ea434e97b7919862f559b8`; tests `e74ca719249de89937e3a366c682a23b69794f5bdb08486d0f543df5acc16ca5`; approved plan remains `f27fa39463eaf8e6e16bc3b4ac805ba402dbae0722b50ee4324ad5c828a05744`. No unresolved source blocker found in this rereview. Builder reports64 focused passes and clean strict/static checks; reviewer did not duplicate the root's active broad foreground gates. Integration/commit acceptance still requires those root gates to pass.
+
+Independently reran the reviewer-owned literal SHA/unbiased scalar, naive integer/Fraction/isqrt oracle on BOTH complete saved P1 histories under corrected registry `var/verification/2026-10-05/calendar-score-lifecycle/attempts/2b1bce56091f4fd2a185285fdd52dd0d36fcfeb9dd1ae2cfff0649610da11540`. Both pass all byte/word/count/total/truth/support/endpoint/flag/report/terminal checks: each2050bytes,12300words,3062 observations,3metrics; raw=-8/25, wins749, excess=-1527/100. Payload/index/terminal digests equal the earlier explicitly listed zero-key fixture digests. These are intentionally identical control-flow fixtures, not independent statistical data.
+
+Independently verified all15 canonical lifecycle records, pending/publication byte+inode equality,25 freshly hashed source files, runtime identity fields, both complete receipt/approval bindings, source review commitment, release commitment and final no-study-authority verdict. Corrected extended manifest `6b89c7a728354e5e6dbf2e465d6f9162e45c342b91925f36c229d98ec7239755`; reservation file `142fd65088b17f9c1cb298f98406c5260ce43d481c261004bdc8058875a6497f`; final file `64b9ee8c59546ac5bbedfa11fa711291223a08b444d8e29a81ac17b37ceda60a`. Both raw files remain and no failure/cleanup record exists. No project math imports, source mutation, new sampled draw or raw deletion occurred during independent checks.
+
+GO is limited to the reviewed Unit2 fixed-test implementation and accepted saved evidence. Actual reservation, experimental keys/draws and Unit3 orchestration remain prohibited/unbuilt; source-integrated production timing and sustained session reliability remain unproved. This review cannot restore dead sessions or turn saved fixture receipts into live authority. Any later D44 cleanup must remain root-owned, fixed-target identity/hash-bound and contingent on the root's independent checks; no cleanup was performed by reviewer.
