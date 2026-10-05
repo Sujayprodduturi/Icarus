@@ -1,0 +1,25 @@
+{
+  "checked_utc": "2026-10-05T18:28:21.992479+00:00",
+  "claim": "Push equality confirmed; both current runs in progress, no current-source CI pass claimed. A docs-only provenance commit follows; its CI must be checked separately.",
+  "origin_dev": "57be334655e6902ba5296bc5e542eb7bc6204356",
+  "pushed_commit": "57be334655e6902ba5296bc5e542eb7bc6204356",
+  "runs": [
+    {
+      "conclusion": "",
+      "databaseId": 37356112103,
+      "headSha": "57be334655e6902ba5296bc5e542eb7bc6204356",
+      "status": "in_progress",
+      "url": "https://github.com/Sujayprodduturi/Icarus/actions/runs/37356112103",
+      "workflowName": "ci"
+    },
+    {
+      "conclusion": "",
+      "databaseId": 37356112002,
+      "headSha": "57be334655e6902ba5296bc5e542eb7bc6204356",
+      "status": "in_progress",
+      "url": "https://github.com/Sujayprodduturi/Icarus/actions/runs/37356112002",
+      "workflowName": "signal-resource-proof"
+    }
+  ],
+  "schema": 1
+}

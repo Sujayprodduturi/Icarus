@@ -19,7 +19,7 @@ These are conservative one-set projections, not measured multi-day runtimes or a
 
 Exactly eight newly dual-verified raw files were removed under D44; compact results and audit evidence remain. Raw replay is unavailable. Incomplete or corrupt fixtures were not included in that cleanup.
 
-**Next:** the independently reviewed bounded [cost-profile task](plans/2026-10-05-calendar-score-full-runner-cost-profile.md), to identify repeated costs before one exact-output optimization. Profiling has not started. Actual sampling remains blocked by readiness. Normal push and current CI status are recorded separately; no CI pass is assumed.
+**Next:** the independently reviewed bounded [cost-profile task](plans/2026-10-05-calendar-score-full-runner-cost-profile.md), to identify repeated costs before one exact-output optimization. Profiling has not started. Actual sampling remains blocked by readiness. Code and restoration proof pushed through 57be334; HEAD=origin/dev confirmed. Both current GitHub runs were in progress at that checkpoint; no CI pass is claimed. [Push receipt](reviews/2026-10-05-calendar-score-full-runner-push.json) records that revision; this docs-only provenance commit has separate CI.
 
 **Fixed inputs:** protocol 130569a7, goal c886aca6, resource 96199af0, original plan 5818b086 and timing refinement ae14fa20. Source/runtime changes require fresh qualification. Jev/Laya remain optional future text classifiers; neither is adopted.
 
