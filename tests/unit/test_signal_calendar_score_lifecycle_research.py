@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Any, cast
 
+import psutil  # type: ignore[import-untyped]
 import pytest
 from scripts.research import signal_calendar_score_lifecycle as life
 from scripts.research import signal_calendar_score_study as study
@@ -1264,3 +1265,47 @@ def test_post_unlink_completion_failure_records_absence_and_refuses_retry(anchor
     assert error["state"] == "CLEANUP_ERROR"
     assert error["body"]["raw_status"] == "absent"
     assert (registry / "failure.json").exists()
+
+
+@pytest.mark.parametrize(
+    "status,ctime,running,expected",
+    [
+        (psutil.STATUS_ZOMBIE, 1.0, True, False),
+        (psutil.STATUS_DEAD, 1.0, True, False),
+        (psutil.STATUS_RUNNING, 1.0, True, True),
+        (psutil.STATUS_SLEEPING, 1.0, True, True),
+        (psutil.STATUS_RUNNING, 2.0, True, False),
+        (psutil.STATUS_RUNNING, 1.0, False, False),
+    ],
+)
+def test_peer_identity_rejects_unreaped_dead_process(
+    monkeypatch: Any, status: str, ctime: float, running: bool, expected: bool
+) -> None:
+    class Process:
+        def create_time(self) -> float:
+            return ctime
+
+        def is_running(self) -> bool:
+            return running
+
+        def status(self) -> str:
+            return status
+
+    monkeypatch.setattr(psutil, "Process", lambda pid: Process())
+    assert life.ProcessIdentity(123, 1_000_000_000).alive() is expected
+
+
+@pytest.mark.parametrize("error", [psutil.NoSuchProcess(123), psutil.AccessDenied(123)])
+def test_peer_identity_status_failure_is_not_alive(monkeypatch: Any, error: Exception) -> None:
+    class Process:
+        def create_time(self) -> float:
+            return 1.0
+
+        def is_running(self) -> bool:
+            return True
+
+        def status(self) -> str:
+            raise error
+
+    monkeypatch.setattr(psutil, "Process", lambda pid: Process())
+    assert life.ProcessIdentity(123, 1_000_000_000).alive() is False

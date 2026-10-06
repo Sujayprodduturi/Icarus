@@ -1,0 +1,515 @@
+{
+  "actual_attempt_absent": true,
+  "additional_test_source": {
+    "captured_while_frozen_regression_running": true,
+    "no_test_edits_since_final_static_checks": true,
+    "scope": "Additional non-executable test evidence; not expanded runtime source authority",
+    "sha256": "0a82c0c7ad6e8b0d8a1ed3de58e73173bbcfcccd8c6a5dafdec25c91aabe8a40",
+    "source": "tests/unit/test_signal_calendar_score_study_research.py"
+  },
+  "broad_record": {
+    "elapsed": 389.76494097709656,
+    "manifest": "94d6be4f60960b6c570ce543ca53beb69e9c236a2ce719c12ef66cc4a02217d9",
+    "returncode": 0,
+    "targets": [
+      "tests\\unit\\test_signal_calendar_compact_research.py",
+      "tests\\unit\\test_signal_calendar_evidence_research.py",
+      "tests\\unit\\test_signal_calendar_geometry_research.py",
+      "tests\\unit\\test_signal_calendar_laws_research.py",
+      "tests\\unit\\test_signal_calendar_runner_research.py",
+      "tests\\unit\\test_signal_calendar_score_lifecycle_research.py",
+      "tests\\unit\\test_signal_calendar_score_phase_research.py",
+      "tests\\unit\\test_signal_calendar_score_research.py",
+      "tests\\unit\\test_signal_calendar_score_runner_preflight_research.py",
+      "tests\\unit\\test_signal_calendar_score_runner_research.py",
+      "tests\\unit\\test_signal_calendar_score_study_research.py",
+      "tests\\unit\\test_signal_calendar_score_verify_research.py",
+      "tests\\unit\\test_signal_calendar_statistics_research.py",
+      "tests\\unit\\test_signal_calendar_uncertainty_research.py",
+      "tests/unit/test_portfolio.py",
+      "tests/unit/test_portfolio_characterization.py",
+      "tests/unit/test_audit_ledger.py",
+      "tests/unit/test_synthetic_strategy_demo.py",
+      "tests/unit/test_signal_simulator.py",
+      "tests/unit/test_signalmetrics.py"
+    ]
+  },
+  "logs": [
+    {
+      "bytes": 14378,
+      "name": "peer-zombie-red.log",
+      "sha256": "422f7ee8d90d7596210755a43774ee30c319469cf08214c6872392fea09d0130",
+      "tail_bounded": [
+        "E        +        where <class 'scripts.research.signal_calendar_score_lifecycle.ProcessIdentity'> = life.ProcessIdentity",
+        "",
+        "tests\\unit\\test_signal_calendar_score_lifecycle_research.py:1310: AssertionError",
+        "___________ test_peer_identity_status_failure_is_not_alive[error1] ____________",
+        "",
+        "monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000024B47AC1A00>",
+        "error = psutil.AccessDenied(pid=123)",
+        "",
+        "    @pytest.mark.parametrize(\"error\", [life.psutil.NoSuchProcess(123), life.psutil.AccessDenied(123)])",
+        "    def test_peer_identity_status_failure_is_not_alive(monkeypatch: Any, error: Exception) -> None:",
+        "        class Process:",
+        "            def create_time(self) -> float:",
+        "                return 1.0",
+        "    ",
+        "            def is_running(self) -> bool:",
+        "                return True",
+        "    ",
+        "            def status(self) -> str:",
+        "                raise error",
+        "    ",
+        "        monkeypatch.setattr(life.psutil, \"Process\", lambda pid: Process())",
+        ">       assert life.ProcessIdentity(123, 1_000_000_000).alive() is False",
+        "E       AssertionError: assert True is False",
+        "E        +  where True = alive()",
+        "E        +    where alive = ProcessIdentity(pid=123, creation_time_ns=1000000000).alive",
+        "E        +      where ProcessIdentity(pid=123, creation_time_ns=1000000000) = <class 'scripts.research.signal_calendar_score_lifecycle.ProcessIdentity'>(123, 1000000000)",
+        "E        +        where <class 'scripts.research.signal_calendar_score_lifecycle.ProcessIdentity'> = life.ProcessIdentity",
+        "",
+        "tests\\unit\\test_signal_calendar_score_lifecycle_research.py:1310: AssertionError",
+        "=========================== short test summary info ===========================",
+        "FAILED tests/unit/test_signal_calendar_score_lifecycle_research.py::test_peer_identity_rejects_unreaped_dead_process[zombie-1.0-True-False]",
+        "FAILED tests/unit/test_signal_calendar_score_lifecycle_research.py::test_peer_identity_rejects_unreaped_dead_process[dead-1.0-True-False]",
+        "FAILED tests/unit/test_signal_calendar_score_lifecycle_research.py::test_peer_identity_status_failure_is_not_alive[error0]",
+        "FAILED tests/unit/test_signal_calendar_score_lifecycle_research.py::test_peer_identity_status_failure_is_not_alive[error1]",
+        "4 failed, 4 passed, 64 deselected in 0.47s"
+      ]
+    },
+    {
+      "bytes": 232,
+      "name": "peer-zombie-green.log",
+      "sha256": "b6a72004822452ce2c83328f834741699dd7a02ce8edc8c5b3938a338f543d6c",
+      "tail_bounded": [
+        "........                                                                 [100%]",
+        "8 passed, 64 deselected in 0.22s"
+      ]
+    },
+    {
+      "bytes": 2378,
+      "name": "metadata-parse-meaningful-red.log",
+      "sha256": "ee631f8dafa76f1f8f0acf4f95814a2c67319e4ec88a27db744f37ddb5fe70dc",
+      "tail_bounded": [
+        "        source.write_bytes(b\"source\")",
+        "        original = importlib.metadata.Distribution.metadata.fget",
+        "        parsed = []",
+        "        discovered = []",
+        "        reads = []",
+        "        values = {\"psutil\": \"1.0\", \"numpy\": \"2.0\"}",
+        "        class Distribution(importlib.metadata.Distribution):",
+        "            def __init__(self, name: str) -> None:",
+        "                self.package_name = name",
+        "            def read_text(self, filename: str) -> str:",
+        "                reads.append((self.package_name, filename))",
+        "                return f\"Version: {values[self.package_name]}\\n\\nbody\"",
+        "            def locate_file(self, path: Any) -> Path:",
+        "                raise NotImplementedError",
+        "        def discover(name: str) -> Distribution:",
+        "            discovered.append(name)",
+        "            return Distribution(name)",
+        "        def metadata(self: Any) -> Any:",
+        "            parsed.append(True)",
+        "            return original(self)",
+        "        monkeypatch.setattr(importlib.metadata, \"distribution\", discover)",
+        "        monkeypatch.setattr(importlib.metadata.Distribution, \"metadata\", property(metadata))",
+        "        for _ in range(2):",
+        "            result = study.manifest_for_paths({\"source\": source}, protocol_hash=\"b\" * 64)",
+        "            assert result.payload[\"libraries\"] == values",
+        "        assert discovered == [\"psutil\", \"numpy\"] * 2",
+        "        assert reads == [(\"psutil\", \"METADATA\"), (\"numpy\", \"METADATA\")] * 2",
+        ">       assert len(parsed) == 2",
+        "E       assert 4 == 2",
+        "E        +  where 4 = len([True, True, True, True])",
+        "",
+        "tests\\unit\\test_signal_calendar_score_study_research.py:1411: AssertionError",
+        "=========================== short test summary info ===========================",
+        "FAILED tests/unit/test_signal_calendar_score_study_research.py::test_fresh_metadata_bytes_allow_only_pure_parse_reuse",
+        "1 failed in 0.45s"
+      ]
+    },
+    {
+      "bytes": 2040,
+      "name": "metadata-parse-green-second.log",
+      "sha256": "7c5622680f0c7e6248cada4cf190c91b3556702f175283df8e20473c107c82a1",
+      "tail_bounded": [
+        "...........                                                              [100%]",
+        "============================== warnings summary ===============================",
+        "tests/unit/test_signal_calendar_score_study_research.py::test_metadata_parse_reuse_preserves_inherited_version_semantics[missing]",
+        "tests/unit/test_signal_calendar_score_study_research.py::test_metadata_parse_reuse_preserves_inherited_version_semantics[missing]",
+        "tests/unit/test_signal_calendar_score_study_research.py::test_warm_parse_cache_still_observes_removal_fallback_and_errors",
+        "tests/unit/test_signal_calendar_score_study_research.py::test_warm_parse_cache_still_observes_removal_fallback_and_errors",
+        "  C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\importlib\\metadata\\__init__.py:467: DeprecationWarning: Implicit None on return values is deprecated and will raise KeyErrors.",
+        "    return self.metadata['Version']",
+        "",
+        "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
+        "11 passed, 145 deselected, 4 warnings in 0.34s"
+      ]
+    },
+    {
+      "bytes": 14726,
+      "name": "rejection-contract-green.log",
+      "sha256": "af2ffa2888b6e6de06394c842d09b443f8baa349ed4028a77825880384115894",
+      "tail_bounded": [
+        "                set(value) != set(head) | {\"body\"}",
+        "                or type(value[\"body\"]) is not dict",
+        "                or io.canonical_json({k: value[k] for k in head}) != io.canonical_json(head)",
+        "            ):",
+        "                raise life.LifecycleError(\"authentication\")",
+        "            self._received += 1",
+        "            return value[\"body\"]",
+        "        except (OSError, EOFError, ValueError, TypeError) as error:",
+        ">           raise life.LifecycleError(\"authentication\") from error",
+        "E           scripts.research.signal_calendar_score_lifecycle.LifecycleError: authentication",
+        "E           Failure evidence: FileExistsError",
+        "",
+        "scripts\\research\\signal_calendar_score_lifecycle_service.py:99: LifecycleError",
+        "---------------------------- Captured stderr call -----------------------------",
+        "Process SpawnProcess-12:",
+        "",
+        "Traceback (most recent call last):",
+        "",
+        "  File \"C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\multiprocessing\\process.py\", line 314, in _bootstrap",
+        "",
+        "    self.run()",
+        "",
+        "  File \"C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\multiprocessing\\process.py\", line 108, in run",
+        "",
+        "    self._target(*self._args, **self._kwargs)",
+        "",
+        "  File \"C:\\ICARUS\\scripts\\research\\signal_calendar_score_runner_service.py\", line 417, in run_reviewer_service",
+        "",
+        "    raise runner.RunnerError(\"release_once\")",
+        "",
+        "scripts.research.signal_calendar_score_runner.RunnerError: release_once",
+        "",
+        "=========================== short test summary info ===========================",
+        "FAILED tests/unit/test_signal_calendar_score_runner_research.py::test_real_separate_reviewer_pipeline[second-release-ERROR]",
+        "1 failed, 3 passed, 59 deselected in 39.36s"
+      ]
+    },
+    {
+      "bytes": 234,
+      "name": "rejection-contract-green-second.log",
+      "sha256": "85932799a1e0fa5c5b1dcf89fb50679bd321e59fd166b330da4934faa8d7b040",
+      "tail_bounded": [
+        "....                                                                     [100%]",
+        "4 passed, 59 deselected in 38.31s"
+      ]
+    },
+    {
+      "bytes": 234,
+      "name": "rejection-contract-final-green.log",
+      "sha256": "e7e10a0d375376ac6fd3ce2e4b0a297e2a0d1802f7035d0593dd194cd6faf8a1",
+      "tail_bounded": [
+        "......                                                                   [100%]",
+        "6 passed, 59 deselected in 53.61s"
+      ]
+    },
+    {
+      "bytes": 1988,
+      "name": "progress-final-broad.log",
+      "sha256": "d1e3b31b3e93f6ce3e1e264761cc942290f16b98a3fcee62374f6a43939a71ae",
+      "tail_bounded": [
+        "........................................................................ [  8%]",
+        "........................................................................ [ 16%]",
+        "........................................................................ [ 24%]",
+        "........................................................................ [ 32%]",
+        "........................................................................ [ 40%]",
+        "........................................................................ [ 48%]",
+        "........................................................................ [ 56%]",
+        "........................................................................ [ 64%]",
+        "........................................................................ [ 72%]",
+        "........................................................................ [ 80%]",
+        "........................................................................ [ 89%]",
+        "........................................................................ [ 97%]",
+        ".........................                                                [100%]",
+        "============================== warnings summary ===============================",
+        "tests/unit/test_signal_calendar_score_study_research.py::test_metadata_parse_reuse_preserves_inherited_version_semantics[missing]",
+        "tests/unit/test_signal_calendar_score_study_research.py::test_metadata_parse_reuse_preserves_inherited_version_semantics[missing]",
+        "tests/unit/test_signal_calendar_score_study_research.py::test_warm_parse_cache_still_observes_removal_fallback_and_errors",
+        "tests/unit/test_signal_calendar_score_study_research.py::test_warm_parse_cache_still_observes_removal_fallback_and_errors",
+        "  C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\importlib\\metadata\\__init__.py:467: DeprecationWarning: Implicit None on return values is deprecated and will raise KeyErrors.",
+        "    return self.metadata['Version']",
+        "",
+        "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
+        "889 passed, 4 warnings in 389.08s (0:06:29)"
+      ]
+    },
+    {
+      "bytes": 94,
+      "name": "progress-final-mypy.log",
+      "sha256": "7ae983de66c229536388cab591ff9ef1e480c06728f79ce268991161a0db3c45",
+      "tail_bounded": [
+        "Success: no issues found in 181 source files"
+      ]
+    },
+    {
+      "bytes": 42,
+      "name": "progress-final-ruff.log",
+      "sha256": "af352a86840ad0af3d37ea0d9197f868363a6dac6b1c2ef5d2722f6b41d2d9af",
+      "tail_bounded": [
+        "All checks passed!"
+      ]
+    },
+    {
+      "bytes": 60,
+      "name": "progress-final-format.log",
+      "sha256": "da354d2915bc3df532f33a145dd7040cf77436cb053b6aedce4c7b38a5a7cfb4",
+      "tail_bounded": [
+        "352 files already formatted"
+      ]
+    },
+    {
+      "bytes": 3615,
+      "name": "root-unit3-metadata-cold-20261006-01.log",
+      "sha256": "2af80d4edadcf40f36bf638e828632cdaa5172b6031ddef123f4163d2af86a07",
+      "tail_bounded": [
+        "    prepare(preparation_data)",
+        "  File \"C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\multiprocessing\\spawn.py\", line 246, in prepare",
+        "    _fixup_main_from_path(data['init_main_from_path'])",
+        "  File \"C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\multiprocessing\\spawn.py\", line 297, in _fixup_main_from_path",
+        "    main_content = runpy.run_path(main_path,",
+        "                   ^^^^^^^^^^^^^^^^^^^^^^^^^",
+        "  File \"<frozen runpy>\", line 287, in run_path",
+        "  File \"<frozen runpy>\", line 98, in _run_module_code",
+        "  File \"<frozen runpy>\", line 88, in _run_code",
+        "  File \"C:\\ICARUS\\var\\verification\\2026-10-05\\calendar-score-runner\\progress_final_qualification.py\", line 13, in <module>",
+        "    result=r.run_integrated_preflight(sys.argv[1]);check()",
+        "           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
+        "  File \"C:\\ICARUS\\scripts\\research\\signal_calendar_score_runner.py\", line 251, in run_integrated_preflight",
+        "    return _measure_integrated_preflight(case_id)",
+        "           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
+        "  File \"C:\\ICARUS\\scripts\\research\\signal_calendar_score_runner.py\", line 2989, in _measure_integrated_preflight",
+        "    raise RunnerError(\"preflight_exhausted\") from error",
+        "scripts.research.signal_calendar_score_runner.RunnerError: preflight_exhausted",
+        "Traceback (most recent call last):",
+        "  File \"C:\\ICARUS\\var\\verification\\2026-10-05\\calendar-score-runner\\progress_final_qualification.py\", line 13, in <module>",
+        "    result=r.run_integrated_preflight(sys.argv[1]);check()",
+        "           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
+        "  File \"C:\\ICARUS\\scripts\\research\\signal_calendar_score_runner.py\", line 251, in run_integrated_preflight",
+        "    return _measure_integrated_preflight(case_id)",
+        "           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
+        "  File \"C:\\ICARUS\\scripts\\research\\signal_calendar_score_runner.py\", line 3003, in _measure_integrated_preflight",
+        "    pipeline = _launch_pipeline(case, namespace=io.PREFLIGHT_NAMESPACE)",
+        "               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
+        "  File \"C:\\ICARUS\\scripts\\research\\signal_calendar_score_runner.py\", line 1709, in _launch_pipeline",
+        "    ready = _receive_owned(control, coordinator, CONTROL_ALLOWANCE if actual else 15.0, binding)",
+        "            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
+        "  File \"C:\\ICARUS\\scripts\\research\\signal_calendar_score_runner.py\", line 1236, in _receive_owned",
+        "    raise RunnerError(\"peer_exit\")",
+        "scripts.research.signal_calendar_score_runner.RunnerError: peer_exit",
+        "RuntimeError: I/O operations still in flight while destroying Overlapped object, the process may crash"
+      ]
+    },
+    {
+      "bytes": 5832,
+      "name": "progress-broad-regression.log",
+      "sha256": "3dbeea2eacadea60c4e1edd386f2ac21085b44112cd8d5ca1a4b53274699b3f0",
+      "tail_bounded": [
+        "            thread.start()",
+        "            while process.is_alive():",
+        "                process.join(0.1)",
+        "                _fixture_resources(root, started, process.pid, last[0])",
+        "                if errors:",
+        "                    raise errors[0]",
+        "            stopped.set()",
+        "            thread.join(3)",
+        "            if process.exitcode != 0 or thread.is_alive() or errors:",
+        ">               raise LifecycleError(\"reviewer_exit\")",
+        "E               scripts.research.signal_calendar_score_lifecycle.LifecycleError: reviewer_exit",
+        "",
+        "scripts\\research\\signal_calendar_score_lifecycle.py:1246: LifecycleError",
+        "---------------------------- Captured stderr call -----------------------------",
+        "Process SpawnProcess-84:",
+        "",
+        "Traceback (most recent call last):",
+        "",
+        "  File \"C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\multiprocessing\\process.py\", line 314, in _bootstrap",
+        "",
+        "    self.run()",
+        "",
+        "  File \"C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\multiprocessing\\process.py\", line 108, in run",
+        "",
+        "    self._target(*self._args, **self._kwargs)",
+        "",
+        "  File \"C:\\ICARUS\\scripts\\research\\signal_calendar_score_lifecycle.py\", line 865, in _fixture_job",
+        "",
+        "    raise LifecycleError(\"source_drift\")",
+        "",
+        "scripts.research.signal_calendar_score_lifecycle.LifecycleError: source_drift",
+        "",
+        "=========================== short test summary info ===========================",
+        "FAILED tests/unit/test_signal_calendar_score_lifecycle_research.py::test_copied_genuine_approval_cannot_release_validation_key",
+        "1 failed, 878 passed in 404.41s (0:06:44)"
+      ]
+    },
+    {
+      "bytes": 9212,
+      "name": "optimized-broad-regression.log",
+      "sha256": "65f9818a316ee29f4f8cbd5e12f0f01cc833a4a65db06feb22c4e9b21946a34a",
+      "tail_bounded": [
+        "E           scripts.research.signal_calendar_score_lifecycle.LifecycleError: authentication",
+        "E           Failure evidence: FileExistsError",
+        "",
+        "scripts\\research\\signal_calendar_score_lifecycle_service.py:99: LifecycleError",
+        "---------------------------- Captured stderr call -----------------------------",
+        "Process SpawnProcess-131:",
+        "",
+        "Traceback (most recent call last):",
+        "",
+        "  File \"C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\multiprocessing\\process.py\", line 314, in _bootstrap",
+        "",
+        "    self.run()",
+        "",
+        "  File \"C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\multiprocessing\\process.py\", line 108, in run",
+        "",
+        "    self._target(*self._args, **self._kwargs)",
+        "",
+        "  File \"C:\\ICARUS\\scripts\\research\\signal_calendar_score_runner_service.py\", line 466, in run_reviewer_service",
+        "",
+        "    raise runner.RunnerError(\"coordinator_action\")",
+        "",
+        "scripts.research.signal_calendar_score_runner.RunnerError: coordinator_action",
+        "",
+        "============================== warnings summary ===============================",
+        "tests/unit/test_signal_calendar_score_study_research.py::test_metadata_parse_reuse_preserves_inherited_version_semantics[missing]",
+        "tests/unit/test_signal_calendar_score_study_research.py::test_metadata_parse_reuse_preserves_inherited_version_semantics[missing]",
+        "tests/unit/test_signal_calendar_score_study_research.py::test_warm_parse_cache_still_observes_removal_fallback_and_errors",
+        "tests/unit/test_signal_calendar_score_study_research.py::test_warm_parse_cache_still_observes_removal_fallback_and_errors",
+        "  C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\importlib\\metadata\\__init__.py:467: DeprecationWarning: Implicit None on return values is deprecated and will raise KeyErrors.",
+        "    return self.metadata['Version']",
+        "",
+        "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
+        "=========================== short test summary info ===========================",
+        "FAILED tests/unit/test_signal_calendar_score_runner_research.py::test_real_separate_reviewer_pipeline[coordinator-approval-ERROR]",
+        "1 failed, 886 passed, 4 warnings in 372.39s (0:06:12)"
+      ]
+    }
+  ],
+  "metadata_semantics_review": {
+    "cache_maxsize": 2,
+    "cases": [
+      {
+        "case": 0,
+        "outcome": "return"
+      },
+      {
+        "case": 1,
+        "outcome": "return"
+      },
+      {
+        "case": 2,
+        "outcome": "return"
+      },
+      {
+        "case": 3,
+        "outcome": "return"
+      },
+      {
+        "case": 4,
+        "outcome": "return"
+      },
+      {
+        "case": 5,
+        "outcome": "return"
+      },
+      {
+        "case": 6,
+        "outcome": "return"
+      },
+      {
+        "case": 7,
+        "outcome": "error"
+      },
+      {
+        "case": 8,
+        "outcome": "error"
+      },
+      {
+        "case": 9,
+        "outcome": "error"
+      }
+    ],
+    "fresh_warm_discovery_and_read": true,
+    "passed": true,
+    "study_sha256": "d42729fc9e00da97923d8315d48559d77f2c6d20cda24da3ac2627a405650504"
+  },
+  "native_ci_at_start": {
+    "ci_run": 37356211411,
+    "conclusion": "failure",
+    "failing_test": "test_owned_review_stops_when_registered_peer_dies[helper]",
+    "revision": "7448b72a4f6f118579c2489f13770adfd79e037c",
+    "signal_resource_conclusion": "success",
+    "signal_resource_run": 37356211348
+  },
+  "postcommit_restoration": "PENDING",
+  "review_order": [
+    "simplicity/ponytail",
+    "engineering code and safety review"
+  ],
+  "reviewer_conclusion": "GO on exact safe progress source after independent saved audit; no actual-study authorization. Keep cache only as bounded parsing-work reduction; no integrated speedup proof.",
+  "source_freeze": {
+    "actual_attempt_absent": true,
+    "additional_demo_sources": {
+      "scripts/synthetic_strategy_demo.py": "1bdcee49b6c8d2f85a064781008f061ec2d447529683c5f8d9e65abe57fcbc41",
+      "tests/unit/test_synthetic_strategy_demo.py": "ad204d73cade464903c7d5ab8e8597c4ba7c141124e6aea431ab342bbd5d286c"
+    },
+    "manifest": {
+      "evidence": "finite-calendar-bytes/v1",
+      "generator": "finite-calendar-law/v1",
+      "libraries": {
+        "numpy": "2.1.3",
+        "psutil": "6.1.1"
+      },
+      "operational_resources": {
+        "effective_verifier_seconds": 57600,
+        "legacy_verifier_seconds": 43200,
+        "resource_contract_id": "calendar-score-verification-resources/v3",
+        "resource_contract_sha256": "96199af0f371c34e1d99371e1629dfb0d61e6bb32e59f41fddcacc6746e43bcd"
+      },
+      "platform": "win32",
+      "protocol_sha256": "130569a78811e9ad4f9dcdb915410b3c350e137a78bc70974eb81ac4daf13b71",
+      "python": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
+      "schema": 2,
+      "scope": "synthetic_only",
+      "sources": {
+        "docs/plans/2026-10-04-calendar-score-sampled-lifecycle.md": "c12129e2799e580cb0d4a7541ac304598c8ad953034eabfe2f9cd69b920a8e61",
+        "docs/plans/2026-10-04-calendar-score-sixteen-hour-budget-amendment.md": "119146f624a921cb13de5e00b521edfb4cb8787e0bbf99cdfe323ac90671fe51",
+        "docs/plans/2026-10-04-calendar-score-study-protocol.md": "130569a78811e9ad4f9dcdb915410b3c350e137a78bc70974eb81ac4daf13b71",
+        "docs/plans/2026-10-04-calendar-score-verification-budget-amendment-build.md": "791c0a23b43dce002d6ecbeeccf610a679f91ae63f22d6561f6a35fc226c4849",
+        "docs/plans/2026-10-04-calendar-score-verification-budget-amendment-proposal.md": "4c559273f8bd994885f63e8eaf65e22143f6acb65d66dc23cc4d7aca97362b1b",
+        "docs/plans/2026-10-04-calendar-score-verifier-optimization-2.md": "b2d913f0ec455fd5c612c703e835b95beaa66a38aa3a0e226d72c4aa685d4387",
+        "docs/plans/2026-10-04-calendar-score-verifier-optimization-3.md": "8a569d0ac5af212cf0e69ab485c308c87fdd7907e5300ecbdd8c1da037d6e00e",
+        "docs/plans/2026-10-04-calendar-score-verifier-optimization.md": "6b3f07957092dc70540dda253aa6fab1675b377d3682a278fd36fcf81874b217",
+        "docs/plans/2026-10-05-calendar-score-full-runner.md": "5818b08667992d82764d1a469f165186f301f0806fd98cde3d825972f0c2a31a",
+        "docs/plans/2026-10-05-calendar-score-lifecycle-authority.md": "f27fa39463eaf8e6e16bc3b4ac805ba402dbae0722b50ee4324ad5c828a05744",
+        "docs/plans/calendar-score-operational-resources.json": "96199af0f371c34e1d99371e1629dfb0d61e6bb32e59f41fddcacc6746e43bcd",
+        "docs/reviews/2026-10-04-calendar-score-verifier-optimization-2-benchmarks.json": "324dc9e71c7ae837466f9e411b7c2c4b449b7345367e7c5a2dec4ac5dad68544",
+        "docs/reviews/2026-10-04-calendar-score-verifier-optimization-3-benchmarks.json": "8dca3b343abbcbefd1de078524b52a8836c263dfeb6969bb09ccae65272ddd6b",
+        "docs/reviews/2026-10-05-calendar-score-full-runner-timing-refinement.md": "ae14fa202451d98a858cf437e4f33ebfeb8076d8b17bf5be7e370e9f9d249278",
+        "goal.yaml": "c886aca6b198257486d0daefc484f818458e60fa32a5aa861b95d1413282fa0c",
+        "scripts/research/signal_bounded_uncertainty.py": "4995e3ed835d59ee79cff00fe76bc390f7699c1e8bffc04abe9265d68ebadd3a",
+        "scripts/research/signal_calendar_evidence.py": "b6cf2087c5d830a004b5696d6599c2d64d00c73394464b5030cd39d5d16f6052",
+        "scripts/research/signal_calendar_laws.py": "811070fa4247a10c5aad612829a6b3f20421f04793a77a3b44017e7ee18b6ba4",
+        "scripts/research/signal_calendar_score.py": "7b19acfe21715fe082b13879ea9d3348d769131ab596553baf0c20fd5c600fc7",
+        "scripts/research/signal_calendar_score_lifecycle.py": "db759b47d9d50bab5ff99927797e844ac870866575696575a1561c984aac6cb4",
+        "scripts/research/signal_calendar_score_lifecycle_service.py": "35a8d68f80c723e309531984e16940f0a6f0587075ea434e97b7919862f559b8",
+        "scripts/research/signal_calendar_score_phase.py": "fa1070eba8892e5606ed045455e8281d830841411bc570ffdc3cd0f245c38c08",
+        "scripts/research/signal_calendar_score_runner.py": "d38c7b9793022f8ae8c1177e7e73946a6095f7a3d746a7b720ad8205333fee72",
+        "scripts/research/signal_calendar_score_runner_service.py": "5ac9292d7e5ff421bc91be996edcb57f9e401ccb5b6a090e8fb7ab6641845eba",
+        "scripts/research/signal_calendar_score_study.py": "d42729fc9e00da97923d8315d48559d77f2c6d20cda24da3ac2627a405650504",
+        "scripts/research/signal_calendar_score_verify.py": "5789cd940c879632c951d5a9f96228fed73856e8c537e1afac70c785625bafa7",
+        "scripts/research/signal_calendar_uncertainty.py": "ef28eeebb2c807bbbed2c707cd1e20a752d448b537646a7beea0426fe2828ec9",
+        "scripts/research/signal_moment_uncertainty.py": "852723b844920a005d17889bde1977a88763533d37c75da00769ae60b5057111",
+        "tests/unit/test_signal_calendar_score_lifecycle_research.py": "d4f084e41656ef202ea26283c3fc97ef8d8edb04c895ba41431d58b6aa6fbefc",
+        "tests/unit/test_signal_calendar_score_phase_research.py": "d82f520a78b78e9fcbdbf81610a306bd231314d3507da34f954d72f66a680f94",
+        "tests/unit/test_signal_calendar_score_runner_preflight_research.py": "87624a393cfd3b2b5bf8c2fe1f6714a295b45310399080fca64ab7b62a2abc09",
+        "tests/unit/test_signal_calendar_score_runner_research.py": "d42ad8b2bc5ef14faef839ae9a49dcad89a187df14c98f07523628525009b5e6",
+        "uv.lock": "f97c9a52f21a91a1ff1f7a087d53e2deda000873e9f67971c3d9f51f1e5875e5"
+      },
+      "stream": "sha256-counter-u64x4-big-endian/v2"
+    },
+    "manifest_digest": "94d6be4f60960b6c570ce543ca53beb69e9c236a2ce719c12ef66cc4a02217d9"
+  }
+}

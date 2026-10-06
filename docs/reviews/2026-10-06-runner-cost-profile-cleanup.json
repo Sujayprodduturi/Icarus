@@ -1,0 +1,45 @@
+{
+  "cleanup": [
+    {
+      "compact_remaining": true,
+      "evidence_sha256": "6d7a568708755a7140ed7a4c35f80051611b2acc4c7c632e76a0c371ded34a51",
+      "path": "C:\\ICARUS\\var\\verification\\2026-10-05\\calendar-score-runner\\attempts\\aaaeb858fc99a7fe76b3011f2cc93cbcc33ebe634aefb6e13cd3d13d8eb0a189\\development\\phase-payload.bin",
+      "primary_sha256": "0fc83cf0b703093d33000a4d1a422e79e97ddaae098761316fc348b26bff32a6",
+      "raw_absent": true,
+      "raw_sha256": "816a0ae0a31c0cf97bf3fd1aa309b063551951305b4dfaac78370db22759afc2",
+      "reviewer_sha256": "ef7c04275f0b36c6d143d6a2f64ee13e361583f8d58cfd17ce92ed81139a6d1c",
+      "scope": "EXTERNAL_TEST_MAINTENANCE_ONLY"
+    },
+    {
+      "compact_remaining": true,
+      "evidence_sha256": "6d7a568708755a7140ed7a4c35f80051611b2acc4c7c632e76a0c371ded34a51",
+      "path": "C:\\ICARUS\\var\\verification\\2026-10-05\\calendar-score-runner\\attempts\\aaaeb858fc99a7fe76b3011f2cc93cbcc33ebe634aefb6e13cd3d13d8eb0a189\\validation\\phase-payload.bin",
+      "primary_sha256": "0fc83cf0b703093d33000a4d1a422e79e97ddaae098761316fc348b26bff32a6",
+      "raw_absent": true,
+      "raw_sha256": "816a0ae0a31c0cf97bf3fd1aa309b063551951305b4dfaac78370db22759afc2",
+      "reviewer_sha256": "ef7c04275f0b36c6d143d6a2f64ee13e361583f8d58cfd17ce92ed81139a6d1c",
+      "scope": "EXTERNAL_TEST_MAINTENANCE_ONLY"
+    },
+    {
+      "compact_remaining": true,
+      "evidence_sha256": "6d7a568708755a7140ed7a4c35f80051611b2acc4c7c632e76a0c371ded34a51",
+      "path": "C:\\ICARUS\\var\\verification\\2026-10-05\\calendar-score-runner\\attempts\\851358836fcf1b8eabb7c1a8e665ff170b6717899b332fb43c35b16fbbcda5f6\\development\\phase-payload.bin",
+      "primary_sha256": "0fc83cf0b703093d33000a4d1a422e79e97ddaae098761316fc348b26bff32a6",
+      "raw_absent": true,
+      "raw_sha256": "816a0ae0a31c0cf97bf3fd1aa309b063551951305b4dfaac78370db22759afc2",
+      "reviewer_sha256": "ef7c04275f0b36c6d143d6a2f64ee13e361583f8d58cfd17ce92ed81139a6d1c",
+      "scope": "EXTERNAL_TEST_MAINTENANCE_ONLY"
+    },
+    {
+      "compact_remaining": true,
+      "evidence_sha256": "6d7a568708755a7140ed7a4c35f80051611b2acc4c7c632e76a0c371ded34a51",
+      "path": "C:\\ICARUS\\var\\verification\\2026-10-05\\calendar-score-runner\\attempts\\851358836fcf1b8eabb7c1a8e665ff170b6717899b332fb43c35b16fbbcda5f6\\validation\\phase-payload.bin",
+      "primary_sha256": "0fc83cf0b703093d33000a4d1a422e79e97ddaae098761316fc348b26bff32a6",
+      "raw_absent": true,
+      "raw_sha256": "816a0ae0a31c0cf97bf3fd1aa309b063551951305b4dfaac78370db22759afc2",
+      "reviewer_sha256": "ef7c04275f0b36c6d143d6a2f64ee13e361583f8d58cfd17ce92ed81139a6d1c",
+      "scope": "EXTERNAL_TEST_MAINTENANCE_ONLY"
+    }
+  ],
+  "raw_replay": "UNAVAILABLE"
+}

@@ -1006,6 +1006,38 @@ class Manifest:
     digest: str
 
 
+class _MetadataSnapshot(importlib.metadata.Distribution):
+    """Read-only parser input; never stores a distribution path or lookup result."""
+
+    def __init__(self, text: str | None) -> None:
+        self._text = text
+
+    def read_text(self, filename: str) -> str | None:
+        return self._text
+
+    def locate_file(self, path: Any) -> Path:
+        raise NotImplementedError("metadata snapshot has no filesystem authority")
+
+
+@lru_cache(maxsize=2)
+def _parse_metadata_version(text: str) -> str:
+    return _MetadataSnapshot(text).version
+
+
+def _fresh_package_version(name: str) -> str:
+    distribution = importlib.metadata.distribution(name)
+    text = (
+        distribution.read_text("METADATA")
+        or distribution.read_text("PKG-INFO")
+        or distribution.read_text("")
+    )
+    # Two <=1 MiB text keys; fresh discovery/read precedes every cache lookup.
+    # A character bound avoids adding UnicodeEncodeError to parser semantics.
+    if isinstance(text, str) and len(text) <= 262_144:
+        return _parse_metadata_version(text)
+    return _MetadataSnapshot(text).version
+
+
 def manifest_for_paths(
     paths: Mapping[str, Path], *, protocol_hash: str, scope: str = "synthetic_only"
 ) -> Manifest:
@@ -1025,7 +1057,7 @@ def manifest_for_paths(
     libraries: dict[str, str] = {}
     for name in ("psutil", "numpy"):
         try:
-            libraries[name] = importlib.metadata.version(name)
+            libraries[name] = _fresh_package_version(name)
         except importlib.metadata.PackageNotFoundError:
             continue
     payload: dict[str, Any] = {

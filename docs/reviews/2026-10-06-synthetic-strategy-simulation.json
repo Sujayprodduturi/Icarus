@@ -1,0 +1,164 @@
+{
+  "charges_and_tax_note": "Toy net amounts include modeled charges, before capital-gains tax. After-tax promotion metrics remain unavailable. No profitability ranking or edge inference.",
+  "independent_reviewer": {
+    "actual_inference": false,
+    "arithmetic_prefix_checks_passed": true,
+    "facts": [
+      {
+        "all_signal_next_bar": true,
+        "dsl_prefix_sessions": 450,
+        "portfolio_after_charges_before_tax": "787.61566255910",
+        "portfolio_trades": 4,
+        "result_sha256": "763607d5f03c5a6d74a0f720bae28f1eb6f108bd4522c4e2f186f10d60419e15",
+        "signal_after_charges_before_tax": "553367.53164736920",
+        "signal_trades": 24,
+        "strategy": "baseline_buy_and_hold"
+      },
+      {
+        "all_signal_next_bar": true,
+        "dsl_prefix_sessions": 450,
+        "portfolio_after_charges_before_tax": "4590.58052539060",
+        "portfolio_trades": 72,
+        "result_sha256": "5df237dc8416b330488c99916034ed4516cc7862f0f87dc81cb7f552242cbab8",
+        "signal_after_charges_before_tax": "188354.34329330610",
+        "signal_trades": 191,
+        "strategy": "donlevey_sweep_reclaim"
+      },
+      {
+        "all_signal_next_bar": true,
+        "dsl_prefix_sessions": 450,
+        "portfolio_after_charges_before_tax": "-8316.69106433870",
+        "portfolio_trades": 70,
+        "result_sha256": "a3c29a84f56aa2bb098942f9df923ff9321042df253fda28c73e63563cd71bb5",
+        "signal_after_charges_before_tax": "-171061.50969056850",
+        "signal_trades": 290,
+        "strategy": "xs_momentum_20"
+      }
+    ],
+    "passed": true,
+    "saved_source_matches_current": true,
+    "scope": "SYNTHETIC_MECHANICS_ONLY"
+  },
+  "scope": "SYNTHETIC_MECHANICS_ONLY_NO_STRATEGY_PERFORMANCE_INFERENCE",
+  "source_sha256": "1bdcee49b6c8d2f85a064781008f061ec2d447529683c5f8d9e65abe57fcbc41",
+  "summary": {
+    "inference_enabled": false,
+    "qualification": "mechanics demonstration only; no confidence or edge ranking",
+    "real_market_data": false,
+    "scope": "SYNTHETIC_MECHANICS_ONLY_NO_STRATEGY_PERFORMANCE_INFERENCE",
+    "source_sha256": "1bdcee49b6c8d2f85a064781008f061ec2d447529683c5f8d9e65abe57fcbc41",
+    "strategies": [
+      {
+        "after_tax_promotion_metrics": null,
+        "benchmark_alpha": null,
+        "portfolio_net_pnl_after_charges_before_tax": "787.61566255910",
+        "portfolio_trades": 4,
+        "scope": "SYNTHETIC_MECHANICS_ONLY_NO_STRATEGY_PERFORMANCE_INFERENCE",
+        "signal_skips": 8136,
+        "signal_trades": 24,
+        "signals": 8160,
+        "strategy": "baseline_buy_and_hold"
+      },
+      {
+        "after_tax_promotion_metrics": null,
+        "benchmark_alpha": null,
+        "portfolio_net_pnl_after_charges_before_tax": "4590.58052539060",
+        "portfolio_trades": 72,
+        "scope": "SYNTHETIC_MECHANICS_ONLY_NO_STRATEGY_PERFORMANCE_INFERENCE",
+        "signal_skips": 32,
+        "signal_trades": 191,
+        "signals": 223,
+        "strategy": "donlevey_sweep_reclaim"
+      },
+      {
+        "after_tax_promotion_metrics": null,
+        "benchmark_alpha": null,
+        "portfolio_net_pnl_after_charges_before_tax": "-8316.69106433870",
+        "portfolio_trades": 70,
+        "scope": "SYNTHETIC_MECHANICS_ONLY_NO_STRATEGY_PERFORMANCE_INFERENCE",
+        "signal_skips": 3110,
+        "signal_trades": 290,
+        "signals": 3400,
+        "strategy": "xs_momentum_20"
+      }
+    ]
+  },
+  "summary_sha256": "302e732fb8aa1260b3ee715bb039b44de1872642e18b6751beee375a7babc001",
+  "trial_files": {
+    "baseline_buy_and_hold-trial-complete.json": {
+      "after_tax_promotion_metrics": null,
+      "benchmark_alpha": null,
+      "portfolio_net_pnl_after_charges_before_tax": "787.61566255910",
+      "portfolio_trades": 4,
+      "scope": "SYNTHETIC_MECHANICS_ONLY_NO_STRATEGY_PERFORMANCE_INFERENCE",
+      "signal_skips": 8136,
+      "signal_trades": 24,
+      "signals": 8160,
+      "strategy": "baseline_buy_and_hold"
+    },
+    "baseline_buy_and_hold-trial.json": {
+      "confidence": null,
+      "evaluations": 2,
+      "evaluators": [
+        "SignalSimulator",
+        "PortfolioSimulator"
+      ],
+      "fixture": "invented-24-symbols-600-sessions-v1",
+      "goal_sha256": "c886aca6b198257486d0daefc484f818458e60fa32a5aa861b95d1413282fa0c",
+      "origin": "operator",
+      "promotion": false,
+      "scope": "SYNTHETIC_MECHANICS_ONLY_NO_STRATEGY_PERFORMANCE_INFERENCE",
+      "strategy_sha256": "b1bded2f21c1817adced9d4e789ae79f5e9058e433827276d0d1e434c1fd721e"
+    },
+    "donlevey_sweep_reclaim-trial-complete.json": {
+      "after_tax_promotion_metrics": null,
+      "benchmark_alpha": null,
+      "portfolio_net_pnl_after_charges_before_tax": "4590.58052539060",
+      "portfolio_trades": 72,
+      "scope": "SYNTHETIC_MECHANICS_ONLY_NO_STRATEGY_PERFORMANCE_INFERENCE",
+      "signal_skips": 32,
+      "signal_trades": 191,
+      "signals": 223,
+      "strategy": "donlevey_sweep_reclaim"
+    },
+    "donlevey_sweep_reclaim-trial.json": {
+      "confidence": null,
+      "evaluations": 2,
+      "evaluators": [
+        "SignalSimulator",
+        "PortfolioSimulator"
+      ],
+      "fixture": "invented-24-symbols-600-sessions-v1",
+      "goal_sha256": "c886aca6b198257486d0daefc484f818458e60fa32a5aa861b95d1413282fa0c",
+      "origin": "operator",
+      "promotion": false,
+      "scope": "SYNTHETIC_MECHANICS_ONLY_NO_STRATEGY_PERFORMANCE_INFERENCE",
+      "strategy_sha256": "a39f9d507b16550b1bcf4a4997abd1ba73643fcf8b52b2aec4ea036a3bdfb295"
+    },
+    "xs_momentum_20-trial-complete.json": {
+      "after_tax_promotion_metrics": null,
+      "benchmark_alpha": null,
+      "portfolio_net_pnl_after_charges_before_tax": "-8316.69106433870",
+      "portfolio_trades": 70,
+      "scope": "SYNTHETIC_MECHANICS_ONLY_NO_STRATEGY_PERFORMANCE_INFERENCE",
+      "signal_skips": 3110,
+      "signal_trades": 290,
+      "signals": 3400,
+      "strategy": "xs_momentum_20"
+    },
+    "xs_momentum_20-trial.json": {
+      "confidence": null,
+      "evaluations": 2,
+      "evaluators": [
+        "SignalSimulator",
+        "PortfolioSimulator"
+      ],
+      "fixture": "invented-24-symbols-600-sessions-v1",
+      "goal_sha256": "c886aca6b198257486d0daefc484f818458e60fa32a5aa861b95d1413282fa0c",
+      "origin": "operator",
+      "promotion": false,
+      "scope": "SYNTHETIC_MECHANICS_ONLY_NO_STRATEGY_PERFORMANCE_INFERENCE",
+      "strategy_sha256": "8905d1162d1fea9d2194e0a39312e2512b726b24db4b06f5d20fc5533614d725"
+    }
+  }
+}

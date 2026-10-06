@@ -1,0 +1,11 @@
+# Exact-output metadata parse reuse
+
+The operator requested resolution of stalled progress on 2026-10-06. Two bounded public-fixture diagnostics found repeated dependency discovery/metadata parsing inside fresh source guards. The second diagnostic profiles all six owned workers. Instrumented timing is not qualification and nested profiler times must not be added.
+
+Use a two-entry process-local cache for the pure parsing of complete freshly read package metadata text. Every invocation still discovers the distribution and reads METADATA, then PKG-INFO, then the empty-name fallback exactly as Python 3.12 does. No distribution object, path, mtime, version value, source hash or resource read is cached.
+
+Delegate parsing to the existing inherited importlib.metadata.Distribution version/metadata implementation through a read-only text snapshot subclass. This preserves folded/duplicate/missing header semantics and parser errors without using private adapters. Non-string/None and text longer than 262144 characters are parsed uncached; the character bound cannot introduce an encoding error. Keep two small text keys at most. All guard call sites, counts, resource budgets, timing classification and statistical criteria remain unchanged.
+
+Acceptance: demonstrate repeated fresh discovery/read even on hits; same-size text replacement with unchanged file identity cannot reuse old results; warmed-cache removal/fallback/errors are observed; folded/duplicate/missing/surrogate/oversized inputs match the original parser. Capture meaningful RED/GREEN, freeze source, run affected regression/static checks, independent source review, and three fresh complete deterministic cold gates before any readiness claim. Retain every failed measurement. No actual study key/reservation/draw or real-market/live path.
+
+A focused independent reviewer approved this exact design with the non-string and non-throwing size safeguards. An isolated 100-call installed-package probe measured NumPy 0.3183s versus 0.0965s and psutil 0.1306s versus 0.0911s. This is a parsing/discovery diagnostic, not a predicted or demonstrated full-run pass. The original failed readiness remains binding until fresh complete measurements.

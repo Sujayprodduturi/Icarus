@@ -64,12 +64,13 @@ class ProcessIdentity:
 
     def alive(self) -> bool:
         try:
+            if type(self.pid) is not int or type(self.creation_time_ns) is not int:
+                return False
+            process = psutil.Process(self.pid)
             return (
-                type(self.pid) is int
-                and type(self.creation_time_ns) is int
-                and round(psutil.Process(self.pid).create_time() * 1_000_000_000)
-                == self.creation_time_ns
-                and psutil.Process(self.pid).is_running()
+                round(process.create_time() * 1_000_000_000) == self.creation_time_ns
+                and process.is_running()
+                and process.status() not in (psutil.STATUS_ZOMBIE, psutil.STATUS_DEAD)
             )
         except psutil.Error:
             return False

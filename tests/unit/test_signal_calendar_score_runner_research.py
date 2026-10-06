@@ -183,17 +183,76 @@ def test_live_token_is_unusable_after_error() -> None:
 
 
 @pytest.mark.parametrize(
-    "mode,state",
+    "mode,state,transport_failure",
     [
-        ("full", "FINAL_VERDICT"),
-        ("development-failed", "DEVELOPMENT_FAILED"),
-        ("coordinator-approval", "ERROR"),
-        ("second-release", "ERROR"),
+        ("full", "FINAL_VERDICT", False),
+        ("development-failed", "DEVELOPMENT_FAILED", False),
+        ("coordinator-approval", "ERROR", False),
+        ("second-release", "ERROR", False),
+        ("coordinator-approval", "ERROR", True),
+        ("second-release", "ERROR", True),
     ],
 )
-def test_real_separate_reviewer_pipeline(mode: str, state: str) -> None:
+def test_real_separate_reviewer_pipeline(
+    mode: str, state: str, transport_failure: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
     runner = runner_module()
-    result = runner._run_test_pipeline(case_id(), mode=mode)
+    if transport_failure:
+        receive = runner._receive_owned
+
+        def lost_terminal(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            event = receive(*args, **kwargs)
+            if event.get("state") == "ERROR":
+                raise runner.life.LifecycleError("authentication")
+            return cast(dict[str, Any], event)
+
+        monkeypatch.setattr(runner, "_receive_owned", lost_terminal)
+    case = case_id()
+    try:
+        result = runner._run_test_pipeline(case, mode=mode)
+    except runner.life.LifecycleError as error:
+        if mode not in ("coordinator-approval", "second-release") or str(error) != "authentication":
+            raise
+        root = (
+            runner.phase.TEST_ANCHOR / "attempts" / runner.hashlib.sha256(case.encode()).hexdigest()
+        )
+        reserved = runner.phase._read_record(root, "attempt-reserved.json")
+        failure = runner.phase._read_record(root, "service-failure.json")
+        registration = runner.phase._read_record(root, "attempt-registration.json")
+        attempt = runner.phase._read_record(root, "attempt-failure.json")
+        assert attempt["case"] == reserved["case"] == case
+        assert attempt["session_id"] == reserved["session_id"]
+        assert attempt["source_binding"] == reserved["source_binding"]
+        assert attempt["state"] == failure["state"] == "ERROR"
+        assert failure["error"] == (
+            "coordinator_action" if mode == "coordinator-approval" else "release_once"
+        )
+        assert failure["source_binding"] == reserved["source_binding"]
+        assert registration["source_binding"] == reserved["source_binding"]
+        assert registration["session_id"] == reserved["session_id"]
+        for peer in ("coordinator", "helper"):
+            assert not runner.life.ProcessIdentity(**registration[peer]).alive()
+        for name in (
+            "validation",
+            "attempt-result-candidate.json",
+            "attempt-result.json",
+        ):
+            assert not (root / name).exists()
+        if mode == "coordinator-approval":
+            assert not (root / "development-reviewer-approved.json").exists()
+            assert not (root / "validation-released.json").exists()
+        else:
+            released = runner.phase._read_record(root, "validation-released.json")
+            approved = runner.phase._read_record(root, "development-reviewer-approved.json")
+            sealed = runner.phase._read_record(root, "validation-sealed.json")
+            assert released["session_id"] == reserved["session_id"]
+            assert released["source_binding"] == reserved["source_binding"]
+            assert released["commitment"] == sealed["commitment"]
+            assert released["approval_digest"] == runner.phase._hash(
+                (root / "development-reviewer-approved.json").read_bytes()
+            )
+            assert released["evidence"] == approved["evidence"]
+        return
     assert result["state"] == state
     assert result["namespace"] == runner.io.TEST_NAMESPACE
     assert result["study_permission"] is False

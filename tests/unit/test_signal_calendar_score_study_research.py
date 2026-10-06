@@ -826,11 +826,11 @@ def test_manifest_versions_are_fresh_single_lookups(tmp_path: Path, monkeypatch:
     calls: list[str] = []
     versions = {"psutil": "first-psutil", "numpy": "first-numpy"}
 
-    def version(name: str) -> str:
+    def distribution(name: str) -> Any:
         calls.append(name)
-        return versions[name]
+        return study._MetadataSnapshot(f"Version: {versions[name]}\n\n")
 
-    monkeypatch.setattr(importlib.metadata, "version", version)
+    monkeypatch.setattr(importlib.metadata, "distribution", distribution)
     first = study.manifest_for_paths({"source": source}, protocol_hash="b" * 64)
     assert calls == ["psutil", "numpy"]
     assert first.payload["libraries"] == versions
@@ -847,13 +847,13 @@ def test_manifest_missing_distribution_only_is_omitted(tmp_path: Path, monkeypat
     source.write_bytes(b"bound source")
     calls: list[str] = []
 
-    def version(name: str) -> str:
+    def distribution(name: str) -> Any:
         calls.append(name)
         if name == "psutil":
             raise importlib.metadata.PackageNotFoundError(name)
-        return "present-numpy"
+        return study._MetadataSnapshot("Version: present-numpy\n\n")
 
-    monkeypatch.setattr(importlib.metadata, "version", version)
+    monkeypatch.setattr(importlib.metadata, "distribution", distribution)
     result = study.manifest_for_paths({"source": source}, protocol_hash="b" * 64)
     assert result.payload["libraries"] == {"numpy": "present-numpy"}
     assert calls == ["psutil", "numpy"]
@@ -863,10 +863,10 @@ def test_manifest_unexpected_metadata_failure_propagates(tmp_path: Path, monkeyp
     source = tmp_path / "source.py"
     source.write_bytes(b"bound source")
 
-    def version(name: str) -> str:
+    def distribution(name: str) -> Any:
         raise RuntimeError("metadata corruption")
 
-    monkeypatch.setattr(importlib.metadata, "version", version)
+    monkeypatch.setattr(importlib.metadata, "distribution", distribution)
     with pytest.raises(RuntimeError, match="metadata corruption"):
         study.manifest_for_paths({"source": source}, protocol_hash="b" * 64)
 
@@ -1377,3 +1377,110 @@ def test_resource_contract_nonregular_leaf_refuses_before_open(
     with pytest.raises(study.StudyError, match="resource_contract_nonregular"):
         study._load_operational_resources(policy, expected_sha256=hashlib.sha256(blob).hexdigest())
     assert opened == []
+
+
+def test_fresh_metadata_bytes_allow_only_pure_parse_reuse(tmp_path: Path, monkeypatch: Any) -> None:
+    source = tmp_path / "bound.py"
+    source.write_bytes(b"source")
+    original: Any = importlib.metadata.Distribution.metadata
+    original = original.fget
+    parsed = []
+    discovered = []
+    reads = []
+    values = {"psutil": "1.0", "numpy": "2.0"}
+
+    class Distribution(importlib.metadata.Distribution):
+        def __init__(self, name: str) -> None:
+            self.package_name = name
+
+        def read_text(self, filename: str) -> str:
+            reads.append((self.package_name, filename))
+            return f"Version: {values[self.package_name]}\n\nbody"
+
+        def locate_file(self, path: Any) -> Path:
+            raise NotImplementedError
+
+    def discover(name: str) -> Distribution:
+        discovered.append(name)
+        return Distribution(name)
+
+    def metadata(self: Any) -> Any:
+        parsed.append(True)
+        return original(self)
+
+    monkeypatch.setattr(importlib.metadata, "distribution", discover)
+    monkeypatch.setattr(importlib.metadata.Distribution, "metadata", property(metadata))
+    for _ in range(2):
+        result = study.manifest_for_paths({"source": source}, protocol_hash="b" * 64)
+        assert result.payload["libraries"] == values
+    assert discovered == ["psutil", "numpy"] * 2
+    assert reads == [("psutil", "METADATA"), ("numpy", "METADATA")] * 2
+    assert len(parsed) == 2
+    values["psutil"] = "3.0"
+    changed = study.manifest_for_paths({"source": source}, protocol_hash="b" * 64)
+    assert changed.payload["libraries"] == values
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Version: 1.0\n\nbody",
+        "Version: 1.0\n  folded\n\nbody",
+        "Version: first\nVersion: second\n\n",
+        "Name: missing\n\n",
+        "Version: 1.0\n\nsurrogate-\ud800",
+        "Version: large\n\n" + "x" * 262145,
+    ],
+    ids=["normal", "folded", "duplicate", "missing", "surrogate", "oversized"],
+)
+def test_metadata_parse_reuse_preserves_inherited_version_semantics(
+    text: str, monkeypatch: Any
+) -> None:
+    class Distribution(importlib.metadata.Distribution):
+        def read_text(self, name: str) -> str:
+            return text
+
+        def locate_file(self, path: Any) -> Path:
+            raise NotImplementedError
+
+    calls = []
+
+    def distribution(name: str) -> Distribution:
+        calls.append(name)
+        return Distribution()
+
+    monkeypatch.setattr(importlib.metadata, "distribution", distribution)
+    expected = importlib.metadata.version("fixture")
+    assert study._fresh_package_version("fixture") == expected
+    assert study._fresh_package_version("fixture") == expected
+    assert calls == ["fixture"] * 3
+
+
+def test_warm_parse_cache_still_observes_removal_fallback_and_errors(monkeypatch: Any) -> None:
+    metadata: dict[str, Any] = {
+        "METADATA": "Version: first\n\n",
+        "PKG-INFO": "Version: fallback\n\n",
+        "": None,
+    }
+
+    class Distribution(importlib.metadata.Distribution):
+        def read_text(self, name: str) -> str | None:
+            value = metadata[name]
+            if isinstance(value, Exception):
+                raise value
+            assert value is None or isinstance(value, str)
+            return value
+
+        def locate_file(self, path: Any) -> Path:
+            raise NotImplementedError
+
+    monkeypatch.setattr(importlib.metadata, "distribution", lambda name: Distribution())
+    assert study._fresh_package_version("fixture") == "first"
+    metadata["METADATA"] = None
+    assert study._fresh_package_version("fixture") == "fallback"
+    metadata["PKG-INFO"] = None
+    assert study._fresh_package_version("fixture") == importlib.metadata.version("fixture")
+    metadata["METADATA"] = RuntimeError("fresh read failure")
+    with pytest.raises(RuntimeError, match="fresh read failure"):
+        study._fresh_package_version("fixture")
+    assert study._parse_metadata_version.cache_info().maxsize == 2
