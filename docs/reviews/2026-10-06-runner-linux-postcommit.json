@@ -1,0 +1,154 @@
+{
+  "actual_attempt_absent": true,
+  "all38_exact_restoration": true,
+  "first_harness_surviving_mutant": {
+    "explanation": "Final WORDS guard removal alone still rejected by independent monotonic WORDS check; retained survival is not a caught mutation. Compound removal of both guards caught by DID NOT RAISE.",
+    "path": "C:\\ICARUS\\var\\verification\\2026-10-05\\calendar-score-runner\\operational-postcommit-native38-defects-30092e07da4a\\lose-work-word-binding.log",
+    "sha256": "2c337be68995dddd5d767ed8b48fc126b56d9cdfafdbb843218a5cef07ca7de8"
+  },
+  "four_semantic_defects_caught": [
+    {
+      "assertion_witness": "AssertionError",
+      "defect": "repeat-owned-shutdown",
+      "elapsed": 3.3280000000013388,
+      "log": "C:\\ICARUS\\var\\verification\\2026-10-05\\calendar-score-runner\\operational-postcommit-native38-defects-v2-30092e07da4a\\repeat-owned-shutdown.log",
+      "log_sha256": "dbe3fd50b1a7788b3825c462b8d38f60236b57d882e5708f03a6cdc46221e5d6",
+      "mutated_sha256": "e418b5b695f750f26e9ff161ad264818c728aeea36f621a571a0e180f095d17a",
+      "returncode": 1,
+      "target": "tests/unit/test_signal_calendar_score_runner_preflight_research.py::test_operational_gate_does_not_repeat_owned_shutdown_but_repeats_scans"
+    },
+    {
+      "assertion_witness": "DID NOT RAISE",
+      "defect": "lose-work-word-binding",
+      "elapsed": 2.985000000000582,
+      "log": "C:\\ICARUS\\var\\verification\\2026-10-05\\calendar-score-runner\\operational-postcommit-native38-defects-v2-30092e07da4a\\lose-work-word-binding.log",
+      "log_sha256": "d26d72a7eb9ba92f54938242e4d6a99210174659e3ac9f422078d893c41ade7a",
+      "mutated_sha256": "a1201870d28d99de9c030a84d2cb3826f6b338b2707cefe9098b29b1ac94ab1a",
+      "returncode": 1,
+      "target": "tests/unit/test_signal_calendar_score_runner_preflight_research.py::test_invalid_work_marker_never_publishes_success[wrong-work-words]"
+    },
+    {
+      "assertion_witness": "AssertionError",
+      "defect": "collapse-fixed-bucket-maxima",
+      "elapsed": 1.0,
+      "log": "C:\\ICARUS\\var\\verification\\2026-10-05\\calendar-score-runner\\operational-postcommit-native38-defects-v2-30092e07da4a\\collapse-fixed-bucket-maxima.log",
+      "log_sha256": "61a7f3edd14b3721cdeb225c6023c66fc7c2ca1a72af7f2f3085d732005546ad",
+      "mutated_sha256": "5f3f3ae25b98ea8f796cca1236a3c44eeae8da88459add9baab05ac4e0e94900",
+      "returncode": 1,
+      "target": "tests/unit/test_signal_calendar_score_runner_preflight_research.py::test_operational_controls_mix_independent_worst_cases"
+    },
+    {
+      "assertion_witness": "AssertionError",
+      "defect": "publish-before-fixed-issuer",
+      "elapsed": 17.5,
+      "log": "C:\\ICARUS\\var\\verification\\2026-10-05\\calendar-score-runner\\operational-postcommit-native38-defects-v2-30092e07da4a\\publish-before-fixed-issuer.log",
+      "log_sha256": "4760fc9e67f661ecabf16cf69a0d348bbdabae3b7ac59efa8aa0556d1a33ee0f",
+      "mutated_sha256": "ddc3871715d7c2b9d035ce54fa04b1c4ef4d95f187d70194425397b81441b478",
+      "returncode": 1,
+      "target": "tests/unit/test_signal_calendar_score_runner_preflight_research.py::test_fixed_cost_issuance_failure_precedes_final_publication"
+    }
+  ],
+  "harness_v2_dry_anchor_failure": "Generic tuple anchor ambiguous; refused before production writes. Unique counts[k] less than previous[k] context used.",
+  "native_followup": {
+    "181_source_typing_passed": true,
+    "61_preflight_passed": true,
+    "checks": [
+      {
+        "name": "preflight",
+        "returncode": 0,
+        "seconds": 37.809731379999995
+      },
+      {
+        "name": "mypy",
+        "returncode": 0,
+        "seconds": 1.5684772560000013
+      },
+      {
+        "name": "ruff",
+        "returncode": 0,
+        "seconds": 0.11522007700000358
+      },
+      {
+        "name": "format",
+        "returncode": 0,
+        "seconds": 0.06414395999999556
+      }
+    ],
+    "result_sha256": "3b7c8fb4a58dc49a5cfd91a1d1c3b6842db83418bd4f778e1b13f6be6fbb9258",
+    "source_unchanged": true
+  },
+  "restored_checks": [
+    {
+      "command": [
+        "uv",
+        "run",
+        "pytest",
+        "-q",
+        "tests/unit/test_signal_calendar_score_runner_preflight_research.py"
+      ],
+      "elapsed": 55.21900000000096,
+      "log": "C:\\ICARUS\\var\\verification\\2026-10-05\\calendar-score-runner\\operational-postcommit-native38-defects-v2-30092e07da4a\\restored-preflight.log",
+      "returncode": 0,
+      "sha256": "f01bbc55c5a194a61e5890b0e5171e692201e310aee1d9c1a8698cab69f23cda"
+    },
+    {
+      "command": [
+        "uv",
+        "run",
+        "mypy",
+        "icarus",
+        "scripts/research",
+        "scripts/synthetic_strategy_demo.py",
+        "tests"
+      ],
+      "elapsed": 27.125,
+      "log": "C:\\ICARUS\\var\\verification\\2026-10-05\\calendar-score-runner\\operational-postcommit-native38-defects-v2-30092e07da4a\\restored-mypy.log",
+      "returncode": 0,
+      "sha256": "db997518f5f83938230836815f3d909683dc44b45486d7251cbf64fb11e624d7"
+    },
+    {
+      "command": [
+        "uv",
+        "run",
+        "ruff",
+        "check",
+        "--no-cache",
+        "."
+      ],
+      "elapsed": 0.6719999999986612,
+      "log": "C:\\ICARUS\\var\\verification\\2026-10-05\\calendar-score-runner\\operational-postcommit-native38-defects-v2-30092e07da4a\\restored-ruff.log",
+      "returncode": 0,
+      "sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+    },
+    {
+      "command": [
+        "uv",
+        "run",
+        "ruff",
+        "format",
+        "--check",
+        "--no-cache",
+        "."
+      ],
+      "elapsed": 0.20300000000133878,
+      "log": "C:\\ICARUS\\var\\verification\\2026-10-05\\calendar-score-runner\\operational-postcommit-native38-defects-v2-30092e07da4a\\restored-format.log",
+      "returncode": 0,
+      "sha256": "8275fe0f3831075a46b3ce81c1f4b3841fb4c8709d86db0be6d687ca42d31253"
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "elapsed": 0.07800000000133878,
+      "log": "C:\\ICARUS\\var\\verification\\2026-10-05\\calendar-score-runner\\operational-postcommit-native38-defects-v2-30092e07da4a\\restored-diff.log",
+      "returncode": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "result_sha256": "f6e3bd3a562aa24fa466cfbd4992f466e5fcab511091a7b57d537c54ff03818e",
+  "runtime_authority": false,
+  "scope": "HOST_POSTCOMMIT_PROOF_NATIVE_FOLLOWUP_REQUIRED",
+  "source_commit": "30092e07da4ad581114ca2894304b64ed2ef35d8"
+}

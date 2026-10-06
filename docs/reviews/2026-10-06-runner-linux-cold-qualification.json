@@ -1,0 +1,244 @@
+{
+  "actual_authority": "Fresh three same-process readiness cases required; saved receipts inert",
+  "cold_cases": [
+    {
+      "case": "root-unit3-linux-cold-20261006-01",
+      "projection": {
+        "eligible": true,
+        "phases": {
+          "development": {
+            "primary": {
+              "budget_ok": true,
+              "seconds": 6971.638753722
+            },
+            "reviewer": {
+              "budget_ok": true,
+              "seconds": 7091.49923895
+            },
+            "writer": {
+              "budget_ok": true,
+              "seconds": 8923.410592998
+            }
+          },
+          "validation": {
+            "primary": {
+              "budget_ok": true,
+              "seconds": 27880.415529402
+            },
+            "reviewer": {
+              "budget_ok": true,
+              "seconds": 28359.181669926
+            },
+            "writer": {
+              "budget_ok": true,
+              "seconds": 35687.160223974
+            }
+          }
+        },
+        "session_seconds": 119340.452360044
+      },
+      "sha256": "f7258a058fd8dc192d79030fbe68f7e7f6e6abf477ddff3b614a7724556333d3",
+      "whole_seconds": 53.727940839999974
+    },
+    {
+      "case": "root-unit3-linux-cold-20261006-02",
+      "projection": {
+        "eligible": true,
+        "phases": {
+          "development": {
+            "primary": {
+              "budget_ok": true,
+              "seconds": 7131.417030068
+            },
+            "reviewer": {
+              "budget_ok": true,
+              "seconds": 7478.061496678
+            },
+            "writer": {
+              "budget_ok": true,
+              "seconds": 9457.543788672
+            }
+          },
+          "validation": {
+            "primary": {
+              "budget_ok": true,
+              "seconds": 28518.482760116
+            },
+            "reviewer": {
+              "budget_ok": true,
+              "seconds": 29905.504644454
+            },
+            "writer": {
+              "budget_ok": true,
+              "seconds": 37823.370557568
+            }
+          }
+        },
+        "session_seconds": 125476.020265748
+      },
+      "sha256": "80293c95deb0aa2fe398245eaa72d61b7be23fa7284a97c0d6d1d83c7872ac06",
+      "whole_seconds": 55.56289589000016
+    },
+    {
+      "case": "root-unit3-linux-cold-20261006-03",
+      "projection": {
+        "eligible": true,
+        "phases": {
+          "development": {
+            "primary": {
+              "budget_ok": true,
+              "seconds": 7533.794131108
+            },
+            "reviewer": {
+              "budget_ok": true,
+              "seconds": 7295.205307224
+            },
+            "writer": {
+              "budget_ok": true,
+              "seconds": 9031.577042842
+            }
+          },
+          "validation": {
+            "primary": {
+              "budget_ok": true,
+              "seconds": 30128.700606628
+            },
+            "reviewer": {
+              "budget_ok": true,
+              "seconds": 29173.970199384
+            },
+            "writer": {
+              "budget_ok": true,
+              "seconds": 36119.606314906
+            }
+          }
+        },
+        "session_seconds": 124709.94148143
+      },
+      "sha256": "a80786d2d190f5cc482574635e8342b13f46925a3c369d43b1631a1f7a04d6ee",
+      "whole_seconds": 56.033236988000226
+    }
+  ],
+  "containers": [
+    {
+      "case": "root-unit3-linux-cold-20261006-01",
+      "container": "6ce1d4daa8dfb9e4048bb8f9ff0138138bd5d5225cbc5c98ebb6fffd9bc25aff",
+      "image": "sha256:a2c81a5a47ba95a6de2442b2fe678fe88aab3f96f901fc49f9a03814676788a4",
+      "returncode": 0,
+      "seconds": 55.308554999999615,
+      "state": {
+        "Dead": false,
+        "Error": "",
+        "ExitCode": 0,
+        "FinishedAt": "2026-10-06T11:14:04.558775373Z",
+        "OOMKilled": false,
+        "Paused": false,
+        "Pid": 0,
+        "Restarting": false,
+        "Running": false,
+        "StartedAt": "2026-10-06T11:13:09.640277082Z",
+        "Status": "exited"
+      }
+    },
+    {
+      "case": "root-unit3-linux-cold-20261006-02",
+      "container": "6ac547c1eefa783dc6d9b4975895cbcb25b25cf8f09975829a5c0ff6c8119fe9",
+      "image": "sha256:a2c81a5a47ba95a6de2442b2fe678fe88aab3f96f901fc49f9a03814676788a4",
+      "returncode": 0,
+      "seconds": 57.23119119999683,
+      "state": {
+        "Dead": false,
+        "Error": "",
+        "ExitCode": 0,
+        "FinishedAt": "2026-10-06T11:15:02.816060581Z",
+        "OOMKilled": false,
+        "Paused": false,
+        "Pid": 0,
+        "Restarting": false,
+        "Running": false,
+        "StartedAt": "2026-10-06T11:14:05.995678019Z",
+        "Status": "exited"
+      }
+    },
+    {
+      "case": "root-unit3-linux-cold-20261006-03",
+      "container": "d6cfa4a4d253615291e2c70a321929d56fabed8fb17c0ba0a4ff0e2f566b9a57",
+      "image": "sha256:a2c81a5a47ba95a6de2442b2fe678fe88aab3f96f901fc49f9a03814676788a4",
+      "returncode": 0,
+      "seconds": 57.74026439999943,
+      "state": {
+        "Dead": false,
+        "Error": "",
+        "ExitCode": 0,
+        "FinishedAt": "2026-10-06T11:16:01.592165833Z",
+        "OOMKilled": false,
+        "Paused": false,
+        "Pid": 0,
+        "Restarting": false,
+        "Running": false,
+        "StartedAt": "2026-10-06T11:15:04.268897624Z",
+        "Status": "exited"
+      }
+    }
+  ],
+  "global_maxima": {
+    "eligible": true,
+    "phases": {
+      "development": {
+        "primary": {
+          "projected_seconds": 7534.030611892
+        },
+        "reviewer": {
+          "projected_seconds": 7478.098059096
+        },
+        "writer": {
+          "projected_seconds": 9457.543788672
+        }
+      },
+      "validation": {
+        "primary": {
+          "projected_seconds": 30128.937087412
+        },
+        "reviewer": {
+          "projected_seconds": 29905.541206872
+        },
+        "writer": {
+          "projected_seconds": 37823.370557568
+        }
+      }
+    },
+    "session_seconds": 127754.62075152
+  },
+  "image": "sha256:a2c81a5a47ba95a6de2442b2fe678fe88aab3f96f901fc49f9a03814676788a4",
+  "passed": true,
+  "raw_cleanup": false,
+  "raw_metrics_dual_verified": 2688,
+  "raw_paths_dual_verified": 960,
+  "receipts": {
+    "linux-cold-processes.json": {
+      "path": "C:\\ICARUS\\var\\verification\\2026-10-05\\calendar-score-runner\\linux-cold-processes.json",
+      "sha256": "b733033b8bf0bf5974098e35e8ba6f9f684e0269ac571ae56ab404cd4d311f0f"
+    },
+    "primary-linux-cold-math.json": {
+      "path": "C:\\ICARUS\\var\\verification\\2026-10-05\\calendar-score-runner\\primary-linux-cold-math.json",
+      "sha256": "0aa3e59e038b7d281d5b3403421864400f620525da433eb706632da980569a93"
+    },
+    "primary-linux-cold-saved-checks.json": {
+      "path": "C:\\ICARUS\\var\\verification\\2026-10-05\\calendar-score-runner\\primary-linux-cold-saved-checks.json",
+      "sha256": "06868b92b18248cf6289cd26ada617b4ee9fd386a805143f08c212878edf95f5"
+    },
+    "reviewer-linux-cold-raw-audit.json": {
+      "path": "C:\\ICARUS\\var\\verification\\2026-10-05\\calendar-score-runner\\reviewer-linux-cold-raw-audit.json",
+      "sha256": "18467e012bf9ee13117263ea4885f40f5ba7db44dc6c6dae31942b13e2fbf36e"
+    },
+    "reviewer-linux-cold-records.json": {
+      "path": "C:\\ICARUS\\var\\verification\\2026-10-05\\calendar-score-runner\\reviewer-linux-cold-records.json",
+      "sha256": "8b0e133df16adf998c24be6a7c0831f48db724284dded23cd90e62414ffd0072"
+    }
+  },
+  "remaining": "Postcommit restoration/native checks; actual full study outcomes",
+  "scope": "LINUX_SAVED_QUALIFICATION_ONLY_NO_RUNTIME_AUTHORITY",
+  "source_commit": "30092e07da4ad581114ca2894304b64ed2ef35d8",
+  "source_manifest": "a11b0dda4ad6a86bab407128dc0476ff688610e2e48981554bcd01d0fe564558",
+  "statistical_qualification": false
+}
