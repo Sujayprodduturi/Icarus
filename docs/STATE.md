@@ -1,5 +1,7 @@
 # STATE.md — where Icarus actually is, today
 
+**Postcommit verification2026-10-06:** Source commit4928a17; all3 planted guards caught and independently reviewed, all36 source/test files restored exactly, fresh affected regression/static checks PASS. Readiness remains FAILED. Normal push and native Linux CI verification follow; no current-source CI success claimed. See [postcommit proof](reviews/2026-10-06-simulator-progress-postcommit.json).
+
 Updated 2026-10-06 after strategy simulator progress, Linux safety repair and fresh runner qualification.
 
 **Current milestone: all three catalogue strategies exercised in both simulators on invented prices. Full statistical-study readiness still FAILED.** Unit3/R4 and Task3a/M1-M4/F48 remain OPEN. No actual attempt, study key or experimental draw; inference, real-market, official, lockbox, broker and live paths remain held.
@@ -16,6 +18,6 @@ Two bounded profiles completed, with both oracles reproducing40 histories/112 me
 
 Exactly four profile and six cold-run raw files were removed only after dual verification and compact retention under D44. Raw replay is unavailable; failed/incomplete cases and all previous failures remain. [Profile cleanup](reviews/2026-10-06-runner-cost-profile-cleanup.json), [cold cleanup](reviews/2026-10-06-runner-cold-cleanup.json).
 
-**Next:** complete postcommit defect/restoration verification and push this progress; then address remaining full-runner cost before any actual sampled study. Do not redo completed profiling or treat mechanics results as a trading-performance gate. Real-data simulation remains a separate operator stop.
+**Next:** push verified progress and verify native Linux CI; then resolve remaining full-runner cost before any actual sampled study. Do not redo completed profiling or treat mechanics results as a trading-performance gate. Real-data simulation remains a separate operator stop.
 
 Protocol130569a7, goal c886aca6, resource96199af0, original plan5818b086 and refinement ae14fa20 remain unchanged. Prior118de923 qualification and failures remain historical evidence, not current-source permission. Commit/restoration/push receipts follow separately. Jev/Laya remain optional future text classifiers; neither is adopted.

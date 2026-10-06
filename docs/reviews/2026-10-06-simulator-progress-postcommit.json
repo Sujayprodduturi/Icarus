@@ -1,0 +1,277 @@
+{
+  "actual_attempt_absent": true,
+  "head": "4928a172f92b58149b3a523cb336233e0100e173",
+  "independent_review": {
+    "actual_attempt_absent": true,
+    "actual_attempt_path": "C:\\ICARUS\\var\\research\\calendar_score_v2\\attempts\\130569a78811e9ad4f9dcdb915410b3c350e137a78bc70974eb81ac4daf13b71",
+    "checked_files": 36,
+    "defects": [
+      {
+        "defect": "hash-before-claim",
+        "log_sha256": "5f36e50ed2bb4b965c017c97bd388b3bea4bffa9b2efcaedae482eee626e633f",
+        "meaningful_failure": true
+      },
+      {
+        "defect": "coordinator-approval",
+        "log_sha256": "8132ede5d5729ad78dfb249338290363c562f510ddcc28c34037c1a67de313ac",
+        "meaningful_failure": true
+      },
+      {
+        "defect": "missing-row-shortcut",
+        "log_sha256": "b3a544878d9de0ae5da1e2774508948de63229a586d677db730091d99d608b1a",
+        "meaningful_failure": true
+      }
+    ],
+    "head": "4928a172f92b58149b3a523cb336233e0100e173",
+    "manifest_digest": "94d6be4f60960b6c570ce543ca53beb69e9c236a2ce719c12ef66cc4a02217d9",
+    "passed": true,
+    "restored_source_hashes": {
+      "docs/plans/2026-10-04-calendar-score-sampled-lifecycle.md": "c12129e2799e580cb0d4a7541ac304598c8ad953034eabfe2f9cd69b920a8e61",
+      "docs/plans/2026-10-04-calendar-score-sixteen-hour-budget-amendment.md": "119146f624a921cb13de5e00b521edfb4cb8787e0bbf99cdfe323ac90671fe51",
+      "docs/plans/2026-10-04-calendar-score-study-protocol.md": "130569a78811e9ad4f9dcdb915410b3c350e137a78bc70974eb81ac4daf13b71",
+      "docs/plans/2026-10-04-calendar-score-verification-budget-amendment-build.md": "791c0a23b43dce002d6ecbeeccf610a679f91ae63f22d6561f6a35fc226c4849",
+      "docs/plans/2026-10-04-calendar-score-verification-budget-amendment-proposal.md": "4c559273f8bd994885f63e8eaf65e22143f6acb65d66dc23cc4d7aca97362b1b",
+      "docs/plans/2026-10-04-calendar-score-verifier-optimization-2.md": "b2d913f0ec455fd5c612c703e835b95beaa66a38aa3a0e226d72c4aa685d4387",
+      "docs/plans/2026-10-04-calendar-score-verifier-optimization-3.md": "8a569d0ac5af212cf0e69ab485c308c87fdd7907e5300ecbdd8c1da037d6e00e",
+      "docs/plans/2026-10-04-calendar-score-verifier-optimization.md": "6b3f07957092dc70540dda253aa6fab1675b377d3682a278fd36fcf81874b217",
+      "docs/plans/2026-10-05-calendar-score-full-runner.md": "5818b08667992d82764d1a469f165186f301f0806fd98cde3d825972f0c2a31a",
+      "docs/plans/2026-10-05-calendar-score-lifecycle-authority.md": "f27fa39463eaf8e6e16bc3b4ac805ba402dbae0722b50ee4324ad5c828a05744",
+      "docs/plans/calendar-score-operational-resources.json": "96199af0f371c34e1d99371e1629dfb0d61e6bb32e59f41fddcacc6746e43bcd",
+      "docs/reviews/2026-10-04-calendar-score-verifier-optimization-2-benchmarks.json": "324dc9e71c7ae837466f9e411b7c2c4b449b7345367e7c5a2dec4ac5dad68544",
+      "docs/reviews/2026-10-04-calendar-score-verifier-optimization-3-benchmarks.json": "8dca3b343abbcbefd1de078524b52a8836c263dfeb6969bb09ccae65272ddd6b",
+      "docs/reviews/2026-10-05-calendar-score-full-runner-timing-refinement.md": "ae14fa202451d98a858cf437e4f33ebfeb8076d8b17bf5be7e370e9f9d249278",
+      "goal.yaml": "c886aca6b198257486d0daefc484f818458e60fa32a5aa861b95d1413282fa0c",
+      "scripts/research/signal_bounded_uncertainty.py": "4995e3ed835d59ee79cff00fe76bc390f7699c1e8bffc04abe9265d68ebadd3a",
+      "scripts/research/signal_calendar_evidence.py": "b6cf2087c5d830a004b5696d6599c2d64d00c73394464b5030cd39d5d16f6052",
+      "scripts/research/signal_calendar_laws.py": "811070fa4247a10c5aad612829a6b3f20421f04793a77a3b44017e7ee18b6ba4",
+      "scripts/research/signal_calendar_score.py": "7b19acfe21715fe082b13879ea9d3348d769131ab596553baf0c20fd5c600fc7",
+      "scripts/research/signal_calendar_score_lifecycle.py": "db759b47d9d50bab5ff99927797e844ac870866575696575a1561c984aac6cb4",
+      "scripts/research/signal_calendar_score_lifecycle_service.py": "35a8d68f80c723e309531984e16940f0a6f0587075ea434e97b7919862f559b8",
+      "scripts/research/signal_calendar_score_phase.py": "fa1070eba8892e5606ed045455e8281d830841411bc570ffdc3cd0f245c38c08",
+      "scripts/research/signal_calendar_score_runner.py": "d38c7b9793022f8ae8c1177e7e73946a6095f7a3d746a7b720ad8205333fee72",
+      "scripts/research/signal_calendar_score_runner_service.py": "5ac9292d7e5ff421bc91be996edcb57f9e401ccb5b6a090e8fb7ab6641845eba",
+      "scripts/research/signal_calendar_score_study.py": "d42729fc9e00da97923d8315d48559d77f2c6d20cda24da3ac2627a405650504",
+      "scripts/research/signal_calendar_score_verify.py": "5789cd940c879632c951d5a9f96228fed73856e8c537e1afac70c785625bafa7",
+      "scripts/research/signal_calendar_uncertainty.py": "ef28eeebb2c807bbbed2c707cd1e20a752d448b537646a7beea0426fe2828ec9",
+      "scripts/research/signal_moment_uncertainty.py": "852723b844920a005d17889bde1977a88763533d37c75da00769ae60b5057111",
+      "scripts/synthetic_strategy_demo.py": "1bdcee49b6c8d2f85a064781008f061ec2d447529683c5f8d9e65abe57fcbc41",
+      "tests/unit/test_signal_calendar_score_lifecycle_research.py": "d4f084e41656ef202ea26283c3fc97ef8d8edb04c895ba41431d58b6aa6fbefc",
+      "tests/unit/test_signal_calendar_score_phase_research.py": "d82f520a78b78e9fcbdbf81610a306bd231314d3507da34f954d72f66a680f94",
+      "tests/unit/test_signal_calendar_score_runner_preflight_research.py": "87624a393cfd3b2b5bf8c2fe1f6714a295b45310399080fca64ab7b62a2abc09",
+      "tests/unit/test_signal_calendar_score_runner_research.py": "d42ad8b2bc5ef14faef839ae9a49dcad89a187df14c98f07523628525009b5e6",
+      "tests/unit/test_signal_calendar_score_study_research.py": "0a82c0c7ad6e8b0d8a1ed3de58e73173bbcfcccd8c6a5dafdec25c91aabe8a40",
+      "tests/unit/test_synthetic_strategy_demo.py": "ad204d73cade464903c7d5ab8e8597c4ba7c141124e6aea431ab342bbd5d286c",
+      "uv.lock": "f97c9a52f21a91a1ff1f7a087d53e2deda000873e9f67971c3d9f51f1e5875e5"
+    },
+    "scope": "PROGRESS_ONLY_READINESS_STILL_FAILED",
+    "source_result_sha256": "55c170451fc43db8c0f4db8625f6a3576544d90b06fc2a6ddc4c3efae1294cff",
+    "unauthorized_TEST_approval_sha256": "4a9f2eabff0131c2ecacba0314037ec84d11302d350b29e4acf7e6f61d9e5acc"
+  },
+  "logs": {
+    "diff": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "tail": []
+    },
+    "format": {
+      "sha256": "7f2ab93433f9714756ebf76d1b866ab973c89474f671606677ed14c6e84dda16",
+      "tail": [
+        "352 files already formatted"
+      ]
+    },
+    "mypy": {
+      "sha256": "db997518f5f83938230836815f3d909683dc44b45486d7251cbf64fb11e624d7",
+      "tail": [
+        "Success: no issues found in 181 source files"
+      ]
+    },
+    "regression": {
+      "sha256": "e7c98da4c8115ee99b2240a098e7d9ba4f88dc9766f594f12260b4b0b362b283",
+      "tail": [
+        "........................................................................ [ 93%]",
+        ".....................................                                    [100%]",
+        "============================== warnings summary ===============================",
+        "tests/unit/test_signal_calendar_score_study_research.py::test_metadata_parse_reuse_preserves_inherited_version_semantics[missing]",
+        "tests/unit/test_signal_calendar_score_study_research.py::test_metadata_parse_reuse_preserves_inherited_version_semantics[missing]",
+        "tests/unit/test_signal_calendar_score_study_research.py::test_warm_parse_cache_still_observes_removal_fallback_and_errors",
+        "tests/unit/test_signal_calendar_score_study_research.py::test_warm_parse_cache_still_observes_removal_fallback_and_errors",
+        "  C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\importlib\\metadata\\__init__.py:467: DeprecationWarning: Implicit None on return values is deprecated and will raise KeyErrors.",
+        "    return self.metadata['Version']",
+        "",
+        "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
+        "613 passed, 4 warnings in 375.37s (0:06:15)"
+      ]
+    },
+    "ruff": {
+      "sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+      "tail": [
+        "All checks passed!"
+      ]
+    }
+  },
+  "mutation": {
+    "actual_attempt_absent": true,
+    "defects": [
+      {
+        "defect": "hash-before-claim",
+        "elapsed": 0.9369999999998981,
+        "log": "C:\\ICARUS\\var\\verification\\2026-10-05\\calendar-score-runner\\postcommit-progress-defects-4928a172f92b\\hash-before-claim.log",
+        "mutated_sha256": "46003b752d9c47bcd30ff5af57330fd2b6cc9d024ddebc1e3ac109f25ad50fba",
+        "returncode": 1,
+        "source": "scripts/research/signal_calendar_score_study.py",
+        "target": "tests/unit/test_signal_calendar_score_phase_research.py::test_public_stream_stays_refused_before_hash_with_forged_capability",
+        "witness": null
+      },
+      {
+        "defect": "coordinator-approval",
+        "elapsed": 8.015999999999622,
+        "log": "C:\\ICARUS\\var\\verification\\2026-10-05\\calendar-score-runner\\postcommit-progress-defects-4928a172f92b\\coordinator-approval.log",
+        "mutated_sha256": "fee63c8b4960871c805cddab8f0a9e9af29ed67a3a29c456dd3644f8a2b97d07",
+        "returncode": 1,
+        "source": "scripts/research/signal_calendar_score_runner_service.py",
+        "target": "tests/unit/test_signal_calendar_score_runner_research.py::test_real_separate_reviewer_pipeline[coordinator-approval-ERROR-False]",
+        "witness": {
+          "path": "C:\\ICARUS\\var\\verification\\2026-10-05\\calendar-score-runner\\attempts\\3b6eeb66ac9c7321b429a777d3abaae5ed4291701f81e628b27c9e08bdb720a2\\development-reviewer-approved.json",
+          "record": {
+            "action": "approve-development",
+            "control_decision": "TEST_PASS",
+            "evidence": {
+              "binding": {
+                "attempt_id": "3b6eeb66ac9c7321b429a777d3abaae5ed4291701f81e628b27c9e08bdb720a2",
+                "claim_digest": "789c67d98ee2881255fa6b6d3d52c4141c214053589115937d32c0b810caf133",
+                "phase": "development",
+                "seed_commitment": "66687aadf862bd776c8fc18b8e9f8e20089714856ee233b3902a591d0d5f2925",
+                "session_id": "7c09d664436c4469b71626738c4dd447a06220a2b9544373b0c89b0dd4f50053",
+                "source_binding": {
+                  "manifest_digest": "4d8ae60424555d8aec32f8f91b50127c2bd12e3a8edae3db04af1807f2b742c3",
+                  "protocol_digest": "130569a78811e9ad4f9dcdb915410b3c350e137a78bc70974eb81ac4daf13b71",
+                  "resource_digest": "96199af0f371c34e1d99371e1629dfb0d61e6bb32e59f41fddcacc6746e43bcd",
+                  "resource_id": "calendar-score-verification-resources/v3"
+                }
+              },
+              "counts": {
+                "active_words": 0,
+                "metrics": 28,
+                "paths": 10,
+                "payload_bytes": 231492,
+                "words": 1388952
+              },
+              "decision": "UNAVAILABLE_TEST_ONLY",
+              "index_digest": "6c3027824ee783e8e98f137966c88309ba2d84ce2883bc930dd004a246afe185",
+              "payload_digest": "127fcbaddbdcc2bf2d3607b6065ecbdf40d002a4a5ff18e8d32198595ce3447f",
+              "phase": "development",
+              "primary_receipt_digest": "9d9f5ce818140fa5020aea95675edb8fd14e770a236238bc29b990d5fb35cf98",
+              "report_digest": "ca735acf4b82390f51617c2b1bccb990b5f9056367ec938317c7ef614765e362",
+              "reviewer_receipt_digest": "0ab91823994d453f35b4ba3f977d29698283782db26550fb61b3b980ea794d94",
+              "terminal_digest": "446f3ea85243fe27dc968ea2f5ff74a8b48294668f8e7157ceb44afad47ae2f9"
+            },
+            "helper": {
+              "creation_time_ns": 1791272518313648384,
+              "pid": 5680
+            },
+            "reviewer": {
+              "creation_time_ns": 1791272517174038528,
+              "pid": 24216
+            },
+            "schema": 1,
+            "scope": "UNAVAILABLE_TEST_ONLY",
+            "source_review_digest": "4d8ae60424555d8aec32f8f91b50127c2bd12e3a8edae3db04af1807f2b742c3",
+            "state": "REVIEW_APPROVED",
+            "utc": "2026-10-06T07:42:04Z"
+          },
+          "sha256": "4a9f2eabff0131c2ecacba0314037ec84d11302d350b29e4acf7e6f61d9e5acc"
+        }
+      },
+      {
+        "defect": "missing-row-shortcut",
+        "elapsed": 1.8910000000005311,
+        "log": "C:\\ICARUS\\var\\verification\\2026-10-05\\calendar-score-runner\\postcommit-progress-defects-4928a172f92b\\missing-row-shortcut.log",
+        "mutated_sha256": "42879916f24a8e16f198025308d04fa15f554b5c027493940d75caf578d72c10",
+        "returncode": 1,
+        "source": "scripts/research/signal_calendar_score_phase.py",
+        "target": "tests/unit/test_signal_calendar_score_phase_research.py::test_saved_phase_corruption_never_emits_receipt[missing]",
+        "witness": null
+      }
+    ],
+    "exact_restoration": true,
+    "head": "4928a172f92b58149b3a523cb336233e0100e173",
+    "source_files": 33
+  },
+  "readiness": "FAILED_BOTH_UNCHANGED_TIMING_MODELS",
+  "restored_checks": [
+    {
+      "command": [
+        "uv",
+        "run",
+        "pytest",
+        "-q",
+        "tests/unit/test_signal_calendar_score_phase_research.py",
+        "tests/unit/test_signal_calendar_score_runner_research.py",
+        "tests/unit/test_signal_calendar_score_runner_preflight_research.py",
+        "tests/unit/test_signal_calendar_score_study_research.py",
+        "tests/unit/test_signal_calendar_score_verify_research.py",
+        "tests/unit/test_signal_calendar_score_lifecycle_research.py",
+        "tests/unit/test_portfolio.py",
+        "tests/unit/test_portfolio_characterization.py",
+        "tests/unit/test_audit_ledger.py",
+        "tests/unit/test_synthetic_strategy_demo.py",
+        "tests/unit/test_signal_simulator.py",
+        "tests/unit/test_signalmetrics.py"
+      ],
+      "elapsed": 376.34400000000096,
+      "name": "regression",
+      "returncode": 0
+    },
+    {
+      "command": [
+        "uv",
+        "run",
+        "mypy",
+        "icarus",
+        "scripts/research",
+        "scripts/synthetic_strategy_demo.py",
+        "tests"
+      ],
+      "elapsed": 1.7029999999995198,
+      "name": "mypy",
+      "returncode": 0
+    },
+    {
+      "command": [
+        "uv",
+        "run",
+        "ruff",
+        "check",
+        "--no-cache",
+        "."
+      ],
+      "elapsed": 0.09399999999914144,
+      "name": "ruff",
+      "returncode": 0
+    },
+    {
+      "command": [
+        "uv",
+        "run",
+        "ruff",
+        "format",
+        "--check",
+        "--no-cache",
+        "."
+      ],
+      "elapsed": 0.0930000000007567,
+      "name": "format",
+      "returncode": 0
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "elapsed": 0.06300000000010186,
+      "name": "diff",
+      "returncode": 0
+    }
+  ],
+  "source_manifest_digest": "94d6be4f60960b6c570ce543ca53beb69e9c236a2ce719c12ef66cc4a02217d9"
+}
