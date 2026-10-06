@@ -157,7 +157,7 @@ def run_reviewer_service(
     failure: BaseException | None = None
     registry: Path | None = None
     reservation: bytes | None = None
-    started = time.monotonic()
+    started = time.perf_counter()
     parent = mp.parent_process()
     if parent is None or parent.pid is None:
         raise runner.RunnerError("service_parent")
@@ -166,7 +166,7 @@ def run_reviewer_service(
     )
 
     def bootstrap_guard() -> None:
-        if time.monotonic() - started > 600.0:
+        if time.perf_counter() - started > 600.0:
             raise runner.RunnerError("bootstrap_deadline")
 
     check: list[Any] = [bootstrap_guard]
@@ -175,7 +175,10 @@ def run_reviewer_service(
     def watchdog() -> None:
         while not stopped.wait(0.25):
             try:
-                if not parent_identity.alive() or time.monotonic() - started > runner.SESSION_LIMIT:
+                if (
+                    not parent_identity.alive()
+                    or time.perf_counter() - started > runner.SESSION_LIMIT
+                ):
                     raise runner.RunnerError("service_lifetime")
                 check[0]()
             except BaseException as error:
@@ -251,6 +254,8 @@ def run_reviewer_service(
         registry = requested_registry
         reservation = phase._read_bytes(registry / "attempt-reserved.json", registry, io.MAX_RECORD)
         reserved = phase._decode(reservation)
+        preflight_deadline = reserved.get("preflight_deadline")
+        runner._remaining_preflight(preflight_deadline, runner.CONTROL_ALLOWANCE)
         if (
             reserved["namespace"] != boot["namespace"]
             or reserved["session_id"] != boot["session_id"]
@@ -287,7 +292,7 @@ def run_reviewer_service(
         )
 
         def guard() -> None:
-            if receive_deadline[0] is not None and time.monotonic() > receive_deadline[0]:
+            if receive_deadline[0] is not None and time.perf_counter() > receive_deadline[0]:
                 raise runner.RunnerError("service_control_deadline")
             if (
                 not coordinator.alive()
@@ -308,8 +313,11 @@ def run_reviewer_service(
             ):
                 raise runner.RunnerError("service_resources")
             anchor = reserved["session_started_monotonic"] if actual else started
-            if type(anchor) is not float or not 0 <= time.monotonic() - anchor <= (
-                runner.SESSION_LIMIT if actual else 90.0
+            runner._remaining_preflight(preflight_deadline, runner.CONTROL_ALLOWANCE)
+            if type(anchor) is not float or not 0 <= time.perf_counter() - anchor <= (
+                runner.SESSION_LIMIT
+                if actual
+                else (runner.CONTROL_ALLOWANCE if preflight_deadline is not None else 90.0)
             ):
                 raise runner.RunnerError("test_service_deadline")
 
@@ -325,7 +333,7 @@ def run_reviewer_service(
         while True:
             guard()
             if approval_connection.poll(0):
-                receive_deadline[0] = time.monotonic() + runner.CONTROL_ALLOWANCE
+                receive_deadline[0] = time.perf_counter() + runner.CONTROL_ALLOWANCE
                 request = review.receive()
                 receive_deadline[0] = None
                 if set(request) != {
@@ -373,7 +381,7 @@ def run_reviewer_service(
                     validation_approved = result
                 review.send({"state": "APPROVED", "approval_digest": digest})
             if request_connection.poll(0.1):
-                receive_deadline[0] = time.monotonic() + runner.CONTROL_ALLOWANCE
+                receive_deadline[0] = time.perf_counter() + runner.CONTROL_ALLOWANCE
                 request = coordinate.receive()
                 receive_deadline[0] = None
                 action = request.get("action")
@@ -523,7 +531,7 @@ def _hash_checked(
             guard()
 
     check()
-    digest, total, sampled = hashlib.sha256(), 0, time.monotonic()
+    digest, total, sampled = hashlib.sha256(), 0, time.perf_counter()
     with path.open("rb") as stream:
         if phase._identity(os.fstat(stream.fileno())) != phase._identity(before):
             raise runner.RunnerError("artifact_drift")
@@ -532,9 +540,9 @@ def _hash_checked(
             if total > before.st_size:
                 raise runner.RunnerError("artifact_growth")
             digest.update(chunk)
-            if time.monotonic() - sampled >= 0.25:
+            if time.perf_counter() - sampled >= 0.25:
                 check()
-                sampled = time.monotonic()
+                sampled = time.perf_counter()
     if total != before.st_size or phase._identity(path.stat()) != phase._identity(before):
         raise runner.RunnerError("artifact_drift")
     check()

@@ -1,0 +1,25 @@
+{
+  "actual_study_permission_from_this_receipt": false,
+  "generation_review": [
+    "capability and exact identity checked before prefix hash",
+    "SHA256 prefix.copy plus unchanged8bytebigendian counter preserves bytes",
+    "prefix mutation refresh and custom digest seam preserved",
+    "buffered lane accounting unchanged"
+  ],
+  "integrated_speedup_claim": false,
+  "qualification_claim": false,
+  "replay_review": [
+    "full payload and halos validated before vectorization",
+    "factor and volatility prefix windows match original scalar",
+    "second entrant requires original gate and previous positive sign",
+    "strictpositive wins and cost-adjusted outcomes unchanged",
+    "Python integer bound precedes allint64 products/windows/reductions",
+    "original arbitraryprecision scalar fallback preserved"
+  ],
+  "source_sha256": {
+    "scripts/research/signal_calendar_evidence.py": "5985f3b0f55dc0f89d2632bc9b4378b8fd3c1922029292a91ca52b848d25e234",
+    "scripts/research/signal_calendar_score_study.py": "3c506e93110dcbb36e82db758175bdc9ed1d61f866d046755ba6a5153a875ed6"
+  },
+  "unresolved_findings": [],
+  "verdict": "GO_FOR_BOUNDED_PUBLIC_16_REPLICATE_DIAGNOSTIC"
+}

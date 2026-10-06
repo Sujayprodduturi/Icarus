@@ -1484,3 +1484,27 @@ def test_warm_parse_cache_still_observes_removal_fallback_and_errors(monkeypatch
     with pytest.raises(RuntimeError, match="fresh read failure"):
         study._fresh_package_version("fixture")
     assert study._parse_metadata_version.cache_info().maxsize == 2
+
+
+def test_counter_stream_hashes_prefix_once_and_invalidates_on_change(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original = hashlib.sha256
+    inputs: list[bytes] = []
+
+    def tracked(data: bytes = b"", **kwargs: Any) -> Any:
+        inputs.append(data)
+        return original(data, **kwargs)
+
+    monkeypatch.setattr(hashlib, "sha256", tracked)
+    stream = _stream(study.spec("P1"))
+    prefix = stream.prefix
+    expected = b"".join(original(prefix + k.to_bytes(8, "big")).digest() for k in range(32))
+    assert stream.peek_words(128) == expected
+    stream.consume_words(128)
+    assert stream.peek_words(4) == original(prefix + (32).to_bytes(8, "big")).digest()
+    assert inputs == [prefix]
+    stream.consume_words(4)
+    stream.prefix = prefix + b"changed"
+    assert stream.peek_words(4) == original(stream.prefix + (33).to_bytes(8, "big")).digest()
+    assert inputs == [prefix, stream.prefix]

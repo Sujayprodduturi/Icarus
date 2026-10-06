@@ -136,6 +136,8 @@ EXTRA_SOURCES = (
     "tests/unit/test_signal_calendar_score_runner_preflight_research.py",
     "docs/plans/2026-10-05-calendar-score-full-runner.md",
     "docs/reviews/2026-10-05-calendar-score-full-runner-timing-refinement.md",
+    "docs/plans/2026-10-06-runner-cost-accounting-amendment.md",
+    "docs/plans/2026-10-06-runner-batch-measurement-amendment.md",
 )
 
 

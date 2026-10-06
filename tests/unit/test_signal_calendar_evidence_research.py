@@ -2,8 +2,11 @@
 
 from dataclasses import replace
 from fractions import Fraction
+from itertools import accumulate
+from math import lcm
 from typing import Any, cast
 
+import numpy as np
 import pytest
 from scripts.research import signal_calendar_evidence as e
 from scripts.research import signal_calendar_laws as law
@@ -126,3 +129,79 @@ def test_long_span_and_ties_preserve_whole_calendar() -> None:
     )
     tied = e.replay(e.encode("P1", 128, short))
     assert tied.count == 256 and tied.wins == 0 and tied.raw == 0
+
+
+@pytest.mark.parametrize("identifier", [p.identifier for p in law.PROFILES])
+def test_vectorized_replay_matches_scalar_at_full_geometry(identifier: str) -> None:
+    from scripts.research import signal_calendar_score_phase as phase
+
+    n = {profile: span for profile, span, _ in phase.GEOMETRIES}[identifier]
+    path = patterned(identifier, n, 2)
+    receipt = e.encode(identifier, n, path)
+    assert e.replay(receipt) == e._replay_scalar(receipt)
+    assert e.replay(receipt) == path_oracle(identifier, n, path)
+
+
+def path_oracle(identifier: str, n: int, path: law.InnovationPath) -> e.Aggregate:
+    """Independent exact oracle over innovation tuples, never packed bytes/NumPy."""
+    p = law.profile(identifier)
+    coefficients = (
+        p.delta - p.a / 3,
+        p.a,
+        p.gamma / p.hold,
+        p.volatility_low,
+        p.volatility_high,
+        law.BENCHMARK_CONSTANT,
+        law.BENCHMARK_PREVIOUS,
+        law.BENCHMARK_FORWARD / p.hold,
+        *(jump for jump, _ in p.jump_atoms),
+    )
+    scale = lcm(*(coefficient.denominator for coefficient in coefficients))
+    base, pc, fc, low, high, bc, bp, bf, *_ = (int(c * scale) for c in coefficients)
+    signs = (0, *accumulate(path.s))
+    flags = (0, *accumulate(path.q))
+    count = raw = wins = excess = 0
+    for t in range(n):
+        i = t - path.first_index
+        if not path.g[i]:
+            continue
+        forward = signs[i + p.hold] - signs[i]
+        volatility = high if flags[i] - flags[i - p.volatility_memory] else low
+        common = base + pc * path.s[i - 1] + fc * forward + int(path.j[i] * scale)
+        benchmark = bc + bp * path.s[i - 1] + bf * forward
+        for symbol in range(2 if path.s[i - 1] == 1 else 1):
+            noise = path.epsilon1[i] if symbol == 0 else path.epsilon2[i]
+            outcome = common + noise * volatility
+            count += 1
+            raw += outcome
+            wins += outcome > 0
+            excess += outcome - benchmark
+    return e.Aggregate(n, count, Fraction(raw, scale), wins, Fraction(excess, scale))
+
+
+def test_safe_replay_uses_vector_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    receipt = e.encode("P1", 128, patterned("P1", 128, 0))
+    expected = e.replay(receipt)
+
+    def forbidden(*args: Any) -> Any:
+        raise AssertionError("safe geometry took scalar fallback")
+
+    monkeypatch.setattr(e, "_replay_scalar", forbidden)
+    assert e.replay(receipt) == expected
+
+
+def test_overflow_bound_uses_arbitrary_precision_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    receipt = e.encode("P1", 128, patterned("P1", 128, 0))
+    coefficients, scale = e._integer_coefficients(law.profile("P1"))
+    enormous = tuple(value * (1 << 70) for value in coefficients)
+    monkeypatch.setattr(e, "_integer_coefficients", lambda p: (enormous, scale))
+    expected = e._replay_scalar(receipt)
+    assert abs(expected.raw) > (1 << 63)
+
+    def forbidden(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("unsafe geometry entered NumPy")
+
+    monkeypatch.setattr(np, "frombuffer", forbidden)
+    assert e.replay(receipt) == expected

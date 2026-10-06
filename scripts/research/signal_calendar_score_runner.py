@@ -28,6 +28,9 @@ from scripts.research import signal_calendar_score_study as io
 
 SESSION_LIMIT = 295800.0
 CONTROL_ALLOWANCE = 600.0
+# Python 3.12 perf_counter is system-wide on Windows since 3.10; verified 2026-10-06.
+# https://docs.python.org/3.12/library/time.html#time.perf_counter
+_PREFLIGHT_REPLICATES = 16
 _ROLE = "reviewer"
 _ISSUER = object()
 _SESSIONS: dict[int, _Session] = {}
@@ -48,7 +51,7 @@ class _Session:
         self._session_id = uuid.uuid4().hex + uuid.uuid4().hex
         self._registry = phase.TEST_ANCHOR / "attempts" / hashlib.sha256(case.encode()).hexdigest()
         self._namespace = io.TEST_NAMESPACE
-        self._started = time.monotonic()
+        self._started = time.perf_counter()
         self._session_anchor = self._started
         self._capture = (
             self._case,
@@ -72,6 +75,9 @@ class _Session:
         self._approval_receipts: dict[str, str] = {}
         self._measurements: list[dict[str, Any]] = []
         self._active_stage_deadline: float | None = None
+        self._scan_intervals: list[tuple[float, float]] = []
+        self._preflight_deadline: float | None = None
+        self._preflight_deadline_anchor: float | None = None
 
     @property
     def state(self) -> life.State:
@@ -86,6 +92,10 @@ class _Session:
             raise RunnerError("session_issuer")
         if self._state == life.State.ERROR:
             raise RunnerError("terminal_error")
+        if self._preflight_deadline != self._preflight_deadline_anchor or (
+            self._preflight_deadline is not None and time.perf_counter() > self._preflight_deadline
+        ):
+            raise RunnerError("preflight_deadline")
         if self._capture != (
             self._case,
             self._owner,
@@ -102,7 +112,7 @@ class _Session:
             raise RunnerError("source_or_owner")
         if (
             self._started != self._session_anchor
-            or not 0 <= time.monotonic() - self._session_anchor <= SESSION_LIMIT
+            or not 0 <= time.perf_counter() - self._session_anchor <= SESSION_LIMIT
         ):
             raise RunnerError("session_deadline")
         if not self._retired_peers and any(
@@ -116,7 +126,7 @@ class _Session:
             raise RunnerError("attempt_error")
         if (
             self._active_stage_deadline is not None
-            and time.monotonic() > self._active_stage_deadline
+            and time.perf_counter() > self._active_stage_deadline
         ):
             raise RunnerError("stage_deadline")
         if expected is not None and self._state != expected:
@@ -169,11 +179,34 @@ class _Session:
             raise
 
 
-def _reserve_test(case: str, *, reviewer: life.ProcessIdentity | None = None) -> _Session:
+def _set_preflight_deadline(session: _Session, deadline: float | None) -> None:
+    if deadline is not None:
+        _remaining_preflight(deadline, CONTROL_ALLOWANCE)
+    session._preflight_deadline = session._preflight_deadline_anchor = deadline
+
+
+def _remaining_preflight(deadline: float | None, local: float) -> float:
+    if deadline is None:
+        return local
+    if type(deadline) is not float or not math.isfinite(deadline):
+        raise RunnerError("preflight_deadline")
+    remaining = deadline - time.perf_counter()
+    if not 0 < remaining <= CONTROL_ALLOWANCE:
+        raise RunnerError("preflight_deadline")
+    return min(local, remaining)
+
+
+def _reserve_test(
+    case: str,
+    *,
+    reviewer: life.ProcessIdentity | None = None,
+    preflight_deadline: float | None = None,
+) -> _Session:
     if type(case) is not str or re.fullmatch("[a-z0-9_-]{1,64}", case) is None:
         raise RunnerError("test_case")
     io._guard_path(phase.TEST_ANCHOR, io.PROJECT)
     session = _Session(case, _ISSUER)
+    _set_preflight_deadline(session, preflight_deadline)
     registry = session.registry
     phase.TEST_ANCHOR.mkdir(parents=True, exist_ok=True)
     attempts = phase.TEST_ANCHOR / "attempts"
@@ -186,6 +219,9 @@ def _reserve_test(case: str, *, reviewer: life.ProcessIdentity | None = None) ->
         raise RunnerError("attempt_exhausted") from error
     _SESSIONS[id(session)] = session
     try:
+        reservation_deadline = (
+            {} if preflight_deadline is None else {"preflight_deadline": preflight_deadline}
+        )
         phase._record(
             registry,
             "attempt-reserved.json",
@@ -209,6 +245,7 @@ def _reserve_test(case: str, *, reviewer: life.ProcessIdentity | None = None) ->
                 "session_seconds": SESSION_LIMIT,
                 "session_started_monotonic": session._session_anchor,
                 "phase_seed": None,
+                **reservation_deadline,
             },
         )
         session._reservation = phase._read_bytes(
@@ -274,6 +311,7 @@ class _StageProof:
     elapsed: float
     samples: bytes
     observation: _ParentObservation
+    work: _WorkObservation
 
 
 @dataclass(frozen=True, slots=True)
@@ -303,7 +341,7 @@ def _claim_test_phase(session: _Session, name: str, *, preflight: bool = False) 
     root.mkdir()
     phase._prepare_test_claim(
         root,
-        phase._test_plan(name, preflight=preflight),
+        phase._test_plan(name, _PREFLIGHT_REPLICATES if preflight else 1, preflight=preflight),
         attempt_id=session.registry.name,
         session_id=session._session_id,
     )
@@ -382,6 +420,7 @@ def _owned_worker(
     _ROLE = "worker"
     stopped = threading.Event()
     stage_started = threading.Event()
+    heartbeat_lock = threading.Lock()
     monitor: threading.Thread | None = None
     failure: BaseException | None = None
     errors: list[BaseException] = []
@@ -417,22 +456,32 @@ def _owned_worker(
             sequence = 0
             try:
                 while not stopped.is_set():
+                    if plan.namespace == io.PREFLIGHT_NAMESPACE:
+                        deadline = phase._read_record(root.parent, "attempt-reserved.json").get(
+                            "preflight_deadline"
+                        )
+                        if deadline is None:
+                            raise RunnerError("preflight_deadline")
+                        _remaining_preflight(deadline, CONTROL_ALLOWANCE)
                     if not owner.alive() or phase.current_binding() != binding:
                         raise RunnerError("worker_lifetime")
                     if stage_started.is_set():
                         _check_worker_bootstrap(_channel)
-                    heartbeat.send_bytes(
-                        io.canonical_json(
-                            {
-                                "schema": 1,
-                                "sequence": sequence,
-                                "state": "ACTIVE",
-                                "worker": asdict(marker.worker),
-                                "source": binding.manifest_digest,
-                                "counts": asdict(snapshot[0]),
-                            }
+                    with heartbeat_lock:
+                        if stopped.is_set():
+                            break
+                        heartbeat.send_bytes(
+                            io.canonical_json(
+                                {
+                                    "schema": 1,
+                                    "sequence": sequence,
+                                    "state": "ACTIVE",
+                                    "worker": asdict(marker.worker),
+                                    "source": binding.manifest_digest,
+                                    "counts": asdict(snapshot[0]),
+                                }
+                            )
                         )
-                    )
                     sequence += 1
                     stopped.wait(0.25)
             except BaseException as error:
@@ -450,6 +499,19 @@ def _owned_worker(
         monitor.start()
         _wait_for_stage_start(_channel, marker, boot["kind"], boot["role"], boot["test_fault"])
         stage_started.set()
+        if boot["test_fault"] == "early-work":
+            with heartbeat_lock:
+                heartbeat.send_bytes(
+                    io.canonical_json(
+                        {
+                            "schema": 1,
+                            "state": "WORK_FINISHED",
+                            "worker": asdict(marker.worker),
+                            "source": binding.manifest_digest,
+                            "counts": asdict(snapshot[0]),
+                        }
+                    )
+                )
         if boot["kind"] == "writer":
             if plan.namespace != io.EXPERIMENT_NAMESPACE:
                 _validate_worker_registration(marker, root, claim)
@@ -469,6 +531,24 @@ def _owned_worker(
                 _worker_marker=marker,
             )
         stopped.set()
+        with heartbeat_lock:
+            work: dict[str, Any] = {
+                "schema": 1,
+                "state": "WORK_FINISHED",
+                "worker": asdict(marker.worker),
+                "source": binding.manifest_digest,
+                "counts": asdict(snapshot[0]),
+            }
+            if boot["test_fault"] == "malformed-work":
+                work["counts"]["active_words"] = 1
+            if boot["test_fault"] == "wrong-work-words":
+                work["counts"]["words"] -= 1
+            if boot["test_fault"] != "missing-work":
+                heartbeat.send_bytes(io.canonical_json(work))
+            if boot["test_fault"] == "duplicate-work":
+                heartbeat.send_bytes(io.canonical_json(work))
+        if boot["test_fault"] == "exit-after-work":
+            os._exit(73)
         life._join_thread(monitor)
         if errors:
             raise errors[0]
@@ -501,6 +581,9 @@ def _owned_worker(
         # Retire the bootstrap channel before issuing the durable-close ACK.
         _check_worker_bootstrap(_channel)
         bootstrap.close()
+        if boot["test_fault"] == "missing-ack-after-work":
+            completion.close()
+            return
         completion.send_bytes(
             io.canonical_json(
                 {
@@ -574,6 +657,8 @@ def _evidence_from(value: dict[str, Any]) -> phase.PhaseEvidence:
 
 
 def _stage_limit(plan: phase.PhasePlan, kind: str) -> float:
+    if plan.namespace == io.PREFLIGHT_NAMESPACE:
+        return CONTROL_ALLOWANCE
     if plan.namespace != io.EXPERIMENT_NAMESPACE:
         return 15.0
     return (
@@ -586,7 +671,7 @@ def _stage_limit(plan: phase.PhasePlan, kind: str) -> float:
 def _resource_snapshot(
     root: Path, started: float, pid: int, deadline: float, heartbeat: float
 ) -> tuple[int, int, int, float]:
-    now = time.monotonic()
+    now = time.perf_counter()
     parent_rss = psutil.Process().memory_info().rss
     try:
         worker_process = psutil.Process(pid)
@@ -619,7 +704,7 @@ def _final_guard(session: _Session, root: Path, claim: bytes, plan: phase.PhaseP
     if session._stage_context is not None:
         stage_root, kind, started, _ = session._stage_context
         if stage_root != root or (
-            time.monotonic() - started > _stage_limit(plan, kind)
+            time.perf_counter() - started > _stage_limit(plan, kind)
             or psutil.Process().memory_info().rss > io.PARENT_RSS_CAP
             or psutil.disk_usage(str(root)).free < io.FREE_RESERVE
         ):
@@ -634,7 +719,7 @@ def _run_owned_stage(
     *,
     _test_fault: str | None = None,
 ) -> _StageToken:
-    started = time.monotonic()
+    started = time.perf_counter()
     try:
         session._check()
         if kind not in ("writer", "verifier") or role not in ("primary", "reviewer"):
@@ -650,13 +735,18 @@ def _run_owned_stage(
             session.fail(error)
         raise
     session._stage_context = (root, kind, started, role)
-    session._active_stage_deadline = started + _stage_limit(plan, kind)
+    session._scan_intervals = []
+    session._active_stage_deadline = started + _remaining_preflight(
+        session._preflight_deadline, _stage_limit(plan, kind)
+    )
     process, endpoints = _create_stage_process(session)
     parent_boot, child_boot, parent_ack, child_ack, parent_beat, child_beat = endpoints
     monitor: threading.Thread | None = None
     errors: list[BaseException] = []
     last = [started]
     finished = [False]
+    work_finished: list[float | None] = [None]
+    work_counts: list[phase.Progress | None] = [None]
     received = [False]
     barrier_started = [False]
     observation: _ParentObservation | None = None
@@ -730,9 +820,16 @@ def _run_owned_stage(
                     if finished[0]:
                         raise RunnerError("heartbeat_after_finished")
                     if frame.get("state") == "ACTIVE":
+                        if work_finished[0] is not None:
+                            raise RunnerError("heartbeat_after_work")
                         expected["sequence"] = sequence
                         sequence += 1
+                    elif frame.get("state") == "WORK_FINISHED":
+                        if work_finished[0] is not None:
+                            raise RunnerError("duplicate_work")
                     elif frame.get("state") == "DURABLE_FINISHED":
+                        if work_finished[0] is None:
+                            raise RunnerError("missing_work")
                         finished[0] = True
                     else:
                         raise RunnerError("heartbeat_schema")
@@ -757,7 +854,17 @@ def _run_owned_stage(
                     ):
                         raise RunnerError("heartbeat_regression")
                     last_counts[0] = phase.Progress(**counts)
-                    last[0] = time.monotonic()
+                    last[0] = time.perf_counter()
+                    if frame["state"] == "WORK_FINISHED":
+                        if not barrier_started[0] or (
+                            counts["paths"],
+                            counts["metrics"],
+                            counts["payload_bytes"],
+                            counts["active_words"],
+                        ) != (plan.paths, plan.metrics, plan.payload_bytes, 0):
+                            raise RunnerError("work_counts_or_barrier")
+                        work_finished[0] = last[0]
+                        work_counts[0] = last_counts[0]
                     session._observed = io.canonical_json(
                         {
                             "phase": plan.phase,
@@ -817,7 +924,7 @@ def _run_owned_stage(
         if not parent_ack.poll(1.0):
             raise RunnerError("missing_ack")
         ack = parent_ack.recv_bytes(io.MAX_RECORD)
-        if time.monotonic() - started > limit:
+        if time.perf_counter() - started > limit:
             raise RunnerError("deadline")
     except BaseException as error:
         failure = error
@@ -846,7 +953,7 @@ def _run_owned_stage(
         session.fail(failure)
         raise failure
     try:
-        if ack is None or worker is None or observation is None:
+        if ack is None or worker is None or observation is None or work_finished[0] is None:
             raise RunnerError("ack")
         parsed = json.loads(ack)
         evidence = _evidence_from(parsed["evidence"])
@@ -870,7 +977,12 @@ def _run_owned_stage(
         expected_final = phase.Progress(
             evidence.paths, evidence.metrics, evidence.words, evidence.payload_bytes, 0
         )
-        if last_counts[0] != expected_final:
+        captured_work = work_counts[0]
+        if (
+            captured_work is None
+            or last_counts[0] != expected_final
+            or captured_work != expected_final
+        ):
             raise RunnerError("heartbeat_final_counts")
         _final_guard(session, root, claim, plan)
         proof = _StageProof(
@@ -881,9 +993,10 @@ def _run_owned_stage(
             True,
             kind,
             role,
-            time.monotonic() - started,
+            time.perf_counter() - started,
             io.canonical_json(samples),
             observation,
+            _issue_work_observation(observation, work_finished[0], captured_work, ()),
         )
         _check_parent_observation(session, root, proof)
         token = _publish_stage(session, root, claim, plan, evidence, proof)
@@ -923,8 +1036,14 @@ def _publish_stage(
     # accounting record's own persistence/link is included by the outer stage clock.
     proof = replace(
         proof,
-        elapsed=time.monotonic() - session._stage_context[2],
+        elapsed=time.perf_counter() - session._stage_context[2],
         samples=io.canonical_json(samples),
+        work=_issue_work_observation(
+            proof.observation,
+            proof.work.finished_monotonic,
+            proof.work.counts,
+            tuple(session._scan_intervals),
+        ),
     )
     proof_value = {**asdict(proof), "samples": samples}
     value.update(
@@ -1007,7 +1126,7 @@ def _guarded_hash(
         raise RunnerError("artifact_cap")
     hasher = hashlib.sha256()
     total = 0
-    checked = time.monotonic()
+    checked = time.perf_counter()
     with path.open("rb") as stream:
         if phase._identity(os.fstat(stream.fileno())) != phase._identity(before):
             raise RunnerError("file_drift")
@@ -1016,12 +1135,21 @@ def _guarded_hash(
             if total > before.st_size:
                 raise RunnerError("file_growth")
             hasher.update(chunk)
-            if time.monotonic() - checked >= 0.25:
+            if time.perf_counter() - checked >= 0.25:
                 _final_guard(session, root, claim, plan)
-                checked = time.monotonic()
+                checked = time.perf_counter()
     if total != before.st_size or phase._identity(path.stat()) != phase._identity(before):
         raise RunnerError("file_drift")
     return hasher.hexdigest()
+
+
+def _costed_hash(*args: Any, **kwargs: Any) -> str:
+    session = cast(_Session, args[0])
+    begun = time.perf_counter()
+    try:
+        return _guarded_hash(*args, **kwargs)
+    finally:
+        session._scan_intervals.append((begun, time.perf_counter()))
 
 
 def _candidate_guard(
@@ -1062,11 +1190,10 @@ def _candidate_guard(
         or phase._hash(report_blob) != evidence.report_digest
     ):
         raise RunnerError("report_drift")
-    if _guarded_hash(
+    if _costed_hash(
         session, root, claim_bytes, plan, "phase-payload.bin", plan.payload_bytes
     ) != evidence.payload_digest or (
-        _guarded_hash(session, root, claim_bytes, plan, "phase-index.jsonl")
-        != evidence.index_digest
+        _costed_hash(session, root, claim_bytes, plan, "phase-index.jsonl") != evidence.index_digest
     ):
         raise RunnerError("payload_or_index_drift")
     expected: dict[str, Any] = {
@@ -1199,7 +1326,7 @@ def _receive_owned(
     errors: list[BaseException] = []
     finished = threading.Event()
     failure: BaseException | None = None
-    started = time.monotonic()
+    started = time.perf_counter()
     packet_started: list[float | None] = [None]
 
     def receive() -> None:
@@ -1207,7 +1334,7 @@ def _receive_owned(
             while not channel.connection.poll(0.25):
                 if finished.is_set():
                     return
-            packet_started[0] = time.monotonic()
+            packet_started[0] = time.perf_counter()
             result.append(channel.receive())
         except BaseException as error:
             errors.append(error)
@@ -1222,10 +1349,10 @@ def _receive_owned(
                 _guard()
             if (
                 packet_started[0] is not None
-                and time.monotonic() - packet_started[0] > CONTROL_ALLOWANCE
+                and time.perf_counter() - packet_started[0] > CONTROL_ALLOWANCE
             ):
                 raise RunnerError("partial_frame_deadline")
-            if time.monotonic() - started > deadline or phase.current_binding() != binding:
+            if time.perf_counter() - started > deadline or phase.current_binding() != binding:
                 raise RunnerError("receive_deadline_or_source")
             if (
                 psutil.Process().memory_info().rss > io.PARENT_RSS_CAP
@@ -1264,6 +1391,7 @@ def _adopt_reviewer_view(registry: Path) -> _Session:
     if reserved["namespace"] != namespace:
         raise RunnerError("reviewer_namespace")
     session = _Session(reserved["case"], _ISSUER)
+    _set_preflight_deadline(session, reserved.get("preflight_deadline"))
     expected_root = _actual_registry() if actual else session.registry
     if (
         registry != expected_root
@@ -1279,7 +1407,7 @@ def _adopt_reviewer_view(registry: Path) -> _Session:
     session._session_id = reserved["session_id"]
     if (
         type(reserved["session_started_monotonic"]) is not float
-        or not 0 <= time.monotonic() - reserved["session_started_monotonic"] <= SESSION_LIMIT
+        or not 0 <= time.perf_counter() - reserved["session_started_monotonic"] <= SESSION_LIMIT
     ):
         raise RunnerError("reservation_clock")
     session._started = session._session_anchor = reserved["session_started_monotonic"]
@@ -1305,7 +1433,7 @@ def _coordinator_request(session: _Session, body: dict[str, Any]) -> dict[str, A
         session._check()
         if session._channel is None or not session._channel.remote.alive():
             raise RunnerError("helper_dead")
-        session._control_deadline = time.monotonic() + CONTROL_ALLOWANCE
+        session._control_deadline = time.perf_counter() + CONTROL_ALLOWANCE
         session._channel.send(body)
         # The coordinator has its own watchdog, independent of the helper.
         reply = cast(dict[str, Any], session._channel.receive())
@@ -1338,7 +1466,7 @@ def _run_coordinator(
     transfers = 0
     stage = "bootstrap"
     stopped = threading.Event()
-    started = time.monotonic()
+    started = time.perf_counter()
     source = phase.current_binding()
 
     def watchdog() -> None:
@@ -1356,7 +1484,7 @@ def _run_coordinator(
                     if session is not None
                     else started + CONTROL_ALLOWANCE
                 )
-                if time.monotonic() > deadline:
+                if time.perf_counter() > deadline:
                     raise RunnerError("coordinator_control_deadline")
                 if session is not None:
                     session._check()
@@ -1369,7 +1497,10 @@ def _run_coordinator(
     monitor.start()
     try:
         boot, control = _worker_bootstrap(bootstrap_connection, parent_identity)
-        if set(boot) != {"case", "mode", "namespace", "source_review_digest"} or (
+        expected_boot = {"case", "mode", "namespace", "source_review_digest"}
+        if boot.get("namespace") == io.PREFLIGHT_NAMESPACE:
+            expected_boot.add("preflight_deadline")
+        if set(boot) != expected_boot or (
             boot["namespace"]
             not in (io.TEST_NAMESPACE, io.PREFLIGHT_NAMESPACE, io.EXPERIMENT_NAMESPACE)
             or boot["source_review_digest"] != phase.current_binding().manifest_digest
@@ -1396,7 +1527,11 @@ def _run_coordinator(
                 "late-close",
             ):
                 raise RunnerError("test_mode")
-            session = _reserve_test(boot["case"], reviewer=parent_identity)
+            session = _reserve_test(
+                boot["case"],
+                reviewer=parent_identity,
+                preflight_deadline=boot.get("preflight_deadline"),
+            )
         control.send(
             {
                 "state": "RESERVED",
@@ -1468,17 +1603,17 @@ def _run_coordinator(
                 else life.State.VALIDATION_VERIFIED
             )
             control.send({"state": "REVIEW_REQUIRED", "phase": name, "root": str(root)})
-            session._control_deadline = time.monotonic() + (
+            session._control_deadline = time.perf_counter() + (
                 io.load_operational_resources().effective_verifier_seconds + CONTROL_ALLOWANCE
                 if actual
-                else 30.0
+                else (CONTROL_ALLOWANCE if boot["namespace"] == io.PREFLIGHT_NAMESPACE else 30.0)
             )
             response = _receive_coordinator_control(
                 session,
                 control,
                 io.load_operational_resources().effective_verifier_seconds + CONTROL_ALLOWANCE
                 if actual
-                else 30.0,
+                else (CONTROL_ALLOWANCE if boot["namespace"] == io.PREFLIGHT_NAMESPACE else 30.0),
             )
             if (
                 set(response) != {"state", "phase", "timing"}
@@ -1511,7 +1646,7 @@ def _run_coordinator(
                 _coordinator_request(session, approval_payload)
                 raise RunnerError("forbidden_approval_accepted")
             control.send({"state": "APPROVAL_REQUESTED", "phase": name, "decision": decision})
-            session._control_deadline = time.monotonic() + CONTROL_ALLOWANCE
+            session._control_deadline = time.perf_counter() + CONTROL_ALLOWANCE
             if _receive_coordinator_control(session, control, CONTROL_ALLOWANCE) != {
                 "state": "APPROVED",
                 "phase": name,
@@ -1653,10 +1788,17 @@ def _launch_pipeline(
     mode: str = "full",
     namespace: str = io.TEST_NAMESPACE,
     readiness: object | None = None,
+    _preflight_deadline: float | None = None,
 ) -> dict[str, object]:
     if _ROLE != "reviewer":
         raise RunnerError("reviewer_role")
     actual = namespace == io.EXPERIMENT_NAMESPACE
+    if namespace == io.PREFLIGHT_NAMESPACE:
+        if _preflight_deadline is None:
+            raise RunnerError("preflight_deadline")
+        _remaining_preflight(_preflight_deadline, CONTROL_ALLOWANCE)
+    elif _preflight_deadline is not None:
+        raise RunnerError("preflight_deadline_namespace")
     if actual:
         _check_readiness(readiness)
         _READINESS_CONSUMED.add(id(readiness))
@@ -1687,6 +1829,12 @@ def _launch_pipeline(
     review_tokens: dict[str, _StageToken] = {}
     session: _Session | None = None
     captured_registry: Path | None = None
+    retirement_started: float | None = None
+
+    def preflight_guard() -> None:
+        if _preflight_deadline is not None:
+            _remaining_preflight(_preflight_deadline, CONTROL_ALLOWANCE)
+
     try:
         if actual and (
             cast(_Readiness, readiness).source != binding or phase.current_binding() != binding
@@ -1704,9 +1852,20 @@ def _launch_pipeline(
                 "mode": mode,
                 "namespace": namespace,
                 "source_review_digest": binding.manifest_digest,
+                **(
+                    {"preflight_deadline": _preflight_deadline}
+                    if namespace == io.PREFLIGHT_NAMESPACE
+                    else {}
+                ),
             },
         )
-        ready = _receive_owned(control, coordinator, CONTROL_ALLOWANCE if actual else 15.0, binding)
+        ready = _receive_owned(
+            control,
+            coordinator,
+            _remaining_preflight(_preflight_deadline, CONTROL_ALLOWANCE if actual else 15.0),
+            binding,
+            _guard=preflight_guard,
+        )
         if (
             set(ready) != {"state", "registry", "session_id", "reservation_digest"}
             or ready["state"] != "RESERVED"
@@ -1803,8 +1962,9 @@ def _launch_pipeline(
                     + 600.0
                 )
                 if actual
-                else 30.0,
+                else (CONTROL_ALLOWANCE if namespace == io.PREFLIGHT_NAMESPACE else 30.0),
                 binding,
+                _guard=preflight_guard,
             )
             if event.get("state") == "REVIEW_REQUIRED":
                 name = event.get("phase")
@@ -1845,7 +2005,9 @@ def _launch_pipeline(
                         "control_decision": expected_decision,
                     }
                 )
-                approved = _receive_owned(review, helper, 600.0 if actual else 15.0, binding)
+                approved = _receive_owned(
+                    review, helper, 600.0 if actual else 15.0, binding, _guard=preflight_guard
+                )
                 if set(approved) != {"state", "approval_digest"} or approved["state"] != "APPROVED":
                     raise RunnerError("reviewer_reply")
                 if (
@@ -1857,11 +2019,12 @@ def _launch_pipeline(
                 control.send({"state": "APPROVED", "phase": name})
             elif event.get("state") in ("FINAL_VERDICT", "DEVELOPMENT_FAILED", "ERROR"):
                 result = event
+                retirement_started = time.perf_counter()
                 break
             else:
                 raise RunnerError("coordinator_result")
-        coordinator.join(timeout=5)
-        helper.join(timeout=5)
+        coordinator.join(timeout=_remaining_preflight(_preflight_deadline, 5.0))
+        helper.join(timeout=_remaining_preflight(_preflight_deadline, 5.0))
         if coordinator.is_alive() or helper.is_alive():
             raise RunnerError("process_shutdown")
         if result["state"] != "ERROR" and (coordinator.exitcode != 0 or helper.exitcode != 0):
@@ -1914,6 +2077,7 @@ def _launch_pipeline(
                 session.fail(error)
             raise
     assert result is not None and session is not None
+    retirement_ended = time.perf_counter()
     if result["state"] == "ERROR":
         return result
     try:
@@ -1927,6 +2091,16 @@ def _launch_pipeline(
             raise RunnerError("overall_candidate_changed")
         _final_pipeline_guard(session, result, review_tokens)
         # The exclusive publication is the last fallible success operation.
+        assert retirement_started is not None
+        fixed = _issue_fixed_observation(
+            session._binding,
+            case,
+            str(session.registry),
+            "pipeline-retirement",
+            retirement_started,
+            retirement_ended,
+        )
+        _PIPELINE_COSTS[case] = fixed
         os.link(prepared, session.registry / "attempt-result.json", follow_symlinks=False)
         return result
     except BaseException as error:
@@ -2313,6 +2487,7 @@ def _read_actual_registration(
     original_reservation_digest = phase._hash(reservation_blob)
     original_reservation = dict(reservation)
     if _fixture:
+        _remaining_preflight(reservation.pop("preflight_deadline", None), CONTROL_ALLOWANCE)
         if (
             reservation["namespace"] != io.TEST_NAMESPACE
             or reservation["attempt_id"] != registry.name
@@ -2364,7 +2539,9 @@ def _read_actual_registration(
             or type(reservation["observed_free"]) is not int
             or reservation["observed_free"] < reservation["combined_free_required"]
             or type(reservation["session_started_monotonic"]) is not float
-            or not 0 <= time.monotonic() - reservation["session_started_monotonic"] <= SESSION_LIMIT
+            or not 0
+            <= time.perf_counter() - reservation["session_started_monotonic"]
+            <= SESSION_LIMIT
         )
     ):
         raise RunnerError("reservation_schema")
@@ -2690,11 +2867,11 @@ def _final_pipeline_guard(
 
 
 def _timed_owned_stage(session: _Session, root: Path, kind: str, role: str) -> _StageToken:
-    started = time.monotonic()
+    started = time.perf_counter()
     try:
         token = _run_owned_stage(session, root, kind, role)
         _check_parent_observation(session, root, token.proof)
-        ended = time.monotonic()
+        ended = time.perf_counter()
         value = {
             "schema": 1,
             "phase": root.name,
@@ -2706,6 +2883,7 @@ def _timed_owned_stage(session: _Session, root: Path, kind: str, role: str) -> _
             "fixed_seconds": token.proof.observation.ready_monotonic - started,
             "repetitive_seconds": ended - token.proof.observation.ready_monotonic,
             "observation": asdict(token.proof.observation),
+            "operational_costs": _operational_stage_costs(token.proof, started, ended),
             "source_binding": asdict(session._binding),
             "counts": asdict(
                 phase.Progress(
@@ -2723,6 +2901,7 @@ def _timed_owned_stage(session: _Session, root: Path, kind: str, role: str) -> _
             phase._claim_plan(phase._read_record(root, "phase-claim.json")), kind
         ):
             raise RunnerError("outer_stage_deadline")
+        _validate_stage_measurement(value, session._binding)
         phase._record(
             root,
             f"stage-timing-{kind}-{role}.json",
@@ -2748,6 +2927,7 @@ def _validate_stage_measurement(value: Any, source: phase.SourceBinding) -> None
         "fixed_seconds",
         "repetitive_seconds",
         "observation",
+        "operational_costs",
         "source_binding",
         "counts",
         "samples",
@@ -2777,6 +2957,7 @@ def _validate_stage_measurement(value: Any, source: phase.SourceBinding) -> None
     ):
         raise RunnerError("measurement_clock_or_source")
     _validate_observation_clock(value, source)
+    _validate_operational_stage_costs(value)
     counts = value["counts"]
     if (
         type(counts) is not dict
@@ -2879,7 +3060,9 @@ def _collect_readiness(reviewed_manifest: str) -> _Readiness | dict[str, Any]:
         rows.append(json.loads(live.result))
     if phase.current_binding() != source:
         raise RunnerError("readiness_source")
-    group = _group_refinement([row["refinement_bounds"] for row in rows])
+    if any(row.get("measurement_replicates") != _PREFLIGHT_REPLICATES for row in rows):
+        raise RunnerError("measurement_replicates")
+    group = _group_batch([row["operational_bounds"] for row in rows])
     if group["projection"]["eligible"] is not True:
         return {
             "state": "UNDRAWN_READINESS_BLOCKER",
@@ -2891,6 +3074,9 @@ def _collect_readiness(reviewed_manifest: str) -> _Readiness | dict[str, Any]:
             "reason": "ALL_THREE_GLOBAL_CONSERVATIVE_GATES_REQUIRED",
             "measurements": rows,
             "group_refinement": group,
+            "historical_group_refinement": _group_refinement(
+                [row["refinement_bounds"] for row in rows]
+            ),
         }
     token = _Readiness(
         life.ProcessIdentity.current(),
@@ -2903,11 +3089,15 @@ def _collect_readiness(reviewed_manifest: str) -> _Readiness | dict[str, Any]:
     return token
 
 
-def _disk_probe(root: Path, binding: phase.SourceBinding) -> dict[str, Any]:
+def _disk_probe(
+    root: Path, binding: phase.SourceBinding, *, _guard: Callable[[], None] | None = None
+) -> dict[str, Any]:
+    if _guard is not None:
+        _guard()
     io._guard_path(root, phase.TEST_ANCHOR / "preflights", existing=True)
     size = 32 << 20
     path = io._guard_path(root / "disk-probe.bin", root)
-    started = time.monotonic()
+    started = time.perf_counter()
     block = hashlib.sha256(b"calendar-score-runner-PREFLIGHT-disk-probe").digest() * 2048
     digest = hashlib.sha256()
     stream = io._open_exclusive(path)
@@ -2917,8 +3107,12 @@ def _disk_probe(root: Path, binding: phase.SourceBinding) -> dict[str, Any]:
             io._write_all(stream, block)
             digest.update(block)
             if (offset + len(block)) % (16 << 20) == 0:
+                if _guard is not None:
+                    _guard()
                 stream.flush()
                 os.fsync(stream.fileno())
+                if _guard is not None:
+                    _guard()
                 if phase.current_binding() != binding:
                     raise RunnerError("probe_source")
         stream.flush()
@@ -2930,26 +3124,36 @@ def _disk_probe(root: Path, binding: phase.SourceBinding) -> dict[str, Any]:
         life._shutdown([stream.close], failure)
     before = io._guard_path(path, root, existing=True).stat()
     for _ in range(2):
-        if _probe_hash(root, path.name, size, binding) != digest.hexdigest():
+        if _probe_hash(root, path.name, size, binding, _guard) != digest.hexdigest():
             raise RunnerError("probe_digest")
     if phase._identity(path.stat()) != phase._identity(before):
         raise RunnerError("probe_drift")
     # Probe bytes are independently rehashed twice; phase raw remains retained.
+    if _guard is not None:
+        _guard()
     path.unlink()
     if path.exists():
         raise RunnerError("probe_cleanup")
+    if _guard is not None:
+        _guard()
     return {
         "bytes": size,
         "sha256": digest.hexdigest(),
-        "elapsed": time.monotonic() - started,
+        "elapsed": time.perf_counter() - started,
         "raw_status": "ABSENT",
     }
 
 
-def _probe_hash(root: Path, name: str, size: int, source: phase.SourceBinding) -> str:
+def _probe_hash(
+    root: Path,
+    name: str,
+    size: int,
+    source: phase.SourceBinding,
+    guard: Callable[[], None] | None = None,
+) -> str:
     from scripts.research import signal_calendar_score_runner_service as service
 
-    return service._hash_checked(root, name, size, size, source)
+    return service._hash_checked(root, name, size, size, source, guard)
 
 
 def _validate_fixture_authority(
@@ -2976,7 +3180,12 @@ def _validate_fixture_authority(
 def _measure_integrated_preflight(case: str) -> dict[str, Any]:
     if _ROLE != "reviewer":
         raise RunnerError("reviewer_role")
-    started = time.monotonic()
+    started = time.perf_counter()
+
+    def outer_guard() -> None:
+        _remaining_preflight(started + CONTROL_ALLOWANCE, CONTROL_ALLOWANCE)
+
+    outer_guard()
     source = phase.current_binding()
     anchor = io._guard_path(phase.TEST_ANCHOR, io.PROJECT)
     anchor.mkdir(parents=True, exist_ok=True)
@@ -3000,7 +3209,10 @@ def _measure_integrated_preflight(case: str) -> dict[str, Any]:
                 "manifest": manifest.payload,
             },
         )
-        pipeline = _launch_pipeline(case, namespace=io.PREFLIGHT_NAMESPACE)
+        pipeline = _launch_pipeline(
+            case, namespace=io.PREFLIGHT_NAMESPACE, _preflight_deadline=started + CONTROL_ALLOWANCE
+        )
+        outer_guard()
         if pipeline["state"] != "FINAL_VERDICT" or pipeline["study_permission"] is not False:
             raise RunnerError("measurement_pipeline")
         timings = pipeline["stage_timings"]
@@ -3012,7 +3224,7 @@ def _measure_integrated_preflight(case: str) -> dict[str, Any]:
             _validate_stage_measurement(row, source)
             identity = row["phase"], row["kind"], row["role"]
             if identity in observed or io.canonical_json(row["counts"]) != io.canonical_json(
-                asdict(phase.Progress(10, 28, 1388952, 231492, 0))
+                asdict(phase.Progress(160, 448, 22223232, 3703872, 0))
             ):
                 raise RunnerError("measurement_geometry_or_counts")
             observed.add(identity)
@@ -3039,12 +3251,13 @@ def _measure_integrated_preflight(case: str) -> dict[str, Any]:
         from scripts.research import signal_calendar_score_runner_service as service
 
         for name in io.PHASE_REPLICATES:
+            outer_guard()
             phase_root = registry / name
             claim = phase._read_record(phase_root, "phase-claim.json")
             plan = phase._claim_plan(claim)
             if (
                 plan.namespace != io.PREFLIGHT_NAMESPACE
-                or plan.replicates != 1
+                or plan.replicates != _PREFLIGHT_REPLICATES
                 or plan.geometries != phase.GEOMETRIES
                 or claim["root"] != "0" * 64
             ):
@@ -3054,12 +3267,14 @@ def _measure_integrated_preflight(case: str) -> dict[str, Any]:
                 phase_root,
                 plan.paths * plan.metadata_cap + io.MAX_RECORD,
             )
+            outer_guard()
             lines = index_blob.splitlines(keepends=True)
-            if len(lines) != 11 or max(map(len, lines)) > io.PATH_METADATA_CAP:
+            if len(lines) != plan.paths + 1 or max(map(len, lines)) > io.PATH_METADATA_CAP:
                 raise RunnerError("measurement_metadata")
             # Full helper/control evidence checks and two immediate raw scans
             # measure the terminal cleanup work without deleting retained paths.
-            evidence = service._evidence_check(registry, name, source)
+            outer_guard()
+            evidence = service._evidence_check(registry, name, source, outer_guard)
             for _ in range(2):
                 if (
                     service._hash_checked(
@@ -3068,10 +3283,12 @@ def _measure_integrated_preflight(case: str) -> dict[str, Any]:
                         plan.payload_bytes,
                         plan.payload_bytes,
                         source,
+                        outer_guard,
                     )
                     != evidence["payload_digest"]
                 ):
                     raise RunnerError("measurement_raw")
+                outer_guard()
             phase._record(
                 phase_root,
                 "preflight-cleanup-scan-candidate.json",
@@ -3084,22 +3301,38 @@ def _measure_integrated_preflight(case: str) -> dict[str, Any]:
                 },
                 plan=plan,
             )
+            outer_guard()
             phase_rows[name] = {
                 "evidence": evidence,
                 "index_bytes": len(index_blob),
                 "max_metadata_bytes": max(map(len, lines)),
                 "raw_status": "RETAINED",
             }
-        probe = _disk_probe(root, source)
-        _validate_preflight_rows(registry, timings, source, started, time.monotonic())
-        if phase.current_binding() != source or time.monotonic() - started > 600.0:
+        probe_started = time.perf_counter()
+        probe = _disk_probe(root, source, _guard=outer_guard)
+        outer_guard()
+        probe_ended = time.perf_counter()
+        fixed_observations = (
+            _PIPELINE_COSTS[case],
+            _issue_fixed_observation(
+                source, case, str(root), "disk-probe", probe_started, probe_ended
+            ),
+        )
+        for fixed_observation in fixed_observations:
+            _check_fixed_observation(fixed_observation, source, case)
+        if fixed_observations[0].root != str(registry):
+            raise RunnerError("fixed_observation_root")
+        _validate_preflight_rows(registry, timings, source, started, time.perf_counter())
+        if phase.current_binding() != source or time.perf_counter() - started > 600.0:
             raise RunnerError("measurement_final_guard")
         parent_rss = psutil.Process().memory_info().rss
         free = psutil.disk_usage(str(root)).free
         if parent_rss > io.PARENT_RSS_CAP or free < _required_initial_free():
             raise RunnerError("measurement_resources")
-        ended = time.monotonic()
+        ended = time.perf_counter()
         refinement = _account_refinement(timings, started, ended)
+        operational_controls = [asdict(value) for value in fixed_observations]
+        operational = _account_operational(timings, started, ended, operational_controls)
         result = {
             "schema": 1,
             "state": "INTEGRATED_PREFLIGHT_COMPLETE",
@@ -3121,6 +3354,12 @@ def _measure_integrated_preflight(case: str) -> dict[str, Any]:
             "projection": _integrated_projection(stage_seconds, ended - started),
             "refinement_bounds": refinement,
             "refined_projection": _refined_projection(refinement),
+            "operational_controls": operational_controls,
+            "operational_bounds": operational,
+            "operational_projection": _operational_projection(operational),
+            "measurement_replicates": _PREFLIGHT_REPLICATES,
+            "batch_projection": _batch_projection(operational, _PREFLIGHT_REPLICATES),
+            "accounting_clock": _accounting_clock_binding(),
             "accounting_persistence_excluded": True,
             "raw_replay": "RETAINED_FOR_DUAL_EXTERNAL_CHECK",
             "authority_cost_scope": "READ_ONLY_TEST_NAMESPACE_SHADOWS_NO_ISSUANCE",
@@ -3141,7 +3380,7 @@ def _measure_integrated_preflight(case: str) -> dict[str, Any]:
         if (
             psutil.Process().memory_info().rss > io.PARENT_RSS_CAP
             or psutil.disk_usage(str(root)).free < _required_initial_free()
-            or time.monotonic() - started > 600.0
+            or time.perf_counter() - started > 600.0
         ):
             raise RunnerError("measurement_final_resources")
         _PREFLIGHT_MEASUREMENTS[case] = live
@@ -3213,6 +3452,10 @@ def _validate_preflight_rows(
             raise RunnerError("measurement_owned_proof")
         if io.canonical_json(proof["observation"]) != io.canonical_json(row["observation"]):
             raise RunnerError("measurement_parent_observation")
+        if io.canonical_json(proof["work"]) != io.canonical_json(
+            row["operational_costs"]["observation"]
+        ):
+            raise RunnerError("measurement_work_observation")
         observation = row["observation"]
         if (
             observation["root"] != str(root)
@@ -3257,12 +3500,16 @@ def _create_stage_process(session: _Session) -> tuple[Any, tuple[Connection, ...
 def _receive_coordinator_control(
     session: _Session, control: channels.FrameChannel, idle_seconds: float
 ) -> dict[str, Any]:
-    session._control_deadline = time.monotonic() + idle_seconds
+    session._control_deadline = time.perf_counter() + _remaining_preflight(
+        session._preflight_deadline, idle_seconds
+    )
     while not control.connection.poll(0.25):
         session._check()
     # Idle reviewer time may be long; an arrived incomplete frame gets only the
     # finite control allowance, enforced by the independent coordinator watchdog.
-    session._control_deadline = time.monotonic() + CONTROL_ALLOWANCE
+    session._control_deadline = time.perf_counter() + _remaining_preflight(
+        session._preflight_deadline, CONTROL_ALLOWANCE
+    )
     return control.receive()
 
 
@@ -3325,7 +3572,26 @@ def _validate_readiness_measurements(token: _Readiness) -> None:
                 row["refined_projection"]
             ):
                 raise RunnerError("readiness_measurements")
-        group = _group_refinement([row["refinement_bounds"] for row in rows])
+            operational = _account_operational(
+                row["stage_timings"],
+                row["started_monotonic"],
+                row["ended_monotonic"],
+                row["operational_controls"],
+            )
+            if io.canonical_json(operational) != io.canonical_json(row["operational_bounds"]) or (
+                io.canonical_json(_operational_projection(operational))
+                != io.canonical_json(row["operational_projection"])
+            ):
+                raise RunnerError("readiness_measurements")
+            if type(row["measurement_replicates"]) is not int or (
+                row["measurement_replicates"] != _PREFLIGHT_REPLICATES
+                or io.canonical_json(row["batch_projection"])
+                != io.canonical_json(_batch_projection(operational, row["measurement_replicates"]))
+                or io.canonical_json(row["accounting_clock"])
+                != io.canonical_json(_accounting_clock_binding())
+            ):
+                raise RunnerError("readiness_measurements")
+        group = _group_batch([row["operational_bounds"] for row in rows])
         if (
             io.canonical_json(group) != token.group_projection
             or group["projection"]["eligible"] is not True
@@ -3371,6 +3637,71 @@ class _ParentObservation:
 
 
 _OBSERVATIONS: dict[int, _ParentObservation] = {}
+
+
+@dataclass(frozen=True, slots=True)
+class _WorkObservation:
+    start: _ParentObservation
+    finished_monotonic: float
+    counts: phase.Progress
+    scans: tuple[tuple[float, float], ...]
+
+
+_WORK_OBSERVATIONS: dict[int, _WorkObservation] = {}
+
+
+@dataclass(frozen=True, slots=True)
+class _FixedObservation:
+    owner: life.ProcessIdentity
+    source: phase.SourceBinding
+    case: str
+    root: str
+    kind: str
+    started_monotonic: float
+    ended_monotonic: float
+
+
+_FIXED_OBSERVATIONS: dict[int, _FixedObservation] = {}
+_PIPELINE_COSTS: dict[str, _FixedObservation] = {}
+
+
+def _issue_fixed_observation(
+    source: phase.SourceBinding,
+    case: str,
+    root: str,
+    kind: str,
+    started: float,
+    ended: float,
+) -> _FixedObservation:
+    value = _FixedObservation(
+        life.ProcessIdentity.current(), source, case, root, kind, started, ended
+    )
+    _FIXED_OBSERVATIONS[id(value)] = value
+    return value
+
+
+def _check_fixed_observation(
+    value: _FixedObservation, source: phase.SourceBinding, case: str
+) -> None:
+    if _FIXED_OBSERVATIONS.get(id(value)) is not value or (
+        value.owner != life.ProcessIdentity.current()
+        or value.source != source
+        or value.case != case
+        or value.kind not in ("pipeline-retirement", "disk-probe")
+        or not 0 <= value.started_monotonic < value.ended_monotonic <= time.perf_counter()
+    ):
+        raise RunnerError("fixed_observation_issuer")
+
+
+def _issue_work_observation(
+    start: _ParentObservation,
+    finished: float,
+    counts: phase.Progress,
+    scans: tuple[tuple[float, float], ...],
+) -> _WorkObservation:
+    value = _WorkObservation(start, finished, counts, scans)
+    _WORK_OBSERVATIONS[id(value)] = value
+    return value
 
 
 def _barrier_body(
@@ -3443,7 +3774,7 @@ def _retire_parent_bootstrap(
     # EOF is the required retirement proof; any queued byte is a second barrier.
     while True:
         session._check()
-        remaining = limit - (time.monotonic() - started)
+        remaining = limit - (time.perf_counter() - started)
         if remaining <= 0:
             raise RunnerError("deadline")
         try:
@@ -3477,13 +3808,13 @@ def _start_stage(
     worker: life.ProcessIdentity,
     entry: float,
 ) -> _ParentObservation:
-    remaining = _stage_limit(plan, kind) - (time.monotonic() - entry)
+    remaining = _stage_limit(plan, kind) - (time.perf_counter() - entry)
     if remaining <= 0:
         raise RunnerError("ready_deadline")
     body = _receive_owned(
         channel, process, min(CONTROL_ALLOWANCE, remaining), session._binding, _guard=session._check
     )
-    ready = time.monotonic()
+    ready = time.perf_counter()
     expected = _barrier_body(
         "READY", session._owner, worker, session._binding, root, phase._hash(claim), kind, role
     )
@@ -3492,9 +3823,9 @@ def _start_stage(
     if channel.connection.poll(0):
         raise RunnerError("duplicate_ready")
     session._check()
-    if time.monotonic() - entry > _stage_limit(plan, kind):
+    if time.perf_counter() - entry > _stage_limit(plan, kind):
         raise RunnerError("ready_deadline")
-    start = time.monotonic()
+    start = time.perf_counter()
     _send_stage_start(channel, {**expected, "state": "START"})
     observation = _ParentObservation(
         session._owner,
@@ -3517,7 +3848,10 @@ def _start_stage(
 def _check_parent_observation(session: _Session, root: Path, proof: _StageProof) -> None:
     value = proof.observation
     if (
-        _OBSERVATIONS.get(id(value)) is not value
+        _WORK_OBSERVATIONS.get(id(proof.work)) is not proof.work
+        or proof.work.start is not value
+        or not value.start_monotonic <= proof.work.finished_monotonic <= time.perf_counter()
+        or _OBSERVATIONS.get(id(value)) is not value
         or value.owner != life.ProcessIdentity.current()
         or value.owner != proof.owner
         or value.child != proof.child
@@ -3575,6 +3909,72 @@ def _validate_observation_clock(row: dict[str, Any], source: phase.SourceBinding
         or row["fixed_seconds"] + row["repetitive_seconds"] != row["elapsed"]
     ):
         raise RunnerError("measurement_observation_clock")
+
+
+def _operational_stage_costs(proof: _StageProof, started: float, ended: float) -> dict[str, Any]:
+    if _WORK_OBSERVATIONS.get(id(proof.work)) is not proof.work:
+        raise RunnerError("work_observation_issuer")
+    work = proof.work
+    repetitive = (
+        work.finished_monotonic
+        - work.start.ready_monotonic
+        + sum(right - left for left, right in work.scans)
+    )
+    return {
+        "fixed_seconds": ended - started - repetitive,
+        "repetitive_seconds": repetitive,
+        "observation": asdict(work),
+    }
+
+
+def _validate_operational_stage_costs(row: dict[str, Any]) -> None:
+    value = row["operational_costs"]
+    if type(value) is not dict or set(value) != {
+        "fixed_seconds",
+        "repetitive_seconds",
+        "observation",
+    }:
+        raise RunnerError("measurement_work_schema")
+    work = value["observation"]
+    if type(work) is not dict or set(work) != set(_WorkObservation.__dataclass_fields__):
+        raise RunnerError("measurement_work_schema")
+    if io.canonical_json(work["start"]) != io.canonical_json(row["observation"]):
+        raise RunnerError("measurement_work_binding")
+    finished = work["finished_monotonic"]
+    if (
+        type(finished) is not float
+        or not math.isfinite(finished)
+        or not (row["observation"]["start_monotonic"] <= finished < row["ended_monotonic"])
+        or io.canonical_json(work["counts"]) != io.canonical_json(row["counts"])
+    ):
+        raise RunnerError("measurement_work_clock_or_counts")
+    scans = work["scans"]
+    if type(scans) not in (tuple, list) or len(scans) != 2:
+        raise RunnerError("measurement_work_scans")
+    for span in scans:
+        if (
+            type(span) not in (tuple, list)
+            or len(span) != 2
+            or any(type(v) is not float or not math.isfinite(v) for v in span)
+            or not finished <= span[0] <= span[1] <= row["ended_monotonic"]
+        ):
+            raise RunnerError("measurement_work_scans")
+    if scans[0][1] > scans[1][0]:
+        raise RunnerError("measurement_work_scans")
+    repetitive = (
+        finished
+        - row["observation"]["ready_monotonic"]
+        + sum(right - left for left, right in scans)
+    )
+    if any(
+        type(value[k]) is not float or not math.isfinite(value[k]) or value[k] < 0
+        for k in ("fixed_seconds", "repetitive_seconds")
+    ) or (
+        value["repetitive_seconds"] != repetitive
+        or value["fixed_seconds"] != row["elapsed"] - repetitive
+        or value["fixed_seconds"] + repetitive != row["elapsed"]
+    ):
+        raise RunnerError("measurement_work_accounting")
 
 
 def _validate_refinement_bounds(value: Any) -> None:
@@ -3725,3 +4125,180 @@ def _account_refinement(
     }
     _validate_refinement_bounds(bounds)
     return bounds
+
+
+def _account_operational(
+    timings: list[dict[str, Any]],
+    started: float,
+    ended: float,
+    controls: list[dict[str, Any]],
+) -> dict[str, Any]:
+    historical = _account_refinement(timings, started, ended)
+    if (
+        type(controls) is not list
+        or len(controls) != 2
+        or {row.get("kind") for row in controls if type(row) is dict}
+        != {"pipeline-retirement", "disk-probe"}
+    ):
+        raise RunnerError("operational_control_intervals")
+    intervals: list[tuple[float, float]] = []
+    case = controls[0].get("case")
+    if type(case) is not str or re.fullmatch("[A-Za-z0-9_-]{1,64}", case) is None:
+        raise RunnerError("operational_control_binding")
+    roots = {
+        "pipeline-retirement": phase.TEST_ANCHOR
+        / "attempts"
+        / hashlib.sha256(case.encode()).hexdigest(),
+        "disk-probe": phase.TEST_ANCHOR / "preflights" / hashlib.sha256(case.encode()).hexdigest(),
+    }
+    reviewer_owner = next(
+        row["observation"]["owner"] for row in timings if row["role"] == "reviewer"
+    )
+    for row in controls:
+        if type(row) is not dict or set(row) != set(_FixedObservation.__dataclass_fields__):
+            raise RunnerError("operational_control_intervals")
+        left, right = row["started_monotonic"], row["ended_monotonic"]
+        if (
+            row["case"] != case
+            or row["root"] != str(roots[row["kind"]])
+            or (
+                io.canonical_json(row["source"]) != io.canonical_json(timings[0]["source_binding"])
+                or io.canonical_json(row["owner"]) != io.canonical_json(reviewer_owner)
+            )
+        ):
+            raise RunnerError("operational_control_binding")
+        if (
+            any(type(v) is not float or not math.isfinite(v) for v in (left, right))
+            or not (max(stage["ended_monotonic"] for stage in timings) <= left < right <= ended)
+            or any(
+                left < stage["ended_monotonic"] and right > stage["started_monotonic"]
+                for stage in timings
+            )
+        ):
+            raise RunnerError("operational_control_intervals")
+        intervals.append((left, right))
+    intervals.sort()
+    if intervals[0][1] > intervals[1][0]:
+        raise RunnerError("operational_control_intervals")
+    fixed_controls = sum(right - left for left, right in intervals)
+    residual = historical["control_residual"] - fixed_controls
+    for row in timings:
+        _validate_operational_stage_costs(row)
+    bounds = {
+        "roles": {
+            role: {
+                key: max(
+                    row["operational_costs"][key + "_seconds"]
+                    for row in timings
+                    if ("writer" if row["kind"] == "writer" else row["role"]) == role
+                )
+                for key in ("fixed", "repetitive")
+            }
+            for role in ("writer", "primary", "reviewer")
+        },
+        "control_setup": historical["control_setup"],
+        "control_retirement": next(
+            row["ended_monotonic"] - row["started_monotonic"]
+            for row in controls
+            if row["kind"] == "pipeline-retirement"
+        ),
+        "control_probe": next(
+            row["ended_monotonic"] - row["started_monotonic"]
+            for row in controls
+            if row["kind"] == "disk-probe"
+        ),
+        "control_residual": residual,
+    }
+    _validate_operational_bounds(bounds)
+    return bounds
+
+
+def _operational_projection(bounds: dict[str, Any]) -> dict[str, Any]:
+    _validate_operational_bounds(bounds)
+    combined = {
+        "roles": bounds["roles"],
+        "control_setup": bounds["control_setup"]
+        + bounds["control_retirement"]
+        + bounds["control_probe"],
+        "control_residual": bounds["control_residual"],
+    }
+    result = _refined_projection(combined)
+    result["timing_model"] = "OWNED_WORK_SCANS_REPEATED_FIXED_RETIREMENT_PROBE_2X"
+    return result
+
+
+def _group_operational(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    if type(rows) is not list or len(rows) != 3:
+        raise RunnerError("refinement_three_required")
+    for row in rows:
+        _validate_operational_bounds(row)
+    bounds = {
+        "roles": {
+            role: {
+                key: max(row["roles"][role][key] for row in rows) for key in ("fixed", "repetitive")
+            }
+            for role in ("writer", "primary", "reviewer")
+        },
+        **{
+            key: max(row[key] for row in rows)
+            for key in ("control_setup", "control_retirement", "control_probe", "control_residual")
+        },
+    }
+    return {"bounds": bounds, "projection": _operational_projection(bounds)}
+
+
+def _validate_operational_bounds(bounds: Any) -> None:
+    if (
+        type(bounds) is not dict
+        or set(bounds)
+        != {"roles", "control_setup", "control_retirement", "control_probe", "control_residual"}
+        or any(
+            type(bounds[key]) is not float or not math.isfinite(bounds[key]) or bounds[key] < 0
+            for key in ("control_retirement", "control_probe")
+        )
+    ):
+        raise RunnerError("operational_bounds")
+    _validate_refinement_bounds(
+        {key: bounds[key] for key in ("roles", "control_setup", "control_residual")}
+    )
+
+
+def _accounting_clock_binding() -> dict[str, Any]:
+    clock = time.get_clock_info("perf_counter")
+    return {
+        "name": "perf_counter",
+        "implementation": clock.implementation,
+        "resolution": clock.resolution,
+        "monotonic": clock.monotonic,
+        "adjustable": clock.adjustable,
+    }
+
+
+def _batch_projection(bounds: dict[str, Any], replicates: int) -> dict[str, Any]:
+    _validate_operational_bounds(bounds)
+    if (
+        type(replicates) is not int
+        or replicates != _PREFLIGHT_REPLICATES
+        or any(count % replicates for count in io.PHASE_REPLICATES.values())
+    ):
+        raise RunnerError("measurement_replicates")
+    scaled = {
+        **bounds,
+        "roles": {
+            role: {"fixed": row["fixed"], "repetitive": row["repetitive"] / replicates}
+            for role, row in bounds["roles"].items()
+        },
+        "control_residual": bounds["control_residual"] / replicates,
+    }
+    result = _operational_projection(scaled)
+    result["timing_model"] = "SIXTEEN_COMPLETE_SETS_ALL_UNKNOWN_REPEATED_2X"
+    result["measurement_replicates"] = replicates
+    return result
+
+
+def _group_batch(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    group = _group_operational(rows)
+    return {
+        "bounds": group["bounds"],
+        "projection": _batch_projection(group["bounds"], _PREFLIGHT_REPLICATES),
+    }

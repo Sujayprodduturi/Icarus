@@ -326,7 +326,7 @@ def test_completion_snapshot_follows_publication_scans(monkeypatch: pytest.Monke
     def slow_scan(*args: Any, **kwargs: Any) -> str:
         result = original(*args, **kwargs)
         runner.time.sleep(0.04)
-        ends.append(runner.time.monotonic())
+        ends.append(runner.time.perf_counter())
         return cast(str, result)
 
     monkeypatch.setattr(runner, "_guarded_hash", slow_scan)

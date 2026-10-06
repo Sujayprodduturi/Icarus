@@ -1,0 +1,22 @@
+{
+  "actual_study_authority": false,
+  "batch_locally_eligible": true,
+  "batch_projected_session_seconds": 127239.69641352493,
+  "clock": {
+    "adjustable": false,
+    "implementation": "clock_gettime(CLOCK_MONOTONIC)",
+    "monotonic": true,
+    "name": "perf_counter",
+    "resolution": 1e-09
+  },
+  "container_contract_sha256": "0130c3243dafda2f35e555423f88f3790f1d5ff4d27700580bdbcac3fd65baa6",
+  "container_image": "sha256:917df2091cf0780270b081b6636583f028de54fd70787115e9150d181ce9e001",
+  "copied_inventory_count": 208,
+  "copied_source_count": 35,
+  "full_raw_math_replay": false,
+  "linux_manifest": "a11b0dda4ad6a86bab407128dc0476ff688610e2e48981554bcd01d0fe564558",
+  "passed": true,
+  "result_sha256": "ac1f370d43bb7be365d7f2288d200d3dae4295541733154d354459d0215fcf3c",
+  "runtime_sha256": "55234e3eb0618733ab425e362a9489dd57082756d3b8c5c48882437fb6c12a93",
+  "scope": "SINGLE_PUBLIC_DIAGNOSTIC_ONLY"
+}

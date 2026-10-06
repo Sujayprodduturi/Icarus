@@ -236,6 +236,9 @@ def _counter_digest(prefix: bytes, counter: int) -> bytes:
     return hashlib.sha256(prefix + counter.to_bytes(8, "big")).digest()
 
 
+_ORIGINAL_COUNTER_DIGEST = _counter_digest
+
+
 class CounterStream:
     """Frozen counter-mode SHA-256 word stream; every lane is consumed once."""
 
@@ -298,6 +301,8 @@ class CounterStream:
         self.prefix = (
             json.dumps(identity, separators=(",", ":"), ensure_ascii=True, allow_nan=False) + "\n"
         ).encode("utf8")
+        self._hashed_prefix = self.prefix
+        self._prefix_hash = hashlib.sha256(self.prefix)
         self.words_consumed = 0
         self._counter = 0
         self._buffer = b""
@@ -314,10 +319,22 @@ class CounterStream:
             raise StudyError("counter_overflow")
         if blocks:
             suffix = self._buffer[self._offset :]
-            generated = b"".join(
-                _counter_digest(self.prefix, counter)
-                for counter in range(self._counter, self._counter + blocks)
-            )
+            if _counter_digest is _ORIGINAL_COUNTER_DIGEST:
+                if self.prefix != self._hashed_prefix:
+                    self._hashed_prefix = self.prefix
+                    self._prefix_hash = hashlib.sha256(self.prefix)
+                copy = self._prefix_hash.copy
+                chunks: list[bytes] = []
+                for counter in range(self._counter, self._counter + blocks):
+                    block = copy()
+                    block.update(counter.to_bytes(8, "big"))
+                    chunks.append(block.digest())
+                generated = b"".join(chunks)
+            else:
+                generated = b"".join(
+                    _counter_digest(self.prefix, counter)
+                    for counter in range(self._counter, self._counter + blocks)
+                )
             self._buffer = suffix + generated
             self._offset = 0
             self._counter += blocks

@@ -9,6 +9,7 @@ from fractions import Fraction
 from hashlib import sha256
 from math import lcm
 
+import numpy as np
 from scripts.research import signal_calendar_laws as laws
 
 VERSION = "finite-calendar-bytes/v1"
@@ -112,14 +113,7 @@ def digest(evidence: Evidence) -> str:
     return hasher.hexdigest()
 
 
-def replay(evidence: Evidence) -> Aggregate:
-    """Replay all core entrants, using exact integers and original trade weights.
-
-    At t: decision=t-1, entry=t, exit/recognition=t+hold; source footprint
-    t-w..t+hold inclusive. ID is profile:t{t}:s{symbol}. No halo entrants.
-    Raw outcomes already subtract the invented COST exactly once; no tax model.
-    """
-    p, w = _validate(evidence)
+def _integer_coefficients(p: laws.LawProfile) -> tuple[tuple[int, ...], int]:
     coefficients = (
         p.delta - p.a / 3,
         p.a,
@@ -133,6 +127,56 @@ def replay(evidence: Evidence) -> Aggregate:
     )
     scale = lcm(*(value.denominator for value in coefficients))
     c = tuple(int(value * scale) for value in coefficients)
+    return c, scale
+
+
+def replay(evidence: Evidence) -> Aggregate:
+    """Exact core-only replay with integer windows and original entrant weights.
+
+    All source bytes, including warmup/completion halos, remain validated. The
+    conservative Python-integer bound covers cumulative windows, coefficient
+    products, both outcomes/benchmarks and all sums before any int64 arithmetic.
+    Profiles outside that bound use the original arbitrary-precision replay.
+    """
+    p, w = _validate(evidence)
+    c, scale = _integer_coefficients(p)
+    limit = (1 << 63) - 1
+    # |outcome| <= C*(hold+4); |benchmark| <= C*(hold+2).
+    # Two symbols per core date bound both raw and excess signed reductions.
+    bound = max(1, *(abs(value) for value in c)) * (2 * p.hold + p.volatility_memory + 16)
+    if max(len(evidence.payload), 2 * evidence.n * bound) > limit:
+        return _replay_scalar(evidence)
+    base, pc, fc, low, high, bc, bp, bf = c[:8]
+    atoms = np.frombuffer(evidence.payload, dtype=np.uint8)
+    signs = (atoms & 1).astype(np.int64) * 2 - 1
+    prefix = np.empty(len(atoms) + 1, dtype=np.int64)
+    prefix[0] = 0
+    np.cumsum(signs, out=prefix[1:])
+    n = evidence.n
+    factor = prefix[w + p.hold : w + p.hold + n] - prefix[w : w + n]
+    np.cumsum((atoms & 2) != 0, dtype=np.int64, out=prefix[1:])
+    volatility = prefix[w : w + n] - prefix[w - p.volatility_memory : w - p.volatility_memory + n]
+    previous = signs[w - 1 : w - 1 + n]
+    core = atoms[w : w + n]
+    first = (core & 4) != 0
+    second = first & (previous == 1)
+    common = base + pc * previous + fc * factor + np.asarray(c[8:], dtype=np.int64)[core >> 5]
+    benchmark = bc + bp * previous + bf * factor
+    volatility_value = np.where(volatility != 0, high, low)
+    count = raw = wins = excess = 0
+    for bit, selected in ((8, first), (16, second)):
+        outcome = common + np.where((core & bit) != 0, volatility_value, -volatility_value)
+        count += int(np.count_nonzero(selected))
+        raw += int(np.sum(outcome, where=selected, dtype=np.int64))
+        wins += int(np.count_nonzero(selected & (outcome > 0)))
+        excess += int(np.sum(outcome - benchmark, where=selected, dtype=np.int64))
+    return Aggregate(n, count, Fraction(raw, scale), wins, Fraction(excess, scale))
+
+
+def _replay_scalar(evidence: Evidence) -> Aggregate:
+    """Original arbitrary-precision loop, retained as the overflow fallback."""
+    p, w = _validate(evidence)
+    c, scale = _integer_coefficients(p)
     base, previous_coefficient, factor_coefficient, low, high, bc, bp, bf = c[:8]
     jumps = c[8:]
     b = evidence.payload
