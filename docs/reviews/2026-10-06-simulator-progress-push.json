@@ -1,0 +1,28 @@
+{
+  "actual_attempt_absent": true,
+  "ci_success_claimed": false,
+  "equal": true,
+  "head": "efd0759788664db5ab255d831196fe5b05b1a444",
+  "origin_dev": "efd0759788664db5ab255d831196fe5b05b1a444",
+  "runs": [
+    {
+      "conclusion": "",
+      "databaseId": 37432204374,
+      "headSha": "efd0759788664db5ab255d831196fe5b05b1a444",
+      "status": "in_progress",
+      "url": "https://github.com/Sujayprodduturi/Icarus/actions/runs/37432204374",
+      "workflowName": "signal-resource-proof"
+    },
+    {
+      "conclusion": "",
+      "databaseId": 37432204549,
+      "headSha": "efd0759788664db5ab255d831196fe5b05b1a444",
+      "status": "in_progress",
+      "url": "https://github.com/Sujayprodduturi/Icarus/actions/runs/37432204549",
+      "workflowName": "ci"
+    }
+  ],
+  "scope": "push checkpoint; current-source CI pending unless listed completed",
+  "source_manifest_digest": "94d6be4f60960b6c570ce543ca53beb69e9c236a2ce719c12ef66cc4a02217d9",
+  "utc": "2026-10-06T07:51:34.602251+00:00"
+}
