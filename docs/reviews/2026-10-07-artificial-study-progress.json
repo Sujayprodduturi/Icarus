@@ -1,0 +1,80 @@
+{
+  "actual_container_unchanged": "4fa9742e22a2c48dd17a474b6c940096f106863cfa810cf60dc41d8d767181cf",
+  "as_of_client_date": "2026-10-07",
+  "background_monitor_alive_verified": true,
+  "background_monitor_pid": 15132,
+  "development": {
+    "all_formal_covered": true,
+    "all_four_effect_cells_detected": true,
+    "as_of_client_date": "2026-10-07",
+    "claim_sha256": "ea7249c65233ec71f5d84e13ad82dabf2dc0aed066af176bc221e94e42978d42",
+    "code_ci": {
+      "37456251563": "success",
+      "37456251575": "success"
+    },
+    "development_decision": "PASS_DESCRIPTIVE_SCREEN_ONLY",
+    "development_report_sha256": "0a682c9b7efb1be042fcbd55129de512c7d90cfee69a5aefbb3b027f810ee7f1",
+    "formal_cells": 25,
+    "joint_cells": 9,
+    "metrics": 229376,
+    "no_new_draw_or_restart": true,
+    "paths": 81920,
+    "proofs": [
+      {
+        "kind": "writer",
+        "name": "development-terminal.json",
+        "role": "primary",
+        "seconds": 3377.502244576,
+        "sha256": "409f34ec13beaac2bbc3347d53413542d6dd24d78408b8449a841f85cc9110c9"
+      },
+      {
+        "kind": "verifier",
+        "name": "development-primary.json",
+        "role": "primary",
+        "seconds": 2715.0916435379995,
+        "sha256": "9e56be8a590343c3db32102a9c2a18e3f7e49983529bfa15aeac2b036a493c31"
+      },
+      {
+        "kind": "verifier",
+        "name": "development-reviewer.json",
+        "role": "reviewer",
+        "seconds": 2711.1254558830005,
+        "sha256": "d493f6269825941d453b404ce8894d6969c38f0c88b5f6221205e88d5e19ec7c"
+      }
+    ],
+    "raw_retained": true,
+    "runtime_seconds": 19862.093045916,
+    "scope": "COMPLETED_DEVELOPMENT_COMPACT_BINDING_AND_COUNTER_REVIEW_NOT_EXTRA_RAW_REPLAY",
+    "source35_hashes_verified": true,
+    "sparse_refusal_preserved": true,
+    "study_complete": false,
+    "terminal_sha256": "409f34ec13beaac2bbc3347d53413542d6dd24d78408b8449a841f85cc9110c9",
+    "validation_byte_fraction": 0.9069916352063462,
+    "validation_payload_bytes_expected": 7585529856,
+    "validation_payload_bytes_observed": 6880012128,
+    "validation_verdict": "PENDING_UNREAD"
+  },
+  "independent_compact_review": {
+    "binding_supplement": {
+      "claim_canonical_manifest_and_seed_commitment_verified": true,
+      "claim_sha256": "ea7249c65233ec71f5d84e13ad82dabf2dc0aed066af176bc221e94e42978d42",
+      "development_only": true,
+      "limitations": [
+        "Compact records only; no raw replay and no validation outcomes accessed.",
+        "Development is descriptive screening, not confirmation or final qualification."
+      ],
+      "prior_receipt_sha256": "31ad2a47a0c47722ae922c448ffe9bd4f94517bdd5e03481f10b92057362260e",
+      "scope": "DEVELOPMENT_COMPACT_BINDING_SUPPLEMENT",
+      "seed_omitted": true,
+      "terminal_canonical_and_dual_receipt_binding_verified": true,
+      "terminal_sha256": "409f34ec13beaac2bbc3347d53413542d6dd24d78408b8449a841f85cc9110c9",
+      "verdict": "PASS",
+      "writer_elapsed_seconds": 3377.502244576,
+      "writer_owned_clock_counts_resources_verified": true
+    },
+    "limitations": "No additional full raw replay in this progress check; full owned primary/reviewer verifiers completed before validation release.",
+    "review_sha256": "31ad2a47a0c47722ae922c448ffe9bd4f94517bdd5e03481f10b92057362260e"
+  },
+  "no_real_market_or_live_permission": true,
+  "overall_study": "RUNNING_VALIDATION_GENERATION"
+}
