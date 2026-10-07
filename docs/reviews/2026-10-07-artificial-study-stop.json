@@ -1,0 +1,88 @@
+{
+  "as_of_client_date": "2026-10-07",
+  "development": "PASS_WITH_BOTH_FULL_VERIFIERS_COMPLETED",
+  "evidence": {
+    "var\\verification\\2026-10-05\\calendar-score-runner\\icarus-artificial-study-20261006-30092e0-launch\\verification-artifacts\\linux-actual-artificial-20261006\\launcher-failure.json": {
+      "sha256": "9db76985ff755eff5d02b10d1ceebd4a10b6b0b482eca24494f39fb810c8440f"
+    },
+    "var\\verification\\2026-10-05\\calendar-score-runner\\icarus-artificial-study-20261006-30092e0-launch\\verification-artifacts\\linux-actual-artificial-20261006\\returned-result.json": {
+      "sha256": "f3f9b269a2267bbe8e8f5f81a6639f08f00da9e233c5f7a6e8b5ad5572d70e8c"
+    },
+    "var\\verification\\2026-10-07\\study-stop\\attempt-failure.json": {
+      "sha256": "c3762034f4caf969d5f70b70d21591612bf46e11cae2b6f9821aeb157e0ee0d3"
+    },
+    "var\\verification\\2026-10-07\\study-stop\\docker-final.log": {
+      "sha256": "8e7193b4ef8b6823fab045dd0bb879ebe13bd3ea5db6ba4283b649ea929fba8e"
+    },
+    "var\\verification\\2026-10-07\\study-stop\\service-failure.json": {
+      "sha256": "a74740b8bd4038c549a7bfcefda7dc1089ca3083c5e4b711dec93c9edbb20cc7"
+    }
+  },
+  "failure_diagnosis": {
+    "first_observable_error": "ConnectionResetError104 receiving validation primary verifier initial READY; generically wrapped as authentication",
+    "reason_for_worker_connection_loss": "UNRESOLVED_FROM_CURRENT_LOG",
+    "secondary_errors": [
+      "reviewer helper EOF after teardown",
+      "launcher asserts FINAL_VERDICT or DEVELOPMENT_FAILED on returned ERROR",
+      "monitor asserts exit0 on exited1"
+    ],
+    "verifier_ready_received": false
+  },
+  "independent_stop_review": {
+    "path": "C:\\ICARUS\\var\\verification\\2026-10-07\\study-stop\\reviewer-stop-failure-review.json",
+    "scope": "Canonical compact writer evidence and failure trace only; no raw replay, no final qualification",
+    "sha256": "95afe1174ea2f52867f3d6c0447b3add4f6e169e25918a7b0a0f2fe2b61cf204"
+  },
+  "no_final_method_qualification": true,
+  "overall_state": "ERROR_NOT_COMPLETED",
+  "process": {
+    "container": "4fa9742e22a2c48dd17a474b6c940096f106863cfa810cf60dc41d8d767181cf",
+    "image": "sha256:a2c81a5a47ba95a6de2442b2fe678fe88aab3f96f901fc49f9a03814676788a4",
+    "monitor_seconds": 70992.4675589,
+    "raw_forensics_retained_in_volume": true,
+    "retry_authority": false,
+    "scope": "actual-artificial-study",
+    "state": {
+      "Dead": false,
+      "Error": "",
+      "ExitCode": 1,
+      "FinishedAt": "2026-10-07T07:18:48.466966172Z",
+      "OOMKilled": false,
+      "Paused": false,
+      "Pid": 0,
+      "Restarting": false,
+      "Running": false,
+      "StartedAt": "2026-10-06T11:36:01.578876205Z",
+      "Status": "exited"
+    },
+    "volume": "icarus-artificial-study-20261006-30092e0"
+  },
+  "raw_retained_in_existing_volume": true,
+  "restart_redraw_cleanup_performed": false,
+  "underlying_result": {
+    "children_exited": true,
+    "failure_reason": "authentication",
+    "failure_stage": "validation",
+    "namespace": "icarus/calendar-score-research/v2",
+    "registry": "/work/var/research/calendar_score_v2/attempts/130569a78811e9ad4f9dcdb915410b3c350e137a78bc70974eb81ac4daf13b71",
+    "release_transfers": 1,
+    "state": "ERROR",
+    "study_permission": false
+  },
+  "validation": "WRITTEN_BUT_UNVERIFIED",
+  "validation_writer": {
+    "candidate_decision": "PASS",
+    "counts": {
+      "active_words": 0,
+      "metrics": 917504,
+      "paths": 327680,
+      "payload_bytes": 7585529856,
+      "words": 45513179136
+    },
+    "elapsed_seconds": 13765.213166852,
+    "qualification": false,
+    "report_sha256": "4e6711256743adf20027769cb73cd3f1de053b6e7c4d10197f9bd0fbedf19d77",
+    "terminal_sha256": "de7d585d0543e0f508121af462061d64c7f5a26e336ccf4f085777a5120497cd",
+    "writer_complete": true
+  }
+}
