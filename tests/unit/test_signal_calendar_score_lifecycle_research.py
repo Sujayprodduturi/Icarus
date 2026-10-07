@@ -1419,3 +1419,27 @@ def test_linux_identity_rejects_bad_boot_uuid(monkeypatch: Any) -> None:
     monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setattr(Path, "read_bytes", _proc_identity_fixture(boot="not-a-boot-id"))
     assert not life.ProcessIdentity(123, 1).alive()
+
+
+@pytest.mark.parametrize("error", [EOFError(), ConnectionResetError(104, "reset")])
+def test_frame_disconnect_is_transport_not_authentication(error: Exception) -> None:
+    from scripts.research import signal_calendar_score_lifecycle_service as service
+
+    class Closed:
+        def recv_bytes(self, cap: int) -> bytes:
+            raise error
+
+    identity = life.ProcessIdentity.current()
+    channel = service.FrameChannel(
+        cast(Any, Closed()),
+        b"a" * 32,
+        "coordinator",
+        "b" * 64,
+        "c" * 64,
+        identity,
+        identity,
+        life.SourceBinding("a" * 64, "b" * 64, "fixture", "c" * 64),
+    )
+    with pytest.raises(life.LifecycleError, match="transport") as caught:
+        channel.receive()
+    assert caught.value.__cause__ is error

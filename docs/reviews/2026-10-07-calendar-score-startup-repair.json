@@ -1,0 +1,77 @@
+{
+  "actual_attempt": "v2 remains ERROR/consumed/raw retained; candidate validation PASS unverified; no v3 marker/volume/key/draw",
+  "date": "2026-10-07",
+  "engineering_review": {
+    "result": "GO after narrow transport labels, conservative startup stage and real truncated pipe fixture",
+    "reviewer": "/root/reviewer_recovery"
+  },
+  "historical_child_cause": "UNPROVED",
+  "native_regression": {
+    "image": "sha256:7cd4dd07b58792183068b51c845642e71d402de0ba9ea91b16cb6dcad884f9f1",
+    "modules": [
+      "lifecycle",
+      "runner",
+      "runner_preflight",
+      "portfolio_characterization"
+    ],
+    "passed": 228,
+    "seconds": 335.57,
+    "topology": "Docker --init; native frozen source; separate ext4 TEST-fixture volume; network none; read-only image;2GiB;4CPU"
+  },
+  "next": "Task2 explicit v3 binding and tracked one-shot launcher; fresh Task3 gates before any actual sampling",
+  "postcommit": "PENDING source commit",
+  "protected_unchanged": {
+    "docs/plans/2026-10-04-calendar-score-study-protocol.md": "130569a78811e9ad4f9dcdb915410b3c350e137a78bc70974eb81ac4daf13b71",
+    "docs/plans/2026-10-07-calendar-score-replacement-implementation.md": "cc3a15dcc06f8f882c3fae98e41a275ddce75d9785a74196b9007b1e44b3ef29",
+    "docs/plans/2026-10-07-calendar-score-replacement-protocol-v3.md": "9622e655175401b7f99f64448168eab848a546a14e77771e35f7134fd48ed064",
+    "docs/plans/calendar-score-operational-resources.json": "96199af0f371c34e1d99371e1629dfb0d61e6bb32e59f41fddcacc6746e43bcd",
+    "goal.yaml": "c886aca6b198257486d0daefc484f818458e60fa32a5aa861b95d1413282fa0c"
+  },
+  "scope": "Task1 startup proof and bounded diagnostics only",
+  "simplicity_review": {
+    "result": "GO; uses existing completion channel and bounded whitelist",
+    "reviewer": "/root/reviewer_recovery"
+  },
+  "source_sha256": {
+    "scripts/research/signal_calendar_score_lifecycle_service.py": "c9d4aca8bbe4bfffc6b50fff3519b0dd96ceaee94064db7fdeacb0891cf148fb",
+    "scripts/research/signal_calendar_score_runner.py": "d65260f12b31a3be5afbe19c34e9c99b3295aa87df0b6f15776b523d874ddfaf",
+    "tests/unit/test_signal_calendar_score_lifecycle_research.py": "658b4a24d093ffd65bb02049315ca3efa3b6fb43f0e1c896dacd60a05922f153",
+    "tests/unit/test_signal_calendar_score_runner_research.py": "14e10ff3489a79b5156eae2ef6215e3c72af9c2eb5f5fbadbd613a7b4a4b7432"
+  },
+  "static": {
+    "format": 356,
+    "mypy": 181,
+    "ruff": "PASS no-cache"
+  },
+  "targeted_native": {
+    "cases": [
+      "clock shifted verifier",
+      "whitelisted failure",
+      "private failure sanitized",
+      "hard exit no hint",
+      "malformed",
+      "oversized",
+      "wrong peer",
+      "partial frame header and prefix then child exit"
+    ],
+    "image": "sha256:7cd4dd07b58792183068b51c845642e71d402de0ba9ea91b16cb6dcad884f9f1",
+    "passed": 8,
+    "seconds": 10.3
+  },
+  "tdd_red": [
+    {
+      "case": "new real verifier with46800s child cached epoch shift",
+      "image": "sha256:893f50e0bb3f4dd79d6c6a3f894b4d67009a8211093f84c3e2f00d49a783b352",
+      "result": "FAIL at initial READY transport on old epoch identity"
+    },
+    {
+      "case": "named startup failure persistence",
+      "image": "sha256:7f053a71f8fd3d86e8828458ed7e874619588526e462e4824736cea0a06efa7e",
+      "result": "FAIL missing startup-failure record before diagnostic implementation"
+    },
+    {
+      "case": "EOF/reset classification",
+      "result": "2FAIL authentication instead of transport before service change"
+    }
+  ]
+}

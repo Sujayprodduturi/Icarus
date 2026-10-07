@@ -410,6 +410,116 @@ def _worker_bootstrap(
     return channel.receive(), channel
 
 
+_STARTUP_REASONS = frozenset(
+    {
+        "unknown",
+        "transport",
+        "authentication",
+        "worker_parent",
+        "worker_bootstrap",
+        "worker_claim",
+        "worker_owner",
+        "test_domain",
+        "ready_barrier",
+        "start_barrier",
+        "start_owner_or_source",
+        "peer_exit",
+        "ready_deadline",
+        "receive_deadline_or_source",
+    }
+)
+_STARTUP_CAP = 4096
+
+
+def _startup_reason(error: BaseException) -> str:
+    if type(error) in (RunnerError, life.LifecycleError) and len(error.args) == 1:
+        reason = error.args[0]
+        if type(reason) is str and reason in _STARTUP_REASONS:
+            return reason
+    if isinstance(error, (OSError, EOFError)):
+        return "transport"
+    return "unknown"
+
+
+def _send_startup_error(
+    connection: Connection, owner: life.ProcessIdentity, error: BaseException
+) -> None:
+    blob = io.canonical_json(
+        {
+            "schema": 1,
+            "state": "STARTUP_ERROR",
+            "reason": _startup_reason(error),
+            "owner": asdict(owner),
+            "worker": asdict(life.ProcessIdentity.current()),
+            "source": phase.current_binding().manifest_digest,
+        }
+    )
+    if len(blob) + 4 > _STARTUP_CAP:
+        raise RunnerError("startup_hint_cap")
+    connection.send_bytes(blob)
+
+
+def _record_startup_error(
+    session: _Session,
+    root: Path,
+    kind: str,
+    role: str,
+    process: Any,
+    worker: life.ProcessIdentity | None,
+    connection: Connection,
+    error: BaseException,
+    counts: phase.Progress,
+) -> None:
+    # Read only after owned stop/join and sender close: even a partial frame
+    # cannot block teardown. This hint is never a receipt or success authority.
+    status, hint = "MISSING", None
+    if process.pid is not None and process.exitcode is not None and worker is not None:
+        try:
+            if connection.poll(0):
+                blob = connection.recv_bytes(_STARTUP_CAP)
+                status = "INVALID"
+                value = json.loads(blob)
+                if type(value) is dict and type(value.get("reason")) is str:
+                    reason = value["reason"]
+                    expected = {
+                        "schema": 1,
+                        "state": "STARTUP_ERROR",
+                        "reason": reason,
+                        "owner": asdict(session._owner),
+                        "worker": asdict(worker),
+                        "source": session._binding.manifest_digest,
+                    }
+                    if reason in _STARTUP_REASONS and blob == io.canonical_json(expected):
+                        status, hint = "AVAILABLE", reason
+        except EOFError:
+            pass
+        except (OSError, ValueError, TypeError):
+            status = "INVALID"
+    phase._record(
+        root,
+        f"{kind}-{role}-startup-failure.json",
+        {
+            "schema": 1,
+            "state": "ERROR",
+            "stage": "STARTUP_BEFORE_WORK_AUTHORITY",
+            "kind": kind,
+            "role": role,
+            "owner": asdict(session._owner),
+            "worker": asdict(worker) if worker else None,
+            "source_binding": asdict(session._binding),
+            "session_id": session._session_id,
+            "primary_reason": _startup_reason(error),
+            "hint_status": status,
+            "worker_hint": hint,
+            "child_exit": process.exitcode,
+            "last_observed": asdict(counts),
+            "active_residual": "UNKNOWN_INCOMPLETE",
+            "diagnostic_authority": "UNTRUSTED_HINT_ONLY",
+            "ts": phase._utc(),
+        },
+    )
+
+
 def _owned_worker(
     bootstrap: Connection,
     completion: Connection,
@@ -599,6 +709,11 @@ def _owned_worker(
         )
     except BaseException as error:
         failure = error
+        if not stage_started.is_set():
+            try:
+                _send_startup_error(completion, owner, error)
+            except BaseException:
+                error.add_note("Startup diagnostic unavailable")
         raise
     finally:
         actions: list[Callable[[], Any]] = [stopped.set]
@@ -932,6 +1047,15 @@ def _run_owned_stage(
         actions: list[Callable[[], Any]] = []
         if process.pid is not None:
             actions.append(lambda: life._stop_process(process))
+        if failure is not None and observation is None:
+            original: BaseException = failure
+
+            def record_startup() -> None:
+                _record_startup_error(
+                    session, root, kind, role, process, worker, parent_ack, original, last_counts[0]
+                )
+
+            actions.extend([child_ack.close, record_startup])
         actions.extend(
             [
                 parent_boot.close,

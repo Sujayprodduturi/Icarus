@@ -70,6 +70,9 @@ class FrameChannel:
     def receive(self) -> dict[str, Any]:
         try:
             blob = self.connection.recv_bytes(life.MAX_RECORD)
+        except (OSError, EOFError) as error:
+            raise life.LifecycleError("transport") from error
+        try:
             value = json.loads(blob)
             if type(value) is not dict or io.canonical_json(value) != blob:
                 raise life.LifecycleError("authentication")
@@ -95,7 +98,7 @@ class FrameChannel:
                 raise life.LifecycleError("authentication")
             self._received += 1
             return value["body"]
-        except (OSError, EOFError, ValueError, TypeError) as error:
+        except (ValueError, TypeError) as error:
             raise life.LifecycleError("authentication") from error
 
 

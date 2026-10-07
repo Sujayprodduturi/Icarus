@@ -203,7 +203,7 @@ def test_real_separate_reviewer_pipeline(
         def lost_terminal(*args: Any, **kwargs: Any) -> dict[str, Any]:
             event = receive(*args, **kwargs)
             if event.get("state") == "ERROR":
-                raise runner.life.LifecycleError("authentication")
+                raise runner.life.LifecycleError("transport")
             return cast(dict[str, Any], event)
 
         monkeypatch.setattr(runner, "_receive_owned", lost_terminal)
@@ -211,7 +211,7 @@ def test_real_separate_reviewer_pipeline(
     try:
         result = runner._run_test_pipeline(case, mode=mode)
     except runner.life.LifecycleError as error:
-        if mode not in ("coordinator-approval", "second-release") or str(error) != "authentication":
+        if mode not in ("coordinator-approval", "second-release") or str(error) != "transport":
             raise
         root = (
             runner.phase.TEST_ANCHOR / "attempts" / runner.hashlib.sha256(case.encode()).hexdigest()
@@ -1119,3 +1119,126 @@ def test_ready_after_finished_heartbeat_cannot_publish_success() -> None:
         runner._run_owned_stage(session, root, "writer", "primary", _test_fault="late-ready")
     assert session.state == "ERROR"
     assert not (root / "phase-terminal.json").exists()
+
+
+def _startup_fixture_worker(boot: Any, ack: Any, beat: Any, owner: Any, mode: str) -> None:
+    runner = runner_module()
+    if mode == "clock":
+        import psutil._pslinux as linux  # type: ignore[import-untyped]
+
+        linux.BOOT_TIME = (linux.BOOT_TIME or linux.boot_time()) + 46800
+    elif mode in ("named", "private"):
+
+        def reject(*args: Any) -> Any:
+            if mode == "named":
+                raise runner.RunnerError("worker_bootstrap")
+            raise RuntimeError("DO_NOT_RECORD_PRIVATE_BOOTSTRAP")
+
+        cast(Any, runner)._worker_bootstrap = reject
+    elif mode in ("missing", "malformed", "oversized", "wrong-peer", "partial"):
+        if mode == "partial":
+            import os
+            import struct
+
+            os.write(ack.fileno(), struct.pack("!i", 128) + b"prefix")
+        elif mode == "malformed":
+            ack.send_bytes(b"invalid")
+        elif mode == "oversized":
+            ack.send_bytes(b"x" * 4097)
+        elif mode == "wrong-peer":
+            value = {
+                "schema": 1,
+                "state": "STARTUP_ERROR",
+                "reason": "worker_bootstrap",
+                "owner": runner.asdict(owner),
+                "worker": {"pid": 123, "creation_time_ns": 1},
+                "source": runner.phase.current_binding().manifest_digest,
+            }
+            ack.send_bytes(runner.io.canonical_json(value))
+        boot.close()
+        ack.close()
+        beat.close()
+        raise SystemExit(73)
+    try:
+        runner._phase_worker(boot, ack, beat, owner)
+    except BaseException:
+        raise SystemExit(1) from None
+
+
+def _use_startup_fixture(monkeypatch: pytest.MonkeyPatch, mode: str) -> None:
+    runner = runner_module()
+    original = runner._create_stage_process
+
+    def factory(session: Any) -> Any:
+        assert session._namespace == runner.io.TEST_NAMESPACE
+        _unused, endpoints = original(session)
+        process = runner.mp.get_context("spawn").Process(
+            target=_startup_fixture_worker,
+            args=(endpoints[1], endpoints[3], endpoints[5], session._owner, mode),
+        )
+        return process, endpoints
+
+    monkeypatch.setattr(runner, "_create_stage_process", factory)
+
+
+@pytest.mark.skipif(__import__("sys").platform != "linux", reason="Linux cached boot epoch")
+def test_new_verifier_starts_after_parent_child_clock_shift(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import psutil._pslinux as linux
+
+    runner = runner_module()
+    linux.boot_time()
+    session = runner._reserve_test(case_id())
+    root = runner._claim_test_phase(session, "development")
+    written = runner._run_owned_stage(session, root, "writer", "primary")
+    _use_startup_fixture(monkeypatch, "clock")
+    checked = runner._run_owned_stage(session, root, "verifier", "primary")
+    assert checked.proof.exit_code == 0 and checked.proof.monitor_joined
+    assert checked.proof.observation.ready_monotonic <= checked.proof.observation.start_monotonic
+    assert checked.evidence.paths == 10 and checked.evidence.words == written.evidence.words
+    assert (root / "verified-primary.json").exists() and session._child is None
+
+
+@pytest.mark.parametrize(
+    "mode,status,reason",
+    [
+        ("named", "AVAILABLE", "worker_bootstrap"),
+        ("private", "AVAILABLE", "unknown"),
+        ("missing", "MISSING", None),
+        ("malformed", "INVALID", None),
+        ("oversized", "INVALID", None),
+        ("wrong-peer", "INVALID", None),
+        pytest.param(
+            "partial",
+            "INVALID",
+            None,
+            marks=pytest.mark.skipif(
+                __import__("sys").platform != "linux", reason="Linux pipe frame"
+            ),
+        ),
+    ],
+)
+def test_startup_failure_hint_survives_owned_teardown(
+    mode: str, status: str, reason: str | None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner = runner_module()
+    session = runner._reserve_test(case_id())
+    root = runner._claim_test_phase(session, "development")
+    _use_startup_fixture(monkeypatch, mode)
+    with pytest.raises(
+        (runner.RunnerError, runner.life.LifecycleError, OSError, EOFError)
+    ) as caught:
+        runner._run_owned_stage(session, root, "writer", "primary")
+    assert session.state == "ERROR" and session._child is None
+    record = runner.phase._read_record(root, "writer-primary-startup-failure.json")
+    assert record["stage"] == "STARTUP_BEFORE_WORK_AUTHORITY"
+    assert record["hint_status"] == status and record["worker_hint"] == reason
+    assert record["diagnostic_authority"] == "UNTRUSTED_HINT_ONLY"
+    assert record["active_residual"] == "UNKNOWN_INCOMPLETE"
+    assert record["primary_reason"] in ("transport", "peer_exit", "unknown")
+    assert "DO_NOT_RECORD_PRIVATE" not in runner.io.canonical_json(record).decode()
+    assert "DO_NOT_RECORD_PRIVATE" not in str(caught.value)
+    assert not (root / "phase-terminal.json").exists()
+    assert not (root / "verified-primary.json").exists()
+    assert (session.registry / "attempt-failure.json").exists()
