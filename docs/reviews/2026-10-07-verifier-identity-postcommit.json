@@ -1,0 +1,35 @@
+{
+  "actual_study_untouched": true,
+  "exact_restoration": true,
+  "existing_study": "ERROR and consumed; raw retained; validation candidate unverified; no restart/redraw/cleanup",
+  "fresh_postrestore_static": {
+    "formatted_files": 354,
+    "mypy_source_files": 181,
+    "ruff": "PASS"
+  },
+  "green_log_sha256": "be39da3736d590da71ef1fa541c5086e0c4ed266049674d808df56d6c1961733",
+  "green_output": "...........................                                              [100%]\n27 passed, 64 deselected in 0.73s",
+  "green_returncode": 0,
+  "historical_cause": "UNPROVED; reproduced clock-dependent identity defect repaired",
+  "independent_review": {
+    "agent": "/root/reviewer_recovery",
+    "no_study_access": true,
+    "result": "GO; checks seven HEAD/file hashes, retained log hashes, exact46800s RED discrepancy and27 GREEN checks",
+    "reviewed_local_proof_sha256": "eb773301e5a6fa0232bacff9493499928dd9edc2f4cc84dccdb06b0beb8dbac8"
+  },
+  "known_defect": "Restore old Linux epoch capture;46800s cache shift breaks exact living identity",
+  "red_log_sha256": "cc4b8353c19b1b9cbb0ac3eb7e11b06f91644061753a5ace374ab484cb844d73",
+  "red_returncode": 1,
+  "restored_files": 7,
+  "restored_source_sha256": {
+    "scripts/research/signal_calendar_score_lifecycle.py": "c9bf020eb294b5250c796726ea6c68d60f0648b9207dbf202de282ed2356c597",
+    "scripts/research/signal_calendar_score_lifecycle_service.py": "6303de37f7d8b3aee4084ef612803d18cc15ee131ce4dbd890bc567b18417065",
+    "scripts/research/signal_calendar_score_phase.py": "f83ac9caa0e179abb39d13bd2588a9db2c0ca5b611777376d528a29747370c78",
+    "scripts/research/signal_calendar_score_runner.py": "ef67daa0ee42719c71d5f5b6f48767b5d65235f498dfade23fc106d865652844",
+    "scripts/research/signal_calendar_score_runner_service.py": "d27b461fd3624b10cc51df7f2ac7026ae37d5cf9d2d04198b63c718fa9e8740c",
+    "tests/unit/test_signal_calendar_score_lifecycle_research.py": "146f9ff9a132c94af58deef27e4dcfdff2ca17623ae72d1cf477ee81ce9b6216",
+    "tests/unit/test_signal_calendar_score_runner_research.py": "ce23d411394fb1f1cd0db6b09d782b6801b7e02ec5e587f285533810e8626a3b"
+  },
+  "root_committed_byte_comparison": "Seven files equal git show HEAD:path exactly",
+  "source_commit": "8bdb541a08321a42146816997239668bc88cf296"
+}

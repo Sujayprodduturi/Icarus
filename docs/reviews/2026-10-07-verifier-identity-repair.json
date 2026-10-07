@@ -33,7 +33,10 @@
     "living_original_identity_alive": false,
     "shift_seconds": 46800
   },
-  "postcommit_known_defect_check": "PENDING, performed only after source commit",
+  "postcommit_known_defect_check": {
+    "proof": "2026-10-07-verifier-identity-postcommit.json",
+    "result": "PASS: known defect caught,exact7 restoration,restored27 native regressions PASS"
+  },
   "scope": "bounded deterministic process identity repair, no experiment restart",
   "simplicity_review": {
     "result": "Lean; central capture and wire validation replace duplicated logic.",
