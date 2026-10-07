@@ -11,6 +11,7 @@ import weakref
 from collections.abc import Callable, Iterator
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -141,8 +142,16 @@ EXTRA_SOURCES = (
 )
 
 
+@lru_cache(maxsize=2)
+def _manifest_paths(
+    project: Path, sources: tuple[str, ...], extras: tuple[str, ...]
+) -> tuple[tuple[str, Path], ...]:
+    # Lexical objects only: every filesystem observation remains fresh below.
+    return tuple({name: project / name for name in (*sources, *extras)}.items())
+
+
 def phase_manifest() -> io.Manifest:
-    paths = {p: io.PROJECT / p for p in (*io.SOURCE_PATHS, *EXTRA_SOURCES)}
+    paths = dict(_manifest_paths(io.PROJECT, tuple(io.SOURCE_PATHS), tuple(EXTRA_SOURCES)))
     io._check_protocol_documents(paths)
     return io.manifest_for_paths(paths, protocol_hash=io.PROTOCOL_SHA256)
 

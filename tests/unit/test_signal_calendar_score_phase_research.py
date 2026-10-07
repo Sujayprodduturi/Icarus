@@ -578,3 +578,96 @@ def test_owned_fixture_replay_consumes_setup_and_each_path_permit_checks(
     permit = next(reversed(phase._FIXTURE_REPLAY_PERMITS.values()))
     with pytest.raises(phase.PhaseError, match="replay_issuer"):
         phase._check_replay_permit(permit, root, claim, phase.current_binding())
+
+
+@pytest.mark.parametrize("damage", ["bytes", "delete", "symlink"])
+def test_lexical_path_reuse_keeps_fresh_reads_and_independent_mappings(
+    damage: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import hashlib
+
+    phase = phase_module()
+    io = phase.io
+    resource = io.load_operational_resources()
+    source = tmp_path / "source.txt"
+    source.write_bytes(b"first")
+    monkeypatch.setattr(io, "PROJECT", tmp_path)
+    monkeypatch.setattr(io, "SOURCE_PATHS", ("source.txt",))
+    monkeypatch.setattr(phase, "EXTRA_SOURCES", ())
+    monkeypatch.setattr(
+        io, "PROTOCOL_DOCUMENTS", {"source.txt": hashlib.sha256(b"first").hexdigest()}
+    )
+    monkeypatch.setattr(io, "load_operational_resources", lambda: resource)
+    metadata_calls: list[str] = []
+
+    def version(name: str) -> str:
+        metadata_calls.append(name)
+        return "fixture"
+
+    monkeypatch.setattr(io, "_fresh_package_version", version)
+    original = io.manifest_for_paths
+    seen: list[Path] = []
+    reads: list[Path] = []
+    read = Path.read_bytes
+
+    def fresh_read(path: Path) -> bytes:
+        reads.append(path)
+        return read(path)
+
+    def capture(paths: dict[str, Path], **kwargs: Any) -> Any:
+        seen.append(paths["source.txt"])
+        result = original(paths, **kwargs)
+        paths.clear()
+        return result
+
+    monkeypatch.setattr(Path, "read_bytes", fresh_read)
+    monkeypatch.setattr(io, "manifest_for_paths", capture)
+    first = phase.phase_manifest()
+    second = phase.phase_manifest()
+    assert first == second
+    assert seen[0] is seen[1]
+    assert reads == [source] * 4
+    assert metadata_calls == ["psutil", "numpy"] * 2
+    if damage == "bytes":
+        source.write_bytes(b"changed")
+    elif damage == "delete":
+        source.unlink()
+    else:
+        target = tmp_path / "replacement.txt"
+        target.write_bytes(b"different")
+        source.unlink()
+        try:
+            source.symlink_to(target)
+        except OSError:
+            pytest.skip(
+                "Windows account cannot create symbolic links; native Linux covers this case"
+            )
+    with pytest.raises(io.StudyError, match="protocol_document_drift"):
+        phase.phase_manifest()
+
+
+def test_lexical_reuse_keys_project_and_both_source_lists(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    phase = phase_module()
+    io = phase.io
+    resources = io.load_operational_resources()
+    for name in ("one", "two"):
+        (tmp_path / name).mkdir()
+        (tmp_path / name / "source.txt").write_bytes(name.encode())
+        (tmp_path / name / "extra.txt").write_bytes(b"extra")
+    monkeypatch.setattr(io, "PROTOCOL_DOCUMENTS", {})
+    monkeypatch.setattr(io, "load_operational_resources", lambda: resources)
+    monkeypatch.setattr(io, "_fresh_package_version", lambda name: "fixture")
+    monkeypatch.setattr(io, "SOURCE_PATHS", ("source.txt",))
+    monkeypatch.setattr(phase, "EXTRA_SOURCES", ())
+    monkeypatch.setattr(io, "PROJECT", tmp_path / "one")
+    first = phase.phase_manifest()
+    monkeypatch.setattr(io, "PROJECT", tmp_path / "two")
+    second = phase.phase_manifest()
+    assert first.digest != second.digest
+    monkeypatch.setattr(phase, "EXTRA_SOURCES", ("extra.txt",))
+    assert set(phase.phase_manifest().payload["sources"]) == {"source.txt", "extra.txt"}
+    monkeypatch.setattr(io, "SOURCE_PATHS", ("extra.txt",))
+    assert set(phase.phase_manifest().payload["sources"]) == {"extra.txt"}
+    assert phase._manifest_paths.cache_info().maxsize == 2
