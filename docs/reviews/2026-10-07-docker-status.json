@@ -1,0 +1,52 @@
+{
+  "as_of_client_date": "2026-10-07",
+  "container_running": true,
+  "docker_paused": false,
+  "docker_restarting": false,
+  "explanation": "Generation byte fraction is not full-study progress; both validation verifier receipts are absent in this snapshot.",
+  "generation_bytes_fraction": 0.9993243715208706,
+  "observed_progress": {
+    "actual_attempt_exists": true,
+    "authority": false,
+    "elapsed_seconds": 22622.402443949,
+    "metadata": [
+      {
+        "bytes": 6146,
+        "name": "attempt-reserved.json"
+      },
+      {
+        "bytes": 1896382464,
+        "name": "development/phase-payload.bin"
+      },
+      {
+        "bytes": 130601263,
+        "name": "development/phase-index.jsonl"
+      },
+      {
+        "bytes": 3605,
+        "name": "development/phase-terminal.json"
+      },
+      {
+        "bytes": 3810,
+        "name": "development/verified-primary.json"
+      },
+      {
+        "bytes": 3807,
+        "name": "development/verified-reviewer.json"
+      },
+      {
+        "bytes": 7580404856,
+        "name": "validation/phase-payload.bin"
+      },
+      {
+        "bytes": 518089239,
+        "name": "validation/phase-index.jsonl"
+      }
+    ],
+    "pid": 1,
+    "scope": "OBSERVED_FILE_PROGRESS_NOT_AUTHORITY"
+  },
+  "oom_killed": false,
+  "overall_complete": false,
+  "validation_payload_expected": 7585529856
+}
