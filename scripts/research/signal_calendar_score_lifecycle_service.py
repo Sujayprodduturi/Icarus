@@ -217,11 +217,7 @@ def run_fixture_reviewer(
     import os
     import threading
 
-    import psutil  # type: ignore[import-untyped]
-
-    creator = life.ProcessIdentity(
-        os.getppid(), round(psutil.Process(os.getppid()).create_time() * 1_000_000_000)
-    )
+    creator = life.ProcessIdentity.capture(os.getppid())
     entered = time.monotonic()
     stopped = threading.Event()
     watchdog_check: list[Any] = [None]

@@ -1,0 +1,59 @@
+{
+  "actual_attempt": "remains ERROR/consumed/raw retained; validation candidate unverified",
+  "date": "2026-10-07",
+  "earlier_fixture_harness_failures": [
+    "Source changed while first bind-mounted suite ran; source_drift guard fired.",
+    "128MiB tmpfs correctly fails20GiB free-reserve guard; corrected separate ext4 fixture volume.",
+    "Windows bind-mount reviewer fixture timeout; frozen Linux-native files pass that case.",
+    "Direct pytest as Docker PID1 has parent0; corrected test process topology with --init."
+  ],
+  "engineering_review": {
+    "result": "GO; no blocking findings",
+    "reviewer": "/root/reviewer_recovery",
+    "skill": "engineering:code-review",
+    "verified": "All direct captures centralized; exact boot/PID/tick token; double identity check around status; Windows preserved; bounded256bit validators."
+  },
+  "historical_cause": "not proved; original child traceback incomplete",
+  "hypothesis_review": "GO with historical attribution unproved",
+  "native_regression": {
+    "image": "sha256:c1799aeb54bf0f2d5d54b573cf5c4bc212b321cd027de3aba4282c151c4a6461",
+    "modules": [
+      "lifecycle",
+      "runner",
+      "runner_preflight",
+      "portfolio_characterization"
+    ],
+    "passed": 218,
+    "seconds": 342.08,
+    "test_topology": "Docker --init, Linux-native frozen source, separate ext4 fixture volume, network none, read-only image,2GiB,4CPU"
+  },
+  "original_bug_reproduction": {
+    "image": "sha256:a2c81a5a47ba95a6de2442b2fe678fe88aab3f96f901fc49f9a03814676788a4",
+    "linux_regression_red": "assert old == current differs by46800s",
+    "living_original_identity_alive": false,
+    "shift_seconds": 46800
+  },
+  "postcommit_known_defect_check": "PENDING, performed only after source commit",
+  "scope": "bounded deterministic process identity repair, no experiment restart",
+  "simplicity_review": {
+    "result": "Lean; central capture and wire validation replace duplicated logic.",
+    "reviewer": "root",
+    "skill": "ponytail-review"
+  },
+  "source_sha256": {
+    "scripts/research/signal_calendar_score_lifecycle.py": "c9bf020eb294b5250c796726ea6c68d60f0648b9207dbf202de282ed2356c597",
+    "scripts/research/signal_calendar_score_lifecycle_service.py": "6303de37f7d8b3aee4084ef612803d18cc15ee131ce4dbd890bc567b18417065",
+    "scripts/research/signal_calendar_score_phase.py": "f83ac9caa0e179abb39d13bd2588a9db2c0ca5b611777376d528a29747370c78",
+    "scripts/research/signal_calendar_score_runner.py": "ef67daa0ee42719c71d5f5b6f48767b5d65235f498dfade23fc106d865652844",
+    "scripts/research/signal_calendar_score_runner_service.py": "d27b461fd3624b10cc51df7f2ac7026ae37d5cf9d2d04198b63c718fa9e8740c",
+    "tests/unit/test_signal_calendar_score_lifecycle_research.py": "146f9ff9a132c94af58deef27e4dcfdff2ca17623ae72d1cf477ee81ce9b6216",
+    "tests/unit/test_signal_calendar_score_runner_research.py": "ce23d411394fb1f1cd0db6b09d782b6801b7e02ec5e587f285533810e8626a3b"
+  },
+  "static": {
+    "format": 354,
+    "mypy": 181,
+    "ruff": "PASS no-cache",
+    "windows_targeted_tests": 22
+  },
+  "test_image": "sha256:c1799aeb54bf0f2d5d54b573cf5c4bc212b321cd027de3aba4282c151c4a6461"
+}

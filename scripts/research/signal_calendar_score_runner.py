@@ -1246,11 +1246,7 @@ def _validate_completion(root: Path, claim: bytes, terminal: dict[str, Any]) -> 
     ):
         raise RunnerError("completion_owner")
     for identity in (proof["owner"], proof["child"]):
-        if (
-            type(identity) is not dict
-            or set(identity) != {"pid", "creation_time_ns"}
-            or any(type(v) is not int or not 0 < v < 1 << 64 for v in identity.values())
-        ):
+        if not life.ProcessIdentity.valid_fields(identity):
             raise RunnerError("completion_owner")
     elapsed = proof["elapsed"]
     if type(elapsed) is not float or not 0 <= elapsed <= io.PHASE_DEADLINES[plan.phase]:
@@ -1286,7 +1282,7 @@ def _validate_completion(root: Path, claim: bytes, terminal: dict[str, Any]) -> 
 def _process_identity(process: Any) -> life.ProcessIdentity:
     if process.pid is None:
         raise RunnerError("process_not_started")
-    return life.ProcessIdentity(process.pid, round(psutil.Process(process.pid).create_time() * 1e9))
+    return life.ProcessIdentity.capture(process.pid)
 
 
 def _bootstrap_owned(
@@ -1457,9 +1453,7 @@ def _run_coordinator(
     parent = mp.parent_process()
     if parent is None or parent.pid is None:
         raise RunnerError("coordinator_parent")
-    parent_identity = life.ProcessIdentity(
-        int(parent.pid), round(psutil.Process(parent.pid).create_time() * 1e9)
-    )
+    parent_identity = life.ProcessIdentity.capture(int(parent.pid))
     session: _Session | None = None
     control: channels.FrameChannel | None = None
     failure: BaseException | None = None

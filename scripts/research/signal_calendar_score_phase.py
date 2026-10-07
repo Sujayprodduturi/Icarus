@@ -283,11 +283,7 @@ def validate_claim(
     if set(value) != required or type(value["schema"]) is not int or value["schema"] != 1:
         raise PhaseError("claim_schema")
     coordinator = value["coordinator"]
-    if (
-        type(coordinator) is not dict
-        or set(coordinator) != {"pid", "creation_time_ns"}
-        or any(type(v) is not int or not 0 < v < 1 << 64 for v in coordinator.values())
-    ):
+    if not life.ProcessIdentity.valid_fields(coordinator):
         raise PhaseError("coordinator")
     if value["scope"] != plan.scope or value["origin"] != "operator/runner":
         raise PhaseError("claim_scope")

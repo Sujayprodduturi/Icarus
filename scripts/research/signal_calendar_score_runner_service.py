@@ -27,11 +27,7 @@ def _new_study_key() -> bytes:
 
 
 def _identity(value: Any) -> life.ProcessIdentity:
-    if (
-        type(value) is not dict
-        or set(value) != {"pid", "creation_time_ns"}
-        or any(type(v) is not int or not 0 < v < 1 << 64 for v in value.values())
-    ):
+    if not life.ProcessIdentity.valid_fields(value):
         raise runner.RunnerError("peer_identity")
     return life.ProcessIdentity(**value)
 
@@ -161,9 +157,7 @@ def run_reviewer_service(
     parent = mp.parent_process()
     if parent is None or parent.pid is None:
         raise runner.RunnerError("service_parent")
-    parent_identity = life.ProcessIdentity(
-        int(parent.pid), round(psutil.Process(parent.pid).create_time() * 1e9)
-    )
+    parent_identity = life.ProcessIdentity.capture(int(parent.pid))
 
     def bootstrap_guard() -> None:
         if time.perf_counter() - started > 600.0:

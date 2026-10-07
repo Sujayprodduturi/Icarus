@@ -8,6 +8,7 @@ import multiprocessing as mp
 import os
 import re
 import stat
+import sys
 import threading
 import time
 import uuid
@@ -58,21 +59,59 @@ class ProcessIdentity:
     pid: int
     creation_time_ns: int
 
+    # Wire name retained: Windows epoch ns; Linux opaque boot/PID/start-tick digest.
+    # Linux psutil epoch creation times use a process-local cached boot epoch,
+    # which can disagree after VM suspend/clock corrections. Never use a tolerance.
+    @classmethod
+    def capture(cls, pid: int) -> ProcessIdentity:
+        if type(pid) is not int or not 0 < pid < 1 << 64:
+            raise ValueError("process_pid")
+        if sys.platform == "linux":
+            boot = Path("/proc/sys/kernel/random/boot_id").read_bytes().strip().decode("ascii")
+            if str(uuid.UUID(boot)) != boot:
+                raise ValueError("process_boot")
+            raw = Path(f"/proc/{pid}/stat").read_bytes()
+            prefix, separator, tail = raw.rpartition(b")")
+            fields = tail.split()
+            if not separator or prefix.split(b" (", 1)[0] != str(pid).encode() or len(fields) < 20:
+                raise ValueError("process_stat")
+            ticks = int(fields[19])  # field22; fields begin at field3 (state).
+            if ticks <= 0:
+                raise ValueError("process_start")
+            token = int.from_bytes(
+                hashlib.sha256(f"icarus/process/linux/v1:{boot}:{pid}:{ticks}".encode()).digest(),
+                "big",
+            )
+        else:
+            token = round(psutil.Process(pid).create_time() * 1_000_000_000)
+        return cls(pid, token)
+
     @classmethod
     def current(cls) -> ProcessIdentity:
-        return cls(os.getpid(), round(psutil.Process().create_time() * 1_000_000_000))
+        return cls.capture(os.getpid())
+
+    @staticmethod
+    def valid_fields(value: Any) -> bool:
+        return (
+            type(value) is dict
+            and set(value) == {"pid", "creation_time_ns"}
+            and type(value["pid"]) is int
+            and 0 < value["pid"] < 1 << 64
+            and type(value["creation_time_ns"]) is int
+            and 0 < value["creation_time_ns"] < 1 << 256
+        )
 
     def alive(self) -> bool:
         try:
-            if type(self.pid) is not int or type(self.creation_time_ns) is not int:
+            if not self.valid_fields(asdict(self)) or self.capture(self.pid) != self:
                 return False
             process = psutil.Process(self.pid)
             return (
-                round(process.create_time() * 1_000_000_000) == self.creation_time_ns
-                and process.is_running()
+                process.is_running()
                 and process.status() not in (psutil.STATUS_ZOMBIE, psutil.STATUS_DEAD)
+                and self.capture(self.pid) == self
             )
-        except psutil.Error:
+        except (psutil.Error, OSError, ValueError, UnicodeError):
             return False
 
 
@@ -957,9 +996,7 @@ def _launch_owned_child(session: LiveSession, target: Any, expected: State) -> C
         object.__setattr__(
             handle,
             "identity",
-            ProcessIdentity(
-                process.pid, round(psutil.Process(process.pid).create_time() * 1_000_000_000)
-            ),
+            ProcessIdentity.capture(process.pid),
         )
         object.__setattr__(handle, "last_heartbeat", started)
         session._child_errors = errors
@@ -1229,9 +1266,7 @@ def verify_saved_fixture_bounded(root: Path) -> None:
     try:
         process.start()
         assert process.pid is not None
-        identity = ProcessIdentity(
-            process.pid, round(psutil.Process(process.pid).create_time() * 1_000_000_000)
-        )
+        identity = ProcessIdentity.capture(process.pid)
         sender.close()
         beat_sender.close()
         thread.start()

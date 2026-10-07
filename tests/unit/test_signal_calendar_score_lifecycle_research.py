@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 from typing import Any, cast
 
@@ -417,10 +418,7 @@ def run_fixture_demo(case: str, anchor_path: Path, *, mode: str = "pass") -> dic
         service_coordinator.close()
         service_reviewer.close()
         service_bootstrap.close()
-        peer = life.ProcessIdentity(
-            helper.pid,
-            round(__import__("psutil").Process(helper.pid).create_time() * 1_000_000_000),
-        )
+        peer = life.ProcessIdentity.capture(helper.pid)
         parent = life.ProcessIdentity.current()
         boot = {
             **reservation,
@@ -1291,6 +1289,7 @@ def test_peer_identity_rejects_unreaped_dead_process(
         def status(self) -> str:
             return status
 
+    monkeypatch.setattr(__import__("sys"), "platform", "win32")
     monkeypatch.setattr(psutil, "Process", lambda pid: Process())
     assert life.ProcessIdentity(123, 1_000_000_000).alive() is expected
 
@@ -1307,5 +1306,116 @@ def test_peer_identity_status_failure_is_not_alive(monkeypatch: Any, error: Exce
         def status(self) -> str:
             raise error
 
+    monkeypatch.setattr(__import__("sys"), "platform", "win32")
     monkeypatch.setattr(psutil, "Process", lambda pid: Process())
     assert life.ProcessIdentity(123, 1_000_000_000).alive() is False
+
+
+@pytest.mark.parametrize("platform", ["linux", "win32"])
+def test_process_capture_is_consistent(platform: str, monkeypatch: Any) -> None:
+    monkeypatch.setattr(sys, "platform", platform)
+    if platform == "linux":
+        monkeypatch.setattr(Path, "read_bytes", _proc_identity_fixture())
+        pid = 123
+    else:
+        pid = __import__("os").getpid()
+    assert life.ProcessIdentity.capture(pid) == life.ProcessIdentity.capture(pid)
+
+
+def _proc_identity_fixture(
+    boot: str = "11111111-1111-4111-8111-111111111111", ticks: int = 42
+) -> Any:
+    def read(path: Path) -> bytes:
+        if str(path).endswith("boot_id"):
+            return (boot + "\n").encode()
+        return ("123 (a name ) with spaces) S " + "0 " * 18 + str(ticks) + " 0\n").encode()
+
+    return read
+
+
+@pytest.mark.parametrize("change", ["boot", "ticks"])
+def test_linux_process_identity_rejects_replaced_incarnation(change: str, monkeypatch: Any) -> None:
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(Path, "read_bytes", _proc_identity_fixture())
+    old = life.ProcessIdentity.capture(123)
+    monkeypatch.setattr(
+        Path,
+        "read_bytes",
+        _proc_identity_fixture(
+            boot="22222222-2222-4222-8222-222222222222"
+            if change == "boot"
+            else "11111111-1111-4111-8111-111111111111",
+            ticks=43 if change == "ticks" else 42,
+        ),
+    )
+    assert old != life.ProcessIdentity.capture(123)
+    assert not old.alive()
+
+
+@pytest.mark.parametrize(
+    "raw", [b"123 (bad) S", b"124 (wrong) S " + b"0 " * 19, b"123 (bad) S " + b"0 " * 18 + b"-1"]
+)
+def test_linux_process_identity_rejects_malformed_stat(raw: bytes, monkeypatch: Any) -> None:
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(
+        Path,
+        "read_bytes",
+        lambda path: (
+            b"11111111-1111-4111-8111-111111111111" if str(path).endswith("boot_id") else raw
+        ),
+    )
+    assert not life.ProcessIdentity(123, 1).alive()
+
+
+@pytest.mark.skipif(__import__("sys").platform != "linux", reason="Linux psutil boot epoch")
+def test_linux_identity_survives_psutil_boot_epoch_shift(monkeypatch: Any) -> None:
+    import psutil._pslinux as linux  # type: ignore[import-untyped]
+
+    old = life.ProcessIdentity.current()
+    assert old.alive()
+    monkeypatch.setattr(linux, "BOOT_TIME", (linux.BOOT_TIME or linux.boot_time()) + 46800)
+    assert old == life.ProcessIdentity.current()
+    assert old.alive()
+
+
+@pytest.mark.parametrize(
+    "error", [PermissionError("denied"), FileNotFoundError("gone"), ValueError("bad")]
+)
+def test_linux_identity_read_failure_halts(error: Exception, monkeypatch: Any) -> None:
+    monkeypatch.setattr(sys, "platform", "linux")
+
+    def read(path: Path) -> bytes:
+        raise error
+
+    monkeypatch.setattr(Path, "read_bytes", read)
+    assert not life.ProcessIdentity(123, 1).alive()
+
+
+@pytest.mark.parametrize(
+    "pid,token,valid",
+    [
+        (123, 1 << 255, True),
+        (True, 1, False),
+        (0, 1, False),
+        (1 << 64, 1, False),
+        (123, True, False),
+        (123, 0, False),
+        (123, 1 << 256, False),
+    ],
+)
+def test_process_identity_wire_bounds(pid: Any, token: Any, valid: bool) -> None:
+    from scripts.research import signal_calendar_score_runner_service as service
+
+    value = {"pid": pid, "creation_time_ns": token}
+    assert life.ProcessIdentity.valid_fields(value) is valid
+    if valid:
+        assert service._identity(value) == life.ProcessIdentity(pid, token)
+    else:
+        with pytest.raises(RuntimeError, match="peer_identity"):
+            service._identity(value)
+
+
+def test_linux_identity_rejects_bad_boot_uuid(monkeypatch: Any) -> None:
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(Path, "read_bytes", _proc_identity_fixture(boot="not-a-boot-id"))
+    assert not life.ProcessIdentity(123, 1).alive()

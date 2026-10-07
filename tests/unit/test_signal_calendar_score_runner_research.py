@@ -1010,9 +1010,8 @@ def test_service_refusal_never_persists_to_unowned_registry(tmp_path: Path) -> N
     child.start()
     try:
         owner = runner.life.ProcessIdentity.current()
-        peer = runner.life.ProcessIdentity(
-            child.pid, round(runner.psutil.Process(child.pid).create_time() * 1e9)
-        )
+        assert child.pid is not None
+        peer = runner.life.ProcessIdentity.capture(child.pid)
         source = runner.phase.current_binding()
         bootstrap.send_bytes(
             runner.io.canonical_json(
