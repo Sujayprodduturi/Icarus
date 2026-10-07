@@ -1,4 +1,4 @@
-"""Frozen calendar-score v2 contracts and supervised deterministic preflight.
+"""Frozen calendar-score v3 contracts and supervised deterministic preflight.
 
 This synthetic-only module cannot start development or validation sampling.  It
 measures the exact generator/evaluator/replay geometry and deterministic disk I/O;
@@ -36,13 +36,14 @@ from scripts.research import signal_calendar_score as score
 
 PROJECT = Path(__file__).resolve().parents[2]
 MODULE = "scripts.research.signal_calendar_score_study"
-PROTOCOL_PATH = "docs/plans/2026-10-04-calendar-score-study-protocol.md"
-PROTOCOL_SHA256 = "130569a78811e9ad4f9dcdb915410b3c350e137a78bc70974eb81ac4daf13b71"
-EXPERIMENT_NAMESPACE = "icarus/calendar-score-research/v2"
-PREFLIGHT_NAMESPACE = "icarus/calendar-score-research/test-preflight/v2"
-TEST_NAMESPACE = "icarus/calendar-score-research/test-fixture/v2"
+PROTOCOL_PATH = "docs/plans/2026-10-07-calendar-score-replacement-protocol-v3.md"
+PROTOCOL_SHA256 = "9622e655175401b7f99f64448168eab848a546a14e77771e35f7134fd48ed064"
+RESOURCE_PROTOCOL_SHA256 = "130569a78811e9ad4f9dcdb915410b3c350e137a78bc70974eb81ac4daf13b71"
+EXPERIMENT_NAMESPACE = "icarus/calendar-score-research/v3"
+PREFLIGHT_NAMESPACE = "icarus/calendar-score-research/test-preflight/v3"
+TEST_NAMESPACE = "icarus/calendar-score-research/test-fixture/v3"
 STREAM_IDENTIFIER = "sha256-counter-u64x4-big-endian/v2"
-EXPERIMENT_ROOT = PROJECT / "var/research/calendar_score_v2"
+EXPERIMENT_ROOT = PROJECT / "var/research/calendar_score_v3"
 PHASE_REPLICATES = {"development": 8192, "validation": 32768}
 PHASE_DEADLINES = {"development": 21600.0, "validation": 43200.0}
 PREFLIGHT_DEADLINE = 600.0
@@ -844,7 +845,7 @@ def _load_operational_resources(path: Path, *, expected_sha256: str) -> Operatio
                 {
                     "schema": 1,
                     "family": "calendar-score-operational-resources/v1",
-                    "protocol_sha256": PROTOCOL_SHA256,
+                    "protocol_sha256": RESOURCE_PROTOCOL_SHA256,
                     "effective_id": RESOURCE_ID,
                 }
             )
@@ -986,6 +987,20 @@ def _operational_record(path: Path, payload: dict[str, Any], *, root: Path) -> N
 
 SOURCE_PATHS = (
     PROTOCOL_PATH,
+    "docs/reviews/2026-10-07-artificial-study-stop.json",
+    "docs/reviews/2026-10-07-verifier-identity-postcommit.json",
+    "scripts/research/signal_calendar_score_launch.py",
+    "tests/unit/test_signal_calendar_score_launch_research.py",
+    "tests/unit/test_signal_calendar_score_study_research.py",
+    "tests/unit/test_signal_calendar_score_verify_research.py",
+    "docs/reviews/2026-10-07-calendar-score-v3-public-vectors.json",
+    "docs/plans/2026-10-04-calendar-score-study-protocol.md",
+    "docs/plans/2026-10-07-calendar-score-replacement-implementation.md",
+    "docs/reviews/2026-10-07-calendar-score-replacement-plan.json",
+    "docs/reviews/2026-10-07-calendar-score-startup-repair.json",
+    "docs/reviews/2026-10-07-calendar-score-startup-postcommit.json",
+    "docs/plans/2026-10-06-runner-cost-accounting-amendment.md",
+    "docs/plans/2026-10-06-runner-batch-measurement-amendment.md",
     "docs/plans/calendar-score-operational-resources.json",
     "docs/plans/2026-10-04-calendar-score-verification-budget-amendment-proposal.md",
     "docs/plans/2026-10-04-calendar-score-verification-budget-amendment-build.md",
@@ -1094,10 +1109,39 @@ def manifest_for_paths(
     return Manifest(payload, hashlib.sha256(blob).hexdigest())
 
 
+PROTOCOL_DOCUMENTS = {
+    "docs/plans/2026-10-04-calendar-score-study-protocol.md": (
+        "130569a78811e9ad4f9dcdb915410b3c350e137a78bc70974eb81ac4daf13b71"
+    ),
+    "docs/plans/2026-10-07-calendar-score-replacement-protocol-v3.md": (
+        "9622e655175401b7f99f64448168eab848a546a14e77771e35f7134fd48ed064"
+    ),
+    "docs/reviews/2026-10-05-calendar-score-full-runner-timing-refinement.md": (
+        "ae14fa202451d98a858cf437e4f33ebfeb8076d8b17bf5be7e370e9f9d249278"
+    ),
+    "docs/plans/2026-10-06-runner-cost-accounting-amendment.md": (
+        "722fc11928518d9e62098960f16a0990c39f6fb24d21c5c4c9322de395d62b50"
+    ),
+    "docs/plans/2026-10-06-runner-batch-measurement-amendment.md": (
+        "4c778afaf48084125b61fba5b9cc7574bed08f3cd2f0271dde8b581f3d8d7dcd"
+    ),
+}
+
+
+def _check_protocol_documents(paths: Mapping[str, Path]) -> None:
+    for relative, expected in PROTOCOL_DOCUMENTS.items():
+        path = paths.get(relative)
+        if (
+            path is None
+            or not path.is_file()
+            or hashlib.sha256(path.read_bytes()).hexdigest() != expected
+        ):
+            raise StudyError("protocol_document_drift")
+
+
 def source_manifest() -> Manifest:
     paths = {relative: PROJECT / relative for relative in SOURCE_PATHS}
-    if hashlib.sha256(paths[PROTOCOL_PATH].read_bytes()).hexdigest() != PROTOCOL_SHA256:
-        raise StudyError("protocol_drift")
+    _check_protocol_documents(paths)
     manifest = manifest_for_paths(paths, protocol_hash=PROTOCOL_SHA256)
     verify_manifest(manifest, paths, protocol_hash=PROTOCOL_SHA256)
     return manifest

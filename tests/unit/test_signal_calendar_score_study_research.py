@@ -31,7 +31,7 @@ def _test_manifest(root: Path) -> study.Manifest:
 
 def test_frozen_manifest_geometry_and_statement_accounting() -> None:
     assert (
-        study.PROTOCOL_SHA256 == "130569a78811e9ad4f9dcdb915410b3c350e137a78bc70974eb81ac4daf13b71"
+        study.PROTOCOL_SHA256 == "9622e655175401b7f99f64448168eab848a546a14e77771e35f7134fd48ed064"
     )
     assert [(item.profile_id, item.n, item.classes) for item in study.SPECS] == [
         ("P1", 2048, 2),
@@ -108,16 +108,16 @@ def test_stream_prefix_and_known_words_are_framed_exactly() -> None:
         root=root,
     )
     assert stream.prefix == (
-        b'["icarus/calendar-score-research/test-preflight/v2",'
+        b'["icarus/calendar-score-research/test-preflight/v3",'
         b'"finite-calendar-law/v1","sha256-counter-u64x4-big-endian/v2",'
         b'"test_preflight","P1:2048",0,' + b'"' + b"0" * 64 + b'"]\n'
     )
     assert [stream.next_word() for _ in range(5)] == [
-        17178914821994726101,
-        16061446197116128555,
-        2642099818172358451,
-        8061481959689794875,
-        14284209687861624289,
+        13198906338435765561,
+        14415372667523667011,
+        3544694371681002679,
+        15673878817130828281,
+        17698455047133769757,
     ]
     assert stream.words_consumed == 5
 
@@ -200,7 +200,7 @@ def test_source_manifest_rejects_changed_protocol_bytes(monkeypatch: Any) -> Non
         return blob
 
     monkeypatch.setattr(Path, "read_bytes", changed_protocol)
-    with pytest.raises(study.StudyError, match="protocol_drift"):
+    with pytest.raises(study.StudyError, match="protocol_document_drift"):
         study.source_manifest()
 
 
@@ -666,13 +666,23 @@ def test_optimized_full_frozen_payload_matches_old_scalar_and_committed_hash(
     actual = study.generate_payload(item, stream)
     expected = study.generate_payload(item, oracle)
     baseline = json.loads(
-        (study.PROJECT / "docs/reviews/2026-10-04-calendar-score-study-preflight.json").read_bytes()
+        (
+            study.PROJECT / "docs/reviews/2026-10-07-calendar-score-v3-public-vectors.json"
+        ).read_bytes()
     )
     row = next(row for row in baseline["path_results"] if row["profile_id"] == item.profile_id)
     assert hashlib.sha256(actual).hexdigest() == row["payload_sha256"]
     assert actual == expected
     assert stream.words_consumed == oracle.words_consumed == 6 * len(actual)
     assert stream.next_word() == oracle.next_word()
+    # Independently retain the prior domain vector; never re-enable v2 study authority.
+    previous_prefix = stream.prefix.replace(b"test-preflight/v3", b"test-preflight/v2", 1)
+    previous = study.generate_payload(item, _IndependentStream(previous_prefix))
+    legacy = json.loads(
+        (study.PROJECT / "docs/reviews/2026-10-04-calendar-score-study-preflight.json").read_bytes()
+    )
+    prior = next(row for row in legacy["path_results"] if row["profile_id"] == item.profile_id)
+    assert hashlib.sha256(previous).hexdigest() == prior["payload_sha256"]
 
 
 @pytest.mark.parametrize("root,replicate", [(bytes(range(32)), 7), (b"x" * 32, 19)])
@@ -1508,3 +1518,43 @@ def test_counter_stream_hashes_prefix_once_and_invalidates_on_change(
     stream.prefix = prefix + b"changed"
     assert stream.peek_words(4) == original(stream.prefix + (33).to_bytes(8, "big")).digest()
     assert inputs == [prefix, stream.prefix]
+
+
+@pytest.mark.parametrize(
+    "relative",
+    [
+        "docs/plans/2026-10-04-calendar-score-study-protocol.md",
+        "docs/plans/2026-10-07-calendar-score-replacement-protocol-v3.md",
+        "docs/reviews/2026-10-05-calendar-score-full-runner-timing-refinement.md",
+        "docs/plans/2026-10-06-runner-cost-accounting-amendment.md",
+        "docs/plans/2026-10-06-runner-batch-measurement-amendment.md",
+    ],
+)
+def test_replacement_rejects_changed_inherited_or_active_document(
+    relative: str,
+    tmp_path: Path,
+) -> None:
+    paths = {name: study.PROJECT / name for name in study.SOURCE_PATHS}
+    changed = tmp_path / "changed-document"
+    changed.write_bytes(paths[relative].read_bytes() + b"changed")
+    paths[relative] = changed
+    with pytest.raises(study.StudyError, match="protocol_document_drift"):
+        study._check_protocol_documents(paths)
+
+
+def test_replacement_separates_active_and_historical_resource_protocol() -> None:
+    assert study.PROTOCOL_PATH == "docs/plans/2026-10-07-calendar-score-replacement-protocol-v3.md"
+    assert study.EXPERIMENT_NAMESPACE == "icarus/calendar-score-research/v3"
+    assert study.PREFLIGHT_NAMESPACE == "icarus/calendar-score-research/test-preflight/v3"
+    assert study.TEST_NAMESPACE == "icarus/calendar-score-research/test-fixture/v3"
+    assert study.EXPERIMENT_ROOT == study.PROJECT / "var/research/calendar_score_v3"
+    assert study.STREAM_IDENTIFIER == "sha256-counter-u64x4-big-endian/v2"
+    assert (
+        study.RESOURCE_PROTOCOL_SHA256
+        == "130569a78811e9ad4f9dcdb915410b3c350e137a78bc70974eb81ac4daf13b71"
+    )
+    assert (
+        hashlib.sha256(study.RESOURCE_PATH.read_bytes()).hexdigest()
+        == "96199af0f371c34e1d99371e1629dfb0d61e6bb32e59f41fddcacc6746e43bcd"
+    )
+    assert study.load_operational_resources().effective_verifier_seconds == 57600

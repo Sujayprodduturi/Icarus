@@ -98,7 +98,7 @@ def test_test_claim_cannot_mint_experimental_authority(
     import json
 
     value = json.loads(claim)
-    value["namespace"] = "icarus/calendar-score-research/v2"
+    value["namespace"] = "icarus/calendar-score-research/v3"
     forged = phase.io.canonical_json(value)
     with pytest.raises(phase.PhaseError):
         phase._test_capability(root, forged)
@@ -302,7 +302,7 @@ def test_private_claimed_reference_uses_literal_framing_without_math_reuse(
 @pytest.mark.parametrize(
     "field,value",
     [
-        ("namespace", "icarus/calendar-score-research/v2"),
+        ("namespace", "icarus/calendar-score-research/v3"),
         ("phase", "validation"),
         ("root", "1" * 64),
         ("replicate", True),

@@ -50,9 +50,8 @@ def test_reference_reproduces_frozen_full_set(item: study.StudySpec) -> None:
         root=bytes(32),
     )
     payload = study.generate_payload(item, stream)
-    baseline = json.loads(
-        (study.PROJECT / "docs/reviews/2026-10-04-calendar-score-study-preflight.json").read_bytes()
-    )
+    baseline_path = study.PROJECT / "docs/reviews/2026-10-07-calendar-score-v3-public-vectors.json"
+    baseline = json.loads(baseline_path.read_bytes())
     saved = next(row for row in baseline["path_results"] if row["profile_id"] == item.profile_id)
     assert hashlib.sha256(payload).hexdigest() == saved["payload_sha256"]
     result = verify.reference_path(item.profile_id, item.n, payload, identity)
@@ -139,11 +138,11 @@ def test_independent_sha_literal_vector_and_rejection_count(monkeypatch: Any) ->
     verify = _verify()
     stream = verify.ReferenceWords(_identity("P1", 2048))
     assert [stream.word() for _ in range(5)] == [
-        17178914821994726101,
-        16061446197116128555,
-        2642099818172358451,
-        8061481959689794875,
-        14284209687861624289,
+        13198906338435765561,
+        14415372667523667011,
+        3544694371681002679,
+        15673878817130828281,
+        17698455047133769757,
     ]
     limit = (1 << 64) // 50 * 50
     values = [0, 0, limit, 7, 0, 0, 0, *range(20000)]

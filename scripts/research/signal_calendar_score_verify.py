@@ -20,9 +20,9 @@ import numpy as np
 import psutil  # type: ignore[import-untyped]
 from scripts.research import signal_calendar_laws as laws
 
-PROTOCOL_DIGEST = "130569a78811e9ad4f9dcdb915410b3c350e137a78bc70974eb81ac4daf13b71"
-TEST = "icarus/calendar-score-research/test-fixture/v2"
-PREFLIGHT = "icarus/calendar-score-research/test-preflight/v2"
+PROTOCOL_DIGEST = "9622e655175401b7f99f64448168eab848a546a14e77771e35f7134fd48ed064"
+TEST = "icarus/calendar-score-research/test-fixture/v3"
+PREFLIGHT = "icarus/calendar-score-research/test-preflight/v3"
 GEOMETRIES = (
     ("P1", 2048, 2),
     ("P2", 2048, 2),
@@ -1556,11 +1556,12 @@ def _claimed_reference_path(
 ) -> ReferenceResult:
     """Private read-only claim replay; public reconstruction stays fixture-only."""
     from scripts.research import signal_calendar_score_phase as phase_contract
+    from scripts.research import signal_calendar_score_study as study_contract
 
     if type(source_binding) is not phase_contract.SourceBinding:
         raise VerificationError("claimed_identity")
     plan, claim = phase_contract.validate_claim(phase_root, claim_bytes, source_binding)
-    if plan.namespace == "icarus/calendar-score-research/v2":
+    if plan.namespace == study_contract.EXPERIMENT_NAMESPACE:
         phase_contract._check_replay_permit(_permit, phase_root, claim_bytes, source_binding)
     elif _permit is not None:
         phase_contract._check_replay_permit(
@@ -1573,7 +1574,7 @@ def _claimed_reference_path(
     _geometry(profile_id, n)
     expected_phase = (
         plan.phase
-        if plan.namespace == "icarus/calendar-score-research/v2"
+        if plan.namespace == study_contract.EXPERIMENT_NAMESPACE
         else ("test_preflight" if plan.namespace == PREFLIGHT else "test_fixture")
     )
     required = {"namespace", "phase", "profile_id", "n", "replicate", "root"}

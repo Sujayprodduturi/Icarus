@@ -143,8 +143,7 @@ EXTRA_SOURCES = (
 
 def phase_manifest() -> io.Manifest:
     paths = {p: io.PROJECT / p for p in (*io.SOURCE_PATHS, *EXTRA_SOURCES)}
-    if _hash((io.PROJECT / io.PROTOCOL_PATH).read_bytes()) != io.PROTOCOL_SHA256:
-        raise PhaseError("protocol_drift")
+    io._check_protocol_documents(paths)
     return io.manifest_for_paths(paths, protocol_hash=io.PROTOCOL_SHA256)
 
 
