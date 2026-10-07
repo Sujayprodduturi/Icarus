@@ -1,0 +1,304 @@
+{
+  "actual_evidence_destination": "C:\\ICARUS\\var\\verification\\2026-10-07\\v3-actual",
+  "actual_launch_as_of_snapshot": false,
+  "boundaries": "No real-market/official/lockbox/broker/live/inference permission",
+  "cases": [
+    {
+      "batch_eligible": true,
+      "case": "root-v3-lexical-cold-20261007-01",
+      "validation_writer": 37331.06929918367,
+      "whole_seconds": 56.242857072000106
+    },
+    {
+      "batch_eligible": true,
+      "case": "root-v3-lexical-cold-20261007-02",
+      "validation_writer": 38530.290318840634,
+      "whole_seconds": 56.41729796200002
+    },
+    {
+      "batch_eligible": true,
+      "case": "root-v3-lexical-cold-20261007-03",
+      "validation_writer": 37072.17945564446,
+      "whole_seconds": 55.32681856599993
+    }
+  ],
+  "complete_replay": {
+    "active_model": "Independent3case/2phase/3role bucket maxima,16 complete sets, fixed costs undivided,2x once",
+    "all_four_models_retained": true,
+    "primary": {
+      "metrics": 2688,
+      "pass": true,
+      "paths": 960,
+      "seconds": 159.53100000000268
+    },
+    "projection": {
+      "phases": {
+        "development": {
+          "primary": {
+            "limit": 57600,
+            "seconds": 7475.356950006
+          },
+          "reviewer": {
+            "limit": 57600,
+            "seconds": 7839.036531992
+          },
+          "writer": {
+            "limit": 21600,
+            "seconds": 9634.27299276
+          }
+        },
+        "validation": {
+          "primary": {
+            "limit": 57600,
+            "seconds": 29894.797786614
+          },
+          "reviewer": {
+            "limit": 57600,
+            "seconds": 31349.192790296
+          },
+          "writer": {
+            "limit": 43200,
+            "seconds": 38530.29031884
+          }
+        }
+      },
+      "session_limit": 295800,
+      "session_seconds": 130817.352187894
+    },
+    "reviewer": {
+      "metrics": 2688,
+      "pass": true,
+      "paths": 960
+    }
+  },
+  "freeze_sha256": "ce83918f36682ca9de8edb9904b565879759899b9bd0dab2fa3393afd938b0ac",
+  "frozen_head": "b2a7f751b43dc6e6d4c06299a5c10995bd3486a8",
+  "frozen_image": "sha256:19258a987cad38714482aadc2e0ce3ef43c424417856a30c4e32b444f47d6db5",
+  "host_job": {
+    "freeze_sha256": "ce83918f36682ca9de8edb9904b565879759899b9bd0dab2fa3393afd938b0ac",
+    "head": "b2a7f751b43dc6e6d4c06299a5c10995bd3486a8",
+    "host_wait_script_sha256": "99a5cb9a2eb6fa74de7963cd24fdb6fc3d8e0c6ab82a40b743c97a4a79b6958a",
+    "image": "sha256:19258a987cad38714482aadc2e0ce3ef43c424417856a30c4e32b444f47d6db5",
+    "manifest": "bbe74e4adff9b5f6c4e79f2a6e95b26ed930bfc51e3f5eb1b714054b12607cba",
+    "maximum_wait_seconds": 10800,
+    "pid": 25376,
+    "proofs": {
+      "C:\\ICARUS\\var\\verification\\2026-10-07\\qualification\\lexical-cold\\primary-proof.json": "a7e8e57f50fdbaefff40c9dd8f08220eae4991a70b0c5f7a1d5dbb629e4215d4",
+      "C:\\ICARUS\\var\\verification\\2026-10-07\\qualification\\lexical-cold\\reviewer-launch-review.json": "ed50408fa6ace7556e7aed02615d27bd48a384f665e43c526a10afa228a4268d",
+      "C:\\ICARUS\\var\\verification\\2026-10-07\\qualification\\lexical-cold\\reviewer-v3-final-receipt.json": "25dd94ef3fa035ac2a6c013a5d7e707c404e9554e25d267a255bfd6b33c613ab"
+    },
+    "scope": "FINITE_WAIT_FOR_EXACT_HOSTED_GATES_CONDITIONAL_TRACKED_ARTIFICIAL_LAUNCH",
+    "started_utc": "2026-10-07T12:56:01.049331+00:00"
+  },
+  "host_job_script": "C:\\ICARUS\\var\\verification\\2026-10-07\\qualification\\await_reviewed_launch.py",
+  "host_mock_checks": {
+    "scope": "ALL_COMMANDS_MOCKED_NO_DOCKER_NO_SAMPLING",
+    "script_sha256": "99a5cb9a2eb6fa74de7963cd24fdb6fc3d8e0c6ab82a40b743c97a4a79b6958a",
+    "tests": [
+      {
+        "case": "success",
+        "counters": {
+          "gh": 2,
+          "launch": 1,
+          "monitor": 1,
+          "sleep": 0
+        },
+        "failure": null,
+        "passed": true
+      },
+      {
+        "case": "pending-then-success",
+        "counters": {
+          "gh": 4,
+          "launch": 1,
+          "monitor": 1,
+          "sleep": 1
+        },
+        "failure": null,
+        "passed": true
+      },
+      {
+        "case": "failed-check",
+        "counters": {
+          "gh": 1,
+          "launch": 0,
+          "monitor": 0,
+          "sleep": 0
+        },
+        "failure": "AssertionError",
+        "passed": true
+      },
+      {
+        "case": "transport",
+        "counters": {
+          "gh": 1,
+          "launch": 0,
+          "monitor": 0,
+          "sleep": 0
+        },
+        "failure": "AssertionError",
+        "passed": true
+      },
+      {
+        "case": "wrong-head",
+        "counters": {
+          "gh": 1,
+          "launch": 0,
+          "monitor": 0,
+          "sleep": 0
+        },
+        "failure": "AssertionError",
+        "passed": true
+      },
+      {
+        "case": "wrong-name",
+        "counters": {
+          "gh": 1,
+          "launch": 0,
+          "monitor": 0,
+          "sleep": 0
+        },
+        "failure": "AssertionError",
+        "passed": true
+      },
+      {
+        "case": "source-drift",
+        "counters": {
+          "gh": 0,
+          "launch": 0,
+          "monitor": 0,
+          "sleep": 0
+        },
+        "failure": "AssertionError",
+        "passed": true
+      },
+      {
+        "case": "approval-freeze-drift",
+        "counters": {
+          "gh": 0,
+          "launch": 0,
+          "monitor": 0,
+          "sleep": 0
+        },
+        "failure": "AssertionError",
+        "passed": true
+      },
+      {
+        "case": "approval-head-drift",
+        "counters": {
+          "gh": 0,
+          "launch": 0,
+          "monitor": 0,
+          "sleep": 0
+        },
+        "failure": "AssertionError",
+        "passed": true
+      },
+      {
+        "case": "expired",
+        "counters": {
+          "gh": 0,
+          "launch": 0,
+          "monitor": 0,
+          "sleep": 0
+        },
+        "failure": "AssertionError",
+        "passed": true
+      },
+      {
+        "case": "launch-failed",
+        "counters": {
+          "gh": 2,
+          "launch": 1,
+          "monitor": 0,
+          "sleep": 0
+        },
+        "failure": "AssertionError",
+        "passed": true
+      },
+      {
+        "case": "launch-timeout",
+        "counters": {
+          "gh": 2,
+          "launch": 1,
+          "monitor": 0,
+          "sleep": 0
+        },
+        "failure": "TimeoutExpired",
+        "passed": true
+      },
+      {
+        "case": "existing-destination",
+        "counters": {
+          "gh": 2,
+          "launch": 0,
+          "monitor": 0,
+          "sleep": 0
+        },
+        "failure": "AssertionError",
+        "passed": true
+      },
+      {
+        "case": "restart-reuse",
+        "counters": {
+          "gh": 2,
+          "launch": 1,
+          "monitor": 1,
+          "sleep": 0
+        },
+        "failure": "ExclusiveRestartRefused",
+        "passed": true
+      }
+    ]
+  },
+  "hosted_snapshot": [
+    {
+      "conclusion": "",
+      "databaseId": 37622773897,
+      "headSha": "b2a7f751b43dc6e6d4c06299a5c10995bd3486a8",
+      "name": "ci",
+      "status": "in_progress"
+    },
+    {
+      "conclusion": "",
+      "databaseId": 37622774141,
+      "headSha": "b2a7f751b43dc6e6d4c06299a5c10995bd3486a8",
+      "name": "signal-resource-proof b2a7f751b43dc6e6d4c06299a5c10995bd3486a8",
+      "status": "in_progress"
+    }
+  ],
+  "live_status_sources": [
+    "C:\\ICARUS\\var\\verification\\2026-10-07\\qualification\\launch-wait\\hosted-gates-pass.json",
+    "C:\\ICARUS\\var\\verification\\2026-10-07\\qualification\\launch-wait\\launch-and-monitor-started.json",
+    "C:\\ICARUS\\var\\verification\\2026-10-07\\qualification\\launch-wait\\error.json"
+  ],
+  "next": "Finite job waits <=3h for both exact hosted PASS; unchanged source/proof/freeze checks then tracked once-only CLI and monitor. Inside performs3freshsameprocess readiness before any key/draw. Neverrestart/retry/redraw. Do not change GitHEAD while hostwaitpending; proof/docscheckpoint edits stay uncommitted until launcherrecord.",
+  "old_failed_group_and_v2_raw": "RETAINED",
+  "proof_hashes": {
+    "primary-proof.json": "a7e8e57f50fdbaefff40c9dd8f08220eae4991a70b0c5f7a1d5dbb629e4215d4",
+    "reviewer-freeze-proof.json": "559b44dfcb10f6360c2fbc2a955155cee05a35955cfa82da28bc82a7d2f65646",
+    "reviewer-host-tests.json": "6d4924c85eaec2d9ff137f96c38bfec544e6e0025e1c960fd6049e66616f0310",
+    "reviewer-launch-review.json": "ed50408fa6ace7556e7aed02615d27bd48a384f665e43c526a10afa228a4268d",
+    "reviewer-v3-final-receipt.json": "25dd94ef3fa035ac2a6c013a5d7e707c404e9554e25d267a255bfd6b33c613ab",
+    "reviewer-v3-full-audit.json": "e52ab13b223ffb48dc3a135f357074faa7e28dcff72a53299b5a54c4bff39085"
+  },
+  "recorded_utc": "2026-10-07T12:58:06.834210+00:00",
+  "reviewed_manifest": "bbe74e4adff9b5f6c4e79f2a6e95b26ed930bfc51e3f5eb1b714054b12607cba",
+  "scope": "ARTIFICIAL_COLD_FEASIBILITY_PASS_CONDITIONAL_HOST_WAIT_NO_STATISTICAL_AUTHORITY",
+  "source_files": 47,
+  "storage": {
+    "host_free": 318174138368,
+    "old_v2_retained": true,
+    "planned_actual_payload_bytes": 9481912320,
+    "required_free": 21474836480,
+    "tmp_owner": [
+      1000,
+      1000
+    ],
+    "var_owner": [
+      1000,
+      1000
+    ],
+    "volume_free": 1009837412352
+  }
+}

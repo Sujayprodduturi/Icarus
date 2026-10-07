@@ -1,0 +1,113 @@
+{
+  "checked_utc": "2026-10-07T13:57:56.737929+00:00",
+  "container_state": {
+    "Dead": false,
+    "Error": "",
+    "ExitCode": 0,
+    "FinishedAt": "0001-01-01T00:00:00Z",
+    "OOMKilled": false,
+    "Paused": false,
+    "Pid": 492,
+    "Restarting": false,
+    "Running": true,
+    "StartedAt": "2026-10-07T13:35:58.659650554Z",
+    "Status": "running"
+  },
+  "contract": {
+    "authority": false,
+    "container": "a402b80ef838150bdb43d9c2c56fbf43e718df6f6ec9c998b35b1c45f02a226a",
+    "container_name": "icarus-artificial-study-v3-20261007-b2a7f75",
+    "freeze": "C:\\ICARUS\\var\\verification\\2026-10-07\\qualification\\lexical-frozen\\reviewed-freeze.json",
+    "freeze_sha256": "ce83918f36682ca9de8edb9904b565879759899b9bd0dab2fa3393afd938b0ac",
+    "head": "b2a7f751b43dc6e6d4c06299a5c10995bd3486a8",
+    "image": "sha256:19258a987cad38714482aadc2e0ce3ef43c424417856a30c4e32b444f47d6db5",
+    "launch_monotonic": 115578.015,
+    "launch_utc": "2026-10-07T13:35:41.576239+00:00",
+    "protocol_sha256": "9622e655175401b7f99f64448168eab848a546a14e77771e35f7134fd48ed064",
+    "qualification": false,
+    "reservation": "C:\\ICARUS\\var\\research\\calendar_score_v3\\linux-launch-reservations\\9622e655175401b7f99f64448168eab848a546a14e77771e35f7134fd48ed064.json",
+    "reviewed_manifest": "bbe74e4adff9b5f6c4e79f2a6e95b26ed930bfc51e3f5eb1b714054b12607cba",
+    "schema": 1,
+    "scope": "HOST_LAUNCH_BOOKKEEPING_ONLY_NO_STUDY_AUTHORITY",
+    "volume": "icarus-artificial-study-v3-20261007-b2a7f75"
+  },
+  "final_outcome": "PENDING",
+  "growing": true,
+  "hosted": [
+    {
+      "conclusion": "success",
+      "databaseId": 37622773897,
+      "headSha": "b2a7f751b43dc6e6d4c06299a5c10995bd3486a8",
+      "name": "ci",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "databaseId": 37622774141,
+      "headSha": "b2a7f751b43dc6e6d4c06299a5c10995bd3486a8",
+      "name": "signal-resource-proof b2a7f751b43dc6e6d4c06299a5c10995bd3486a8",
+      "status": "completed"
+    }
+  ],
+  "latest_monitor": {
+    "authority": false,
+    "clock_discontinuity": false,
+    "contract_sha256": "b593bf2c47e4dc628fc738b2ac5fb5bb9dcefbfb6739c44d1b1c8df632104170",
+    "elapsed_seconds": 1282.410655,
+    "monotonic": 116860.421,
+    "qualification": false,
+    "schema": 1,
+    "state": {
+      "Dead": false,
+      "Error": "",
+      "ExitCode": 0,
+      "FinishedAt": "0001-01-01T00:00:00Z",
+      "OOMKilled": false,
+      "Paused": false,
+      "Pid": 492,
+      "Restarting": false,
+      "Running": true,
+      "StartedAt": "2026-10-07T13:35:58.659650554Z",
+      "Status": "running"
+    },
+    "utc": "2026-10-07T13:57:03.986894+00:00"
+  },
+  "launch": {
+    "authority": false,
+    "contract": "C:\\ICARUS\\var\\verification\\2026-10-07\\v3-actual\\contract.json",
+    "head": "b2a7f751b43dc6e6d4c06299a5c10995bd3486a8",
+    "image": "sha256:19258a987cad38714482aadc2e0ce3ef43c424417856a30c4e32b444f47d6db5",
+    "monitor_pid": 33940,
+    "qualification": false,
+    "utc": "2026-10-07T13:35:58.976521+00:00"
+  },
+  "monitor_pid_alive_verified": 33940,
+  "next": "Monitor this existing once-only run; do not restart, retry, redraw, change frozen sources or interpret intermediate statistical output.",
+  "old_v2_error_and_raw": "RETAINED",
+  "previous_development_bytes": 195707471,
+  "progress": {
+    "attempt_registered": true,
+    "attempt_reserved": true,
+    "development_bytes": 222708389,
+    "development_expected": 1896382464,
+    "validation_exists": false,
+    "validation_sealed": true
+  },
+  "restart_count": 0,
+  "retained_hashes": {
+    "container_inspection": "3788bbf02f2154ed02ae0fbf9113b88dd3402f75deaa12d8664369f664346fec",
+    "contract": "b593bf2c47e4dc628fc738b2ac5fb5bb9dcefbfb6739c44d1b1c8df632104170",
+    "hosted_gate_record": "ea4203e9454104a7c2e15f748c876b5f72ef491b908f4e3eccc323027f2606d0",
+    "launch_started": "8b9a9bd57615ce48ae72f0936b8625a33e40e423d72254aa63bb5b6dd7dbc672",
+    "monitor_status": "1b81ab59dc74e29c5d3cd5a79c6e01ba87967849855f8736a2ebe1e58e352840"
+  },
+  "scope": "EXISTING_ARTIFICIAL_EXPERIMENT_LIVE_STATUS_NO_STATISTICAL_VERDICT",
+  "security": {
+    "cpus": 4,
+    "memory_gib": 4,
+    "network": "none",
+    "read_only": true
+  },
+  "source_files": 47,
+  "source_freeze_verified": true
+}
