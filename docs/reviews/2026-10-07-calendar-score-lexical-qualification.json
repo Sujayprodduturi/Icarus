@@ -1,0 +1,318 @@
+{
+  "actual_v3_sampling": false,
+  "component_benchmark": {
+    "runs": [
+      {
+        "calls": 300,
+        "kind": "before",
+        "seconds": 1.6170240170000003
+      },
+      {
+        "calls": 300,
+        "kind": "candidate",
+        "seconds": 1.4619122659999988
+      },
+      {
+        "calls": 300,
+        "kind": "before",
+        "seconds": 1.587223142000001
+      },
+      {
+        "calls": 300,
+        "kind": "candidate",
+        "seconds": 1.476383628999999
+      }
+    ],
+    "same_fresh_read_stat_counts": [
+      {
+        "read": 520,
+        "stat": 880
+      },
+      {
+        "read": 520,
+        "stat": 880
+      }
+    ],
+    "same_manifest": true,
+    "scope": "PURE_LEXICAL_PATH_PROFILE_NO_STUDY_AUTHORITY"
+  },
+  "independent_postcommit": {
+    "logs": {
+      "C:\\ICARUS\\var\\verification\\2026-10-07\\qualification\\lexical-postcommit\\cached-manifest.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "C:\\ICARUS\\var\\verification\\2026-10-07\\qualification\\lexical-postcommit\\cached-manifest.stdout": "b2b6221c54f234a919f6a08a85e89c7720ad04df3fefbbd22b3367382b0df794",
+      "C:\\ICARUS\\var\\verification\\2026-10-07\\qualification\\lexical-postcommit\\fresh-format-no-cache.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "C:\\ICARUS\\var\\verification\\2026-10-07\\qualification\\lexical-postcommit\\fresh-format-no-cache.stdout": "04e598550bb4d0009718c4a15062cef02bca075349cf8de6bdf29f214dfcd7d8",
+      "C:\\ICARUS\\var\\verification\\2026-10-07\\qualification\\lexical-postcommit\\fresh-format.stderr": "6a455106ab065cca206145196ff02eb717ae19cdb7f098086ae0d6f8cf8ed0fb",
+      "C:\\ICARUS\\var\\verification\\2026-10-07\\qualification\\lexical-postcommit\\fresh-format.stdout": "070f50dc6fc9c5abcfa839501003dc0b8946e55e4e09a7889a9e626e75a25eda",
+      "C:\\ICARUS\\var\\verification\\2026-10-07\\qualification\\lexical-postcommit\\fresh-full-mypy.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "C:\\ICARUS\\var\\verification\\2026-10-07\\qualification\\lexical-postcommit\\fresh-full-mypy.stdout": "3588b696a351a35b1719fd1ecdf2fa4e95c1f03b48d0b07ef4ad0defe60e8a84",
+      "C:\\ICARUS\\var\\verification\\2026-10-07\\qualification\\lexical-postcommit\\fresh-mypy.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "C:\\ICARUS\\var\\verification\\2026-10-07\\qualification\\lexical-postcommit\\fresh-mypy.stdout": "9aa60e10e8a6f6eeee923ae491d1820b24399f2ca2f417466a855ba7dc366462",
+      "C:\\ICARUS\\var\\verification\\2026-10-07\\qualification\\lexical-postcommit\\fresh-native-lexical.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "C:\\ICARUS\\var\\verification\\2026-10-07\\qualification\\lexical-postcommit\\fresh-native-lexical.stdout": "47b085619fa570a067db0a2e462471bee09fee745b447084a9b48786923e9314",
+      "C:\\ICARUS\\var\\verification\\2026-10-07\\qualification\\lexical-postcommit\\fresh-project-mypy.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "C:\\ICARUS\\var\\verification\\2026-10-07\\qualification\\lexical-postcommit\\fresh-project-mypy.stdout": "c9f12717140265e3def21d3a4aa96a691ee6346d9b10530ec63e3532a4550fde",
+      "C:\\ICARUS\\var\\verification\\2026-10-07\\qualification\\lexical-postcommit\\fresh-regression.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "C:\\ICARUS\\var\\verification\\2026-10-07\\qualification\\lexical-postcommit\\fresh-regression.stdout": "2a6d5b5be34f17bb86b84c9856104414d35d2ecd0c71298ecfd3782ad53a8c4b",
+      "C:\\ICARUS\\var\\verification\\2026-10-07\\qualification\\lexical-postcommit\\fresh-ruff.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "C:\\ICARUS\\var\\verification\\2026-10-07\\qualification\\lexical-postcommit\\fresh-ruff.stdout": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+      "C:\\ICARUS\\var\\verification\\2026-10-07\\qualification\\lexical-postcommit\\removed-lexical-reuse.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "C:\\ICARUS\\var\\verification\\2026-10-07\\qualification\\lexical-postcommit\\removed-lexical-reuse.stdout": "a63491f25e62683f17c6717ed72fcb00131bb5b157d848963547d6cd3531d40c"
+    },
+    "meaningful_defects": [
+      "cached authority result suppresses fresh reads and project invalidation",
+      "removed lexical reuse loses measured object reuse"
+    ],
+    "native_container_links": [
+      {
+        "container": "icarus-lexical-path-test-20261007",
+        "exit_code": 0,
+        "image": "sha256:5b6408f8d58c7658d36d175d04cfd7ffb66030da5b1b2e0b66be74e05f63e87e",
+        "inspect_sha256": "ba7ad2b31e5b49362054c360669bc0820f790b9194e90c0db43b5e4e4cf74866",
+        "oom": false
+      },
+      {
+        "container": "icarus-lexical-path-postcommit-test-20261007",
+        "exit_code": 0,
+        "image": "sha256:5b6408f8d58c7658d36d175d04cfd7ffb66030da5b1b2e0b66be74e05f63e87e",
+        "inspect_sha256": "5643f8de9dbb9e7318d3abf858e4104cc4da8fd77bbbeab15a06e2f5b4ab1425",
+        "oom": false
+      }
+    ],
+    "native_image": "sha256:5b6408f8d58c7658d36d175d04cfd7ffb66030da5b1b2e0b66be74e05f63e87e",
+    "native_inventory_hashes": {
+      "image-inspection.json": "7948d671ae9c1e895044cbf7d6b3feb56bd04e5f710793421aace0fea0d7bf9c",
+      "native-manifest.json": "bc5a7d8280d8c43c06c3d043d26af34d389176cd8aee71fcfa178e357ad5af29"
+    },
+    "native_limit": "Exact executed-container Image IDs match retained immutable image and full47 committed/current manifest; reviewed retained inspection/log bytes only, no new test run.",
+    "native_manifest": "bbe74e4adff9b5f6c4e79f2a6e95b26ed930bfc51e3f5eb1b714054b12607cba",
+    "native_proof_sha256": "ef978546c71107e549c2f8644b45415bcb17ecf5aee735737325a728a11581a0",
+    "passed": true,
+    "proof_sha256": "52735bad58ca08d0b133db9b855149a27bf299498c773b8d8f50bed64a3141c1",
+    "sampling_permission": false,
+    "source_head": "b503da589f6deeaf21348de4235a0e7c1b4eb5bf",
+    "verdict": "GO_SOURCE_POSTCOMMIT_ONLY",
+    "verified_committed_current_files": 47
+  },
+  "independent_postcommit_sha256": "10f39ce0be832f5a0c773b6be966bb8b75d5fbb2534af21f39bbe790122c4cd9",
+  "native_regressions": {
+    "source_snapshot": {
+      "scripts/research/signal_calendar_score_phase.py": "f7f56887d594efe722bef7ab5b2f3bea4a5f9baa4a4437ed496bae07d6e23523",
+      "tests/unit/test_signal_calendar_score_phase_research.py": "1b1ab461402f07582ea3d4cd80bb243d097067600085adf27e33e473d5bdeaa3"
+    },
+    "state": {
+      "Dead": false,
+      "Error": "",
+      "ExitCode": 0,
+      "FinishedAt": "2026-10-07T12:34:11.272827646Z",
+      "OOMKilled": false,
+      "Paused": false,
+      "Pid": 0,
+      "Restarting": false,
+      "Running": false,
+      "StartedAt": "2026-10-07T12:26:26.811145989Z",
+      "Status": "exited"
+    },
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout_sha256": "8969ca0eff2b8b307a95584ce82e758a78e384c1c5a81a556b676b4f68daf742",
+    "summary": "884 passed, 4 warnings in 462.46s"
+  },
+  "new_source_hosted_checks": "PENDING",
+  "next": "New immutable source/image freeze, three fresh complete16-set public cold cases, two independent all-path/global timing checks and exact-source hosted gates before conditional tracked launch",
+  "optimization": "Bounded two-entry reuse of immutable lexical Path tuples; fresh reads/stat/hashes/metadata/resource and protocol checks unchanged",
+  "postcommit": {
+    "all_required_pass": true,
+    "committed_bytes": {
+      "docs/plans/2026-10-04-calendar-score-sampled-lifecycle.md": "c12129e2799e580cb0d4a7541ac304598c8ad953034eabfe2f9cd69b920a8e61",
+      "docs/plans/2026-10-04-calendar-score-sixteen-hour-budget-amendment.md": "119146f624a921cb13de5e00b521edfb4cb8787e0bbf99cdfe323ac90671fe51",
+      "docs/plans/2026-10-04-calendar-score-study-protocol.md": "130569a78811e9ad4f9dcdb915410b3c350e137a78bc70974eb81ac4daf13b71",
+      "docs/plans/2026-10-04-calendar-score-verification-budget-amendment-build.md": "791c0a23b43dce002d6ecbeeccf610a679f91ae63f22d6561f6a35fc226c4849",
+      "docs/plans/2026-10-04-calendar-score-verification-budget-amendment-proposal.md": "4c559273f8bd994885f63e8eaf65e22143f6acb65d66dc23cc4d7aca97362b1b",
+      "docs/plans/2026-10-04-calendar-score-verifier-optimization-2.md": "b2d913f0ec455fd5c612c703e835b95beaa66a38aa3a0e226d72c4aa685d4387",
+      "docs/plans/2026-10-04-calendar-score-verifier-optimization-3.md": "8a569d0ac5af212cf0e69ab485c308c87fdd7907e5300ecbdd8c1da037d6e00e",
+      "docs/plans/2026-10-04-calendar-score-verifier-optimization.md": "6b3f07957092dc70540dda253aa6fab1675b377d3682a278fd36fcf81874b217",
+      "docs/plans/2026-10-05-calendar-score-full-runner.md": "5818b08667992d82764d1a469f165186f301f0806fd98cde3d825972f0c2a31a",
+      "docs/plans/2026-10-05-calendar-score-lifecycle-authority.md": "f27fa39463eaf8e6e16bc3b4ac805ba402dbae0722b50ee4324ad5c828a05744",
+      "docs/plans/2026-10-06-runner-batch-measurement-amendment.md": "4c778afaf48084125b61fba5b9cc7574bed08f3cd2f0271dde8b581f3d8d7dcd",
+      "docs/plans/2026-10-06-runner-cost-accounting-amendment.md": "722fc11928518d9e62098960f16a0990c39f6fb24d21c5c4c9322de395d62b50",
+      "docs/plans/2026-10-07-calendar-score-replacement-implementation.md": "cc3a15dcc06f8f882c3fae98e41a275ddce75d9785a74196b9007b1e44b3ef29",
+      "docs/plans/2026-10-07-calendar-score-replacement-protocol-v3.md": "9622e655175401b7f99f64448168eab848a546a14e77771e35f7134fd48ed064",
+      "docs/plans/calendar-score-operational-resources.json": "96199af0f371c34e1d99371e1629dfb0d61e6bb32e59f41fddcacc6746e43bcd",
+      "docs/reviews/2026-10-04-calendar-score-verifier-optimization-2-benchmarks.json": "324dc9e71c7ae837466f9e411b7c2c4b449b7345367e7c5a2dec4ac5dad68544",
+      "docs/reviews/2026-10-04-calendar-score-verifier-optimization-3-benchmarks.json": "8dca3b343abbcbefd1de078524b52a8836c263dfeb6969bb09ccae65272ddd6b",
+      "docs/reviews/2026-10-05-calendar-score-full-runner-timing-refinement.md": "ae14fa202451d98a858cf437e4f33ebfeb8076d8b17bf5be7e370e9f9d249278",
+      "docs/reviews/2026-10-07-artificial-study-stop.json": "47b89f3feaa8bc3377188e78923b73fc57200f2fe5b1d60f55da71e01ff05c3e",
+      "docs/reviews/2026-10-07-calendar-score-replacement-plan.json": "ad11b91d630910ca8c9acc62a9ccc9a670fe13f60985376a69030a87614bc468",
+      "docs/reviews/2026-10-07-calendar-score-startup-postcommit.json": "5ceb615bcfc106c21f9887204ba33d378e7b1e5df8887eceb918cf5ab36d9759",
+      "docs/reviews/2026-10-07-calendar-score-startup-repair.json": "34500235caa40a0f09110353e188230e0459819b976263d6d87cf2761183b307",
+      "docs/reviews/2026-10-07-calendar-score-v3-public-vectors.json": "2c4854b7eb88fef5b7df91ebd8532a7c9def169ed4a152f9cf971a272c1974c3",
+      "docs/reviews/2026-10-07-verifier-identity-postcommit.json": "fa1c4e0c8397fb454ce39e675040c248bc42092e77c65cb1acf1edab2ec3a22b",
+      "goal.yaml": "c886aca6b198257486d0daefc484f818458e60fa32a5aa861b95d1413282fa0c",
+      "scripts/research/signal_bounded_uncertainty.py": "4995e3ed835d59ee79cff00fe76bc390f7699c1e8bffc04abe9265d68ebadd3a",
+      "scripts/research/signal_calendar_evidence.py": "5985f3b0f55dc0f89d2632bc9b4378b8fd3c1922029292a91ca52b848d25e234",
+      "scripts/research/signal_calendar_laws.py": "811070fa4247a10c5aad612829a6b3f20421f04793a77a3b44017e7ee18b6ba4",
+      "scripts/research/signal_calendar_score.py": "7b19acfe21715fe082b13879ea9d3348d769131ab596553baf0c20fd5c600fc7",
+      "scripts/research/signal_calendar_score_launch.py": "e7744f2cfd5ae2fd698d103b094ff52b9792f9aedd875717c94ad48936c4dad5",
+      "scripts/research/signal_calendar_score_lifecycle.py": "c9bf020eb294b5250c796726ea6c68d60f0648b9207dbf202de282ed2356c597",
+      "scripts/research/signal_calendar_score_lifecycle_service.py": "c9d4aca8bbe4bfffc6b50fff3519b0dd96ceaee94064db7fdeacb0891cf148fb",
+      "scripts/research/signal_calendar_score_phase.py": "f7f56887d594efe722bef7ab5b2f3bea4a5f9baa4a4437ed496bae07d6e23523",
+      "scripts/research/signal_calendar_score_runner.py": "d65260f12b31a3be5afbe19c34e9c99b3295aa87df0b6f15776b523d874ddfaf",
+      "scripts/research/signal_calendar_score_runner_service.py": "d27b461fd3624b10cc51df7f2ac7026ae37d5cf9d2d04198b63c718fa9e8740c",
+      "scripts/research/signal_calendar_score_study.py": "eca2cfd8e1ff48178a910b51e54330c78c9f60855d8dd6ef0edff010f56df974",
+      "scripts/research/signal_calendar_score_verify.py": "7748f1e560403e9f0d61976186602dfc8907ad1044a67d1b2388c6673d3a1d3c",
+      "scripts/research/signal_calendar_uncertainty.py": "ef28eeebb2c807bbbed2c707cd1e20a752d448b537646a7beea0426fe2828ec9",
+      "scripts/research/signal_moment_uncertainty.py": "852723b844920a005d17889bde1977a88763533d37c75da00769ae60b5057111",
+      "tests/unit/test_signal_calendar_score_launch_research.py": "53b151d9b718184674fdb1ba2d9749c8372ec2c484777a86812e8ed5d1108763",
+      "tests/unit/test_signal_calendar_score_lifecycle_research.py": "658b4a24d093ffd65bb02049315ca3efa3b6fb43f0e1c896dacd60a05922f153",
+      "tests/unit/test_signal_calendar_score_phase_research.py": "1b1ab461402f07582ea3d4cd80bb243d097067600085adf27e33e473d5bdeaa3",
+      "tests/unit/test_signal_calendar_score_runner_preflight_research.py": "585a4d2a2ee2d7d15cb64eb0f84a8f22982bc51bc91713a348c22e586958e235",
+      "tests/unit/test_signal_calendar_score_runner_research.py": "14e10ff3489a79b5156eae2ef6215e3c72af9c2eb5f5fbadbd613a7b4a4b7432",
+      "tests/unit/test_signal_calendar_score_study_research.py": "40ba773253d136b1187f969f49c19d7197e36379e95b9f9ff689d84d88e2d809",
+      "tests/unit/test_signal_calendar_score_verify_research.py": "5e9ba3494e64a16fd3897067c166ce7a97aa9d29698de538c03fe518a9b99bd7",
+      "uv.lock": "f97c9a52f21a91a1ff1f7a087d53e2deda000873e9f67971c3d9f51f1e5875e5"
+    },
+    "exact_restoration": true,
+    "fresh-format": {
+      "returncode": 2,
+      "stderr_sha256": "6a455106ab065cca206145196ff02eb717ae19cdb7f098086ae0d6f8cf8ed0fb",
+      "stdout_sha256": "070f50dc6fc9c5abcfa839501003dc0b8946e55e4e09a7889a9e626e75a25eda",
+      "tail": "ts\\research\\signal_uncertainty.py`: `wrong package cache for file`\n--> scripts\\research\\signal_uncertainty.py:1:1\ninfo: This indicates a bug in Ruff.\ninfo: If you could open an issue at https://github.com/astral-sh/ruff/issues/new?title=%5Bpanic%5D, we'd be very appreciative!\ninfo: run with `RUST_BACKTRACE=1` environment variable to show the full backtrace information\n\n338 files already formatted\n"
+    },
+    "fresh-format-no-cache": {
+      "returncode": 0,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "04e598550bb4d0009718c4a15062cef02bca075349cf8de6bdf29f214dfcd7d8",
+      "tail": "358 files already formatted\n"
+    },
+    "fresh-full-mypy": {
+      "returncode": 0,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "3588b696a351a35b1719fd1ecdf2fa4e95c1f03b48d0b07ef4ad0defe60e8a84",
+      "tail": "Success: no issues found in 182 source files\r\n"
+    },
+    "fresh-mypy": {
+      "returncode": 0,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "9aa60e10e8a6f6eeee923ae491d1820b24399f2ca2f417466a855ba7dc366462",
+      "tail": "Success: no issues found in 99 source files\r\n"
+    },
+    "fresh-native-lexical": {
+      "state": {
+        "Dead": false,
+        "Error": "",
+        "ExitCode": 0,
+        "FinishedAt": "2026-10-07T12:37:09.901199241Z",
+        "OOMKilled": false,
+        "Paused": false,
+        "Pid": 0,
+        "Restarting": false,
+        "Running": false,
+        "StartedAt": "2026-10-07T12:37:07.482755429Z",
+        "Status": "exited"
+      },
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "47b085619fa570a067db0a2e462471bee09fee745b447084a9b48786923e9314",
+      "summary": "4 passed, 56 deselected in 0.63s"
+    },
+    "fresh-project-mypy": {
+      "returncode": 0,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "c9f12717140265e3def21d3a4aa96a691ee6346d9b10530ec63e3532a4550fde",
+      "tail": "Success: no issues found in 162 source files\r\n"
+    },
+    "fresh-regression": {
+      "returncode": 0,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "2a6d5b5be34f17bb86b84c9856104414d35d2ecd0c71298ecfd3782ad53a8c4b",
+      "tail": "rse_cache_still_observes_removal_fallback_and_errors\r\n  C:\\Users\\sujay\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\importlib\\metadata\\__init__.py:467: DeprecationWarning: Implicit None on return values is deprecated and will raise KeyErrors.\r\n    return self.metadata['Version']\r\n\r\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\r\n367 passed, 1 skipped, 4 warnings in 46.29s\r\n"
+    },
+    "fresh-ruff": {
+      "returncode": 0,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+      "tail": "All checks passed!\n"
+    },
+    "head": "b503da589f6deeaf21348de4235a0e7c1b4eb5bf",
+    "known_defects": [
+      {
+        "defect": "cached-manifest",
+        "returncode": 1,
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout_sha256": "b2b6221c54f234a919f6a08a85e89c7720ad04df3fefbbd22b3367382b0df794",
+        "tail": "ndar_score_phase_research.py::test_lexical_path_reuse_keeps_fresh_reads_and_independent_mappings[delete]\r\nFAILED tests/unit/test_signal_calendar_score_phase_research.py::test_lexical_path_reuse_keeps_fresh_reads_and_independent_mappings[symlink]\r\nFAILED tests/unit/test_signal_calendar_score_phase_research.py::test_lexical_reuse_keys_project_and_both_source_lists\r\n4 failed, 56 deselected in 0.64s\r\n"
+      },
+      {
+        "defect": "removed-lexical-reuse",
+        "returncode": 1,
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout_sha256": "a63491f25e62683f17c6717ed72fcb00131bb5b157d848963547d6cd3531d40c",
+        "tail": "test_lexical_path_reuse_keeps_fresh_reads_and_independent_mappings[bytes]\r\nFAILED tests/unit/test_signal_calendar_score_phase_research.py::test_lexical_path_reuse_keeps_fresh_reads_and_independent_mappings[delete]\r\nFAILED tests/unit/test_signal_calendar_score_phase_research.py::test_lexical_path_reuse_keeps_fresh_reads_and_independent_mappings[symlink]\r\n3 failed, 1 passed, 56 deselected in 0.51s\r\n"
+      }
+    ]
+  },
+  "previous_group": {
+    "dual_math_provenance": "PASS",
+    "eligible": false,
+    "freeze_head": "4e49208f2da425c96b87a6045a65595fcafe65f5",
+    "metrics": 2688,
+    "paths": 960,
+    "primary_proof_sha256": "90bb32a139d90d5fccfb3bf8f3d86fdd5889400fa04cefef68b9b762cbc5aba5",
+    "projection": {
+      "phases": {
+        "development": {
+          "primary": {
+            "limit": 57600,
+            "seconds": 8182.00214756
+          },
+          "reviewer": {
+            "limit": 57600,
+            "seconds": 8148.137773394
+          },
+          "writer": {
+            "limit": 21600,
+            "seconds": 10959.413003102
+          }
+        },
+        "validation": {
+          "primary": {
+            "limit": 57600,
+            "seconds": 32721.17880548
+          },
+          "reviewer": {
+            "limit": 57600,
+            "seconds": 32583.881202002
+          },
+          "writer": {
+            "limit": 43200,
+            "seconds": 43830.904776542
+          }
+        }
+      },
+      "session_limit": 295800,
+      "session_seconds": 142632.742413478
+    },
+    "raw_retained": true,
+    "reviewer_receipt_sha256": "a86d1ba2ee2ea0f7048f842ea6553995c541800a9ac3ee00d7f2af6e0c59a023",
+    "whole_seconds": [
+      58.99274438100001,
+      62.093073286000006,
+      60.96695956000002
+    ]
+  },
+  "prior_hosted_checks": {
+    "ci": {
+      "conclusion": "success",
+      "head": "4e49208f2da425c96b87a6045a65595fcafe65f5",
+      "run": 37612351091
+    },
+    "native_resources": {
+      "conclusion": "success",
+      "equivalence": "All exact resource inputs and47 runtime files byte-identical to4e; audit-only line-ending repair excluded. This is original d91 attestation, not a new4e run.",
+      "head": "d91d7713422b13b4f4df6c61c9cb4244c4f1ffe5",
+      "run": 37612309696
+    }
+  },
+  "scope": "PUBLIC_TEST_QUALIFICATION_AND_LEXICAL_FIX_NO_SAMPLING_AUTHORITY",
+  "source_commit": "b503da589f6deeaf21348de4235a0e7c1b4eb5bf",
+  "statistics_and_budgets": "UNCHANGED"
+}
