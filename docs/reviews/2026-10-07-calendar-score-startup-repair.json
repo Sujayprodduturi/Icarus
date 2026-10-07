@@ -19,7 +19,10 @@
     "topology": "Docker --init; native frozen source; separate ext4 TEST-fixture volume; network none; read-only image;2GiB;4CPU"
   },
   "next": "Task2 explicit v3 binding and tracked one-shot launcher; fresh Task3 gates before any actual sampling",
-  "postcommit": "PENDING source commit",
+  "postcommit": {
+    "proof": "2026-10-07-calendar-score-startup-postcommit.json",
+    "result": "PASS two known defects caught,32 snapshots restored exactly,complete35-file source closure matches HEAD,37 fresh regressions PASS10.48s,static clean,independent GO"
+  },
   "protected_unchanged": {
     "docs/plans/2026-10-04-calendar-score-study-protocol.md": "130569a78811e9ad4f9dcdb915410b3c350e137a78bc70974eb81ac4daf13b71",
     "docs/plans/2026-10-07-calendar-score-replacement-implementation.md": "cc3a15dcc06f8f882c3fae98e41a275ddce75d9785a74196b9007b1e44b3ef29",
@@ -32,6 +35,7 @@
     "result": "GO; uses existing completion channel and bounded whitelist",
     "reviewer": "/root/reviewer_recovery"
   },
+  "source_commit": "35138ccaa1b670bc33d3745a13247a96eda31e64",
   "source_sha256": {
     "scripts/research/signal_calendar_score_lifecycle_service.py": "c9d4aca8bbe4bfffc6b50fff3519b0dd96ceaee94064db7fdeacb0891cf148fb",
     "scripts/research/signal_calendar_score_runner.py": "d65260f12b31a3be5afbe19c34e9c99b3295aa87df0b6f15776b523d874ddfaf",
