@@ -1,0 +1,129 @@
+{
+  "source_commit": "c1324783d875e8d323cb4f281b09912f2a8d2d23",
+  "scope": "isolated synthetic infrastructure; operator activation and real data held",
+  "final_restored_tests": {
+    "passed": 54,
+    "seconds": 12.04,
+    "real_postgres_tests": 20
+  },
+  "startup_main_tests": {
+    "passed": 16,
+    "skipped": 1
+  },
+  "historical_full_snapshot": {
+    "passed": 2852,
+    "skipped": 14,
+    "failed": 1,
+    "failure": "startup empty Windows pipe, reproduced and narrowly repaired; no full rerun claimed"
+  },
+  "static": {
+    "mypy_sources": 197,
+    "ruff_lint": "PASS",
+    "ruff_format_files": 373,
+    "diff_check": "PASS"
+  },
+  "mutations": {
+    "source_commit": "c1324783d875e8d323cb4f281b09912f2a8d2d23",
+    "cases": [
+      {
+        "name": "temporal_overlap_accepted",
+        "test": "tests/unit/test_trial_ledger.py::test_signal_batch_rejects_temporally_overlapping_folds_even_if_indices_are_disjoint",
+        "exit_code": 1,
+        "caught": true
+      },
+      {
+        "name": "empty_windows_pipe_misclassified",
+        "test": "tests/unit/test_startup_hint_transport.py::test_broken_startup_hint_is_classified_without_granting_authority[poll-MISSING]",
+        "exit_code": 1,
+        "caught": true
+      },
+      {
+        "name": "legacy_writer_reaches_evaluation",
+        "test": "tests/unit/test_run_backtest_trial_barrier.py::test_non_none_legacy_ledger_refuses_before_strategy_evaluation",
+        "exit_code": 1,
+        "caught": true
+      },
+      {
+        "name": "fold_metric_leaks_before_commit",
+        "test": "tests/unit/test_run_backtest_trial_barrier.py::test_fold_progress_log_contains_no_metric_values",
+        "exit_code": 1,
+        "caught": true
+      },
+      {
+        "name": "recovery_receipt_reauthorizes_evaluation",
+        "test": "tests/unit/test_run_backtest_trial_barrier.py::test_recovery_only_receipt_never_reauthorizes_portfolio_evaluation",
+        "exit_code": 1,
+        "caught": true
+      },
+      {
+        "name": "input_replacement_binds_wrong_bytes",
+        "test": "tests/unit/test_run_backtest_trial_barrier.py::test_input_replacement_during_load_refuses_before_reservation",
+        "exit_code": 1,
+        "caught": true
+      },
+      {
+        "name": "missing_completion_releases_result",
+        "test": "tests/unit/test_run_backtest_trial_barrier.py::test_unverified_completion_exposes_no_result",
+        "exit_code": 1,
+        "caught": true
+      },
+      {
+        "name": "boolean_legacy_schema_accepted",
+        "test": "tests/unit/test_trial_ledger.py::test_corrupt_legacy_ledger_refuses_instead_of_becoming_empty",
+        "exit_code": 1,
+        "caught": true
+      },
+      {
+        "name": "native_provenance_bypassed",
+        "test": "tests/unit/test_trial_ledger.py::test_public_reserve_rejects_legacy_source_before_database_access",
+        "exit_code": 1,
+        "caught": true
+      },
+      {
+        "name": "raw_database_traceback_leaks",
+        "test": "tests/unit/test_trial_ledger.py::test_rendered_datastore_failure_suppresses_raw_sql_and_metric_payload",
+        "exit_code": 1,
+        "caught": true
+      },
+      {
+        "name": "completion_retry_trusts_forged_summary",
+        "test": "tests/integration/test_trial_ledger_postgres.py::test_completion_retry_verifies_each_persisted_result_not_only_terminal_digest",
+        "exit_code": 1,
+        "caught": true
+      }
+    ],
+    "restored": true,
+    "sha256": {
+      "icarus/state/trial_ledger.py": "66f512b48d5b591eb1a432ed5b5a3ba5639a9ce7635f81236a70dab930f660c2",
+      "scripts/research/signal_calendar_score_runner.py": "b2a4c86080d14a6c2c0aa4d7a004df685035e143e993f611f7ea57ffd55bbdbb",
+      "icarus/engine/runner.py": "d6ca7ccad2b8345437a979ca6c07080e0e28cc1a5f029f1d144dc47c98c802f5",
+      "scripts/run_backtest.py": "404ef753ab47bed6d3181995b5b1d3cd4a4b74231d574f00dcc8d5e3738822fe"
+    }
+  },
+  "source_sha256": {
+    ".github/workflows/ci.yml": "a404e29ce40179ed6b959592d4cc55bd5a0c7eeda114c81e5cbae7da791c8fbc",
+    "docs/plans/2026-10-08-signal-trial-ledger-plan.md": "add57cd22159d374d0162a03a5fb590b29b6f7a46393e504a95ba1fd40be49c0",
+    "icarus/engine/runner.py": "d6ca7ccad2b8345437a979ca6c07080e0e28cc1a5f029f1d144dc47c98c802f5",
+    "icarus/state/migrations/env.py": "09eebf60b8d96486f9b7d3a91c189146ea3e2ff52e323894249c4f7acf4be1d0",
+    "icarus/state/migrations/versions/20261008_atomic_trial_ledger.py": "9aa2c934469536699951250123519fc811f162be346c8f832684bca0b667f44d",
+    "icarus/state/models.py": "f25527cbd7b0f320bcdc09ad9d4f12008f1f6a3eea40ba7fb86b856e6b46623a",
+    "icarus/state/trial_ledger.py": "66f512b48d5b591eb1a432ed5b5a3ba5639a9ce7635f81236a70dab930f660c2",
+    "scripts/build_panel.py": "1850b175cb37aca0a31fee8f6d053fd24a376b76fbd8d61b9fc0ebb79d7dd2c9",
+    "scripts/migrate_trial_ledger.py": "da3c535b2c0bd205075773839ceeaf42590d4d56e940d3a111612743c8a17bec",
+    "scripts/research/signal_calendar_score_runner.py": "b2a4c86080d14a6c2c0aa4d7a004df685035e143e993f611f7ea57ffd55bbdbb",
+    "scripts/run_backtest.py": "404ef753ab47bed6d3181995b5b1d3cd4a4b74231d574f00dcc8d5e3738822fe",
+    "tests/integration/test_trial_ledger_postgres.py": "09feda7dacb118123dd1253600c937f56a1683afc8da496646711e9ed766d7c9",
+    "tests/unit/test_counted_backtest_main.py": "588ec3e572a948ff448646dc735d1449a62d93c04332e24d1f3fa2f39089fc98",
+    "tests/unit/test_migrate_trial_ledger.py": "49b8b36d1677db2d1d222e2513a2e6bac77f7552e430ec86af6a15e82bb59292",
+    "tests/unit/test_run_backtest_trial_barrier.py": "e4502b708ef49da4065e5d359000771a021a1a122cc765533c235ebf373ba3a4",
+    "tests/unit/test_startup_hint_transport.py": "1c5f5f74fb6de6229782e162635b439f086c858e6c8e825715b71c5e202d0c93",
+    "tests/unit/test_trial_ledger.py": "b4907d47fd5ed434aca5386146d609d347f85139a6f27c70dc052e0269841307"
+  },
+  "disposable_postgres": {
+    "name": "icarus-trial-ledger-test-20261008",
+    "port": 55439,
+    "database": "icarus_trial_test",
+    "removed": true
+  },
+  "hosted_checks": "pending push; not claimed PASS"
+}

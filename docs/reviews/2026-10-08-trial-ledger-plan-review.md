@@ -59,4 +59,4 @@ Acceptance still requires demonstrating commit-acknowledgement loss also during 
 
 ## Durable disposition
 
-The amended review authorizes only the isolated synthetic infrastructure build and its specified proofs. As of this checkpoint that build is **IN PROGRESS**; this document makes no completion, test, migration or current GitHub-workflow claim. Scheduling Step 7 before later real-data work does not close Step 6b, M4, or adopt a statistical method.
+The amended review authorizes only the isolated synthetic infrastructure build and its specified proofs. The subsequent isolated build has SCOPED PASS; see the 2026-10-08 trial-ledger build review for actual proofs. Operator import/activation remains held; no current hosted-workflow PASS is claimed here. Scheduling Step 7 before later real-data work does not close Step 6b, M4, or adopt a statistical method.
