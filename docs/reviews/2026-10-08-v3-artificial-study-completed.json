@@ -1,0 +1,279 @@
+{
+  "checked_utc": "2026-10-08T05:14:46.184624+00:00",
+  "container": "a402b80ef838150bdb43d9c2c56fbf43e718df6f6ec9c998b35b1c45f02a226a",
+  "development": "PASS",
+  "final_state": "FINAL_VERDICT",
+  "frozen_head": "b2a7f751b43dc6e6d4c06299a5c10995bd3486a8",
+  "frozen_manifest": "bbe74e4adff9b5f6c4e79f2a6e95b26ed930bfc51e3f5eb1b714054b12607cba",
+  "full_native_verification_receipts": 4,
+  "image": "sha256:19258a987cad38714482aadc2e0ce3ef43c424417856a30c4e32b444f47d6db5",
+  "independent_compact_review": {
+    "attempt_result_sha256": "5d4da0081a241bd4b9f722c5134c86297c3a10aa9eef2052d3d52ee8c7dccaac",
+    "cleanup_authorized_by_this_check": false,
+    "compact_file_hashes": {
+      "attempt-result.json": "5d4da0081a241bd4b9f722c5134c86297c3a10aa9eef2052d3d52ee8c7dccaac",
+      "development\\phase-claim.json": "0d3d5e3e114d38892fbaa8b5f4ffe6fd765f478ba0db0b83b985fb7373e072f9",
+      "development\\phase-report.json": "b35de1b0130305cc51dbe33b3203191fa7600f528096801fc752bf16ad0a488c",
+      "development\\phase-terminal.json": "7fb947a207c287656aeea135b5026caa26a1cb186031c302c0843d5dd191b656",
+      "development\\verified-primary.json": "a28a92a4f0e7690bbcb130c302a33a4325587afea224a4dda3c1d089cb1edc22",
+      "development\\verified-reviewer.json": "1a4ad2761e7cf868e3b7abbcdca8320840f07eb436c49693e1ec4f00d780e2ef",
+      "validation\\phase-claim.json": "c9c69a829130bd866b4153544ca86146b0eae46511187e4741e5a015d7be7820",
+      "validation\\phase-report.json": "a01e7b76c86a42a5fde8ad6ef77697ee0ee401cc85e48bf653b88d559b9d92b1",
+      "validation\\phase-terminal.json": "08393bb0e2ca351382c76dc6424109242b87e80cd248d0aba79274f76e9f80c8",
+      "validation\\verified-primary.json": "4d379419cfb1c3025092a618758fa25b0180e51038b07cc35e4b114f30c3d4ee",
+      "validation\\verified-reviewer.json": "8eba5caf52bc65e9c26facd892663b99a822df5489a971147e606f32430e815f"
+    },
+    "current_source_files_verified": 47,
+    "full_raw_replay_performed": false,
+    "limits": "Checks compact canonical records and their cross-bound declared raw/index hashes, not the retained raw bytes. Existing full verifier receipts checked; no new exhaustive replay or independent seed regeneration. Development descriptive, validation restricted artificial-family result; no method adoption or market authority.",
+    "method_adoption_authorized": false,
+    "passed": true,
+    "phases": [
+      {
+        "counts": {
+          "active_words": 0,
+          "metrics": 229376,
+          "paths": 81920,
+          "payload_bytes": 1896382464,
+          "words": 11378294784
+        },
+        "decision": "PASS",
+        "effect_cells": 4,
+        "formal_cells": 25,
+        "index_digest": "03e0c5c0784531c44c9bc69d9bd91bac0376639c09fc016037bd225a0da95924",
+        "joint_cells": 9,
+        "payload_digest": "0db6f5ca1f11f2850e91cbc74139161fb12caa7070e6a6d8427b83b877e70e85",
+        "phase": "development",
+        "replicates": 8192,
+        "report_sha256": "b35de1b0130305cc51dbe33b3203191fa7600f528096801fc752bf16ad0a488c",
+        "sparse_diagnostics": 3,
+        "stage_durations": [
+          {
+            "cap": 21600,
+            "kind": "writer",
+            "role": "primary",
+            "seconds": 3984.500983451
+          },
+          {
+            "cap": 57600,
+            "kind": "verifier",
+            "role": "primary",
+            "seconds": 2936.351224159999
+          },
+          {
+            "cap": 57600,
+            "kind": "verifier",
+            "role": "reviewer",
+            "seconds": 2991.646447502001
+          }
+        ],
+        "terminal_sha256": "7fb947a207c287656aeea135b5026caa26a1cb186031c302c0843d5dd191b656"
+      },
+      {
+        "counts": {
+          "active_words": 0,
+          "metrics": 917504,
+          "paths": 327680,
+          "payload_bytes": 7585529856,
+          "words": 45513179136
+        },
+        "decision": "PASS",
+        "effect_cells": 4,
+        "formal_cells": 25,
+        "index_digest": "75a2ff82265e94147c0b37c16c90540435aa8a7fdef49aac45f4f1c4a27064f2",
+        "joint_cells": 9,
+        "payload_digest": "48bf74842cfb46dfb7ae6ce3a06d787ea4c1c7446d09c081c542671042160277",
+        "phase": "validation",
+        "replicates": 32768,
+        "report_sha256": "a01e7b76c86a42a5fde8ad6ef77697ee0ee401cc85e48bf653b88d559b9d92b1",
+        "sparse_diagnostics": 3,
+        "stage_durations": [
+          {
+            "cap": 43200,
+            "kind": "writer",
+            "role": "primary",
+            "seconds": 14690.156999822002
+          },
+          {
+            "cap": 57600,
+            "kind": "verifier",
+            "role": "primary",
+            "seconds": 11527.555820743
+          },
+          {
+            "cap": 57600,
+            "kind": "verifier",
+            "role": "reviewer",
+            "seconds": 11452.715153284997
+          }
+        ],
+        "terminal_sha256": "08393bb0e2ca351382c76dc6424109242b87e80cd248d0aba79274f76e9f80c8"
+      }
+    ],
+    "real_market_strategy_profitability_claim": false,
+    "scope": "COMPACT_COMPLETION_CANONICAL_BINDING_COUNTS_CUTOFFS_AND_OWNED_STAGE_BUDGETS",
+    "source_manifest": "bbe74e4adff9b5f6c4e79f2a6e95b26ed930bfc51e3f5eb1b714054b12607cba",
+    "state": "FINAL_VERDICT",
+    "study_completion_evidence_go": true,
+    "verification_receipts_checked": 4
+  },
+  "metrics": 1146880,
+  "monitor_copy_outcome": {
+    "authority": false,
+    "classification": "FINAL_VERDICT_NON_AUTHORITATIVE",
+    "copy_error": false,
+    "qualification": false
+  },
+  "monitor_process_outcome": {
+    "authority": false,
+    "classification": "FINAL_VERDICT_NON_AUTHORITATIVE",
+    "qualification": false
+  },
+  "next": "Review applicability/limits and preserve full provenance, then existing guarded raw-only cleanup underD44. No rerun/redraw/thresholdchange. Follow planned simulator work without crossing operator stop before real-data evaluation.",
+  "paths": 409600,
+  "phase_artifacts": {
+    "development\\phase-claim.json": "0d3d5e3e114d38892fbaa8b5f4ffe6fd765f478ba0db0b83b985fb7373e072f9",
+    "development\\phase-report.json": "b35de1b0130305cc51dbe33b3203191fa7600f528096801fc752bf16ad0a488c",
+    "development\\phase-terminal.json": "7fb947a207c287656aeea135b5026caa26a1cb186031c302c0843d5dd191b656",
+    "development\\verified-primary.json": "a28a92a4f0e7690bbcb130c302a33a4325587afea224a4dda3c1d089cb1edc22",
+    "development\\verified-reviewer.json": "1a4ad2761e7cf868e3b7abbcdca8320840f07eb436c49693e1ec4f00d780e2ef",
+    "validation\\phase-claim.json": "c9c69a829130bd866b4153544ca86146b0eae46511187e4741e5a015d7be7820",
+    "validation\\phase-report.json": "a01e7b76c86a42a5fde8ad6ef77697ee0ee401cc85e48bf653b88d559b9d92b1",
+    "validation\\phase-terminal.json": "08393bb0e2ca351382c76dc6424109242b87e80cd248d0aba79274f76e9f80c8",
+    "validation\\verified-primary.json": "4d379419cfb1c3025092a618758fa25b0180e51038b07cc35e4b114f30c3d4ee",
+    "validation\\verified-reviewer.json": "8eba5caf52bc65e9c26facd892663b99a822df5489a971147e606f32430e815f"
+  },
+  "primary_audit_sha256": "02e4b8d423da1e96e858041bffc10baa2c9ee711f58a5c40edd486cdac9fd0af",
+  "primary_compact_audit": {
+    "adoption_or_real_market_authority": false,
+    "all_children_exited": true,
+    "attempt_sha256": "5d4da0081a241bd4b9f722c5134c86297c3a10aa9eef2052d3d52ee8c7dccaac",
+    "metrics": 1146880,
+    "passed": true,
+    "paths": 409600,
+    "phases": [
+      {
+        "coverage_all_formal_cells": true,
+        "decision": "PASS",
+        "effect_detection_all_4_cells": true,
+        "metrics": 229376,
+        "paths": 81920,
+        "phase": "development",
+        "receipts": [
+          {
+            "receipt": "phase-terminal",
+            "seconds": 3984.480513876,
+            "sha256": "7fb947a207c287656aeea135b5026caa26a1cb186031c302c0843d5dd191b656"
+          },
+          {
+            "receipt": "verified-primary",
+            "seconds": 2936.3272824369997,
+            "sha256": "a28a92a4f0e7690bbcb130c302a33a4325587afea224a4dda3c1d089cb1edc22"
+          },
+          {
+            "receipt": "verified-reviewer",
+            "seconds": 2991.6195974849998,
+            "sha256": "1a4ad2761e7cf868e3b7abbcdca8320840f07eb436c49693e1ec4f00d780e2ef"
+          }
+        ],
+        "replicates_per_family": 8192,
+        "report_sha256": "b35de1b0130305cc51dbe33b3203191fa7600f528096801fc752bf16ad0a488c",
+        "sparse_diagnostics_unsupported": true,
+        "terminal_sha256": "7fb947a207c287656aeea135b5026caa26a1cb186031c302c0843d5dd191b656"
+      },
+      {
+        "coverage_all_formal_cells": true,
+        "decision": "PASS",
+        "effect_detection_all_4_cells": true,
+        "metrics": 917504,
+        "paths": 327680,
+        "phase": "validation",
+        "receipts": [
+          {
+            "receipt": "phase-terminal",
+            "seconds": 14690.138212026,
+            "sha256": "08393bb0e2ca351382c76dc6424109242b87e80cd248d0aba79274f76e9f80c8"
+          },
+          {
+            "receipt": "verified-primary",
+            "seconds": 11527.535144457,
+            "sha256": "4d379419cfb1c3025092a618758fa25b0180e51038b07cc35e4b114f30c3d4ee"
+          },
+          {
+            "receipt": "verified-reviewer",
+            "seconds": 11452.690163928004,
+            "sha256": "8eba5caf52bc65e9c26facd892663b99a822df5489a971147e606f32430e815f"
+          }
+        ],
+        "replicates_per_family": 32768,
+        "report_sha256": "a01e7b76c86a42a5fde8ad6ef77697ee0ee401cc85e48bf653b88d559b9d92b1",
+        "sparse_diagnostics_unsupported": true,
+        "terminal_sha256": "08393bb0e2ca351382c76dc6424109242b87e80cd248d0aba79274f76e9f80c8"
+      }
+    ],
+    "raw_cleanup": "NOT_PERFORMED",
+    "scope": "COMPACT_FINAL_RECEIPT_AUDIT_NO_NEW_RAW_REPLAY_NO_TRADING_AUTHORITY",
+    "sealed_validation_release_count": 1,
+    "source_files": 47
+  },
+  "raw_cleanup": "NOT_PERFORMED; old v2 failure and both completed v3 phase payloads retained",
+  "raw_replay_scope": "Four existing native full raw verifications completed. Current root/reviewer checks audit compact counters/canonical hashes/bindings/cutoffs/proofs; no additional full409600-history replay.",
+  "restart_count": 0,
+  "reviewer_audit_sha256": "ee1e1db4b414daaf169aca418ceb4fe1c82c8d71d30baee5ae5de24863db30ce",
+  "scope": "COMPLETED_ARTIFICIAL_STUDY_PASS_NO_METHOD_ADOPTION_OR_TRADING_AUTHORITY",
+  "stage_timings": [
+    {
+      "kind": "writer",
+      "phase": "development",
+      "role": "primary",
+      "seconds": 3984.500983451
+    },
+    {
+      "kind": "verifier",
+      "phase": "development",
+      "role": "primary",
+      "seconds": 2936.351224159999
+    },
+    {
+      "kind": "verifier",
+      "phase": "development",
+      "role": "reviewer",
+      "seconds": 2991.646447502001
+    },
+    {
+      "kind": "writer",
+      "phase": "validation",
+      "role": "primary",
+      "seconds": 14690.156999822002
+    },
+    {
+      "kind": "verifier",
+      "phase": "validation",
+      "role": "primary",
+      "seconds": 11527.555820743
+    },
+    {
+      "kind": "verifier",
+      "phase": "validation",
+      "role": "reviewer",
+      "seconds": 11452.715153284997
+    }
+  ],
+  "state": {
+    "Dead": false,
+    "Error": "",
+    "ExitCode": 0,
+    "FinishedAt": "2026-10-08T02:53:02.962291642Z",
+    "OOMKilled": false,
+    "Paused": false,
+    "Pid": 0,
+    "Restarting": false,
+    "Running": false,
+    "StartedAt": "2026-10-07T13:35:58.659650554Z",
+    "Status": "exited"
+  },
+  "statistical_applicability": "PASS only for frozen artificial laws/geometries; sparse selection remainsunsupported. No real-market profitability evidence or automaticmethodadoption.",
+  "stopped_inspection_sha256": "a38bb7e37425eaa691589830be73b31d27c394c4fce7d98ed314a7b2307d5c1a",
+  "validation": "PASS",
+  "wall_seconds": 47824.302641
+}
