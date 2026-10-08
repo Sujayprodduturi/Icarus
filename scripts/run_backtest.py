@@ -6,32 +6,53 @@ With no arguments it runs every file in ``strategies/``. The panel comes from ``
 built by ``scripts/build_panel.py``; this script touches no network and reads no session outside
 the development span, because the panel it loads does not contain one.
 
-**Every run recorded here is a trial.** The ledger at ``var/trial_ledger.json`` counts it whether
-a human or the Inventor started it (invariant #24), and it is printed at the end so the number is
-never out of sight. The overfitting correction in 1.9 reads that count; a run that quietly did not
-appear in it would make every DSR figure afterwards too generous.
+**Every run recorded here is a trial.** PostgreSQL reserves the attempt before evaluation and is
+the sole lifetime-count authority after explicit legacy activation. A result is not released to
+stdout or an artifact until its terminal transaction has been verified.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import math
+import os
 import sys
+from collections.abc import Callable
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
+from typing import Protocol, TypeVar
+from uuid import uuid4
+
+import numpy as np
+from sqlalchemy import create_engine
 
 from icarus.common.config import load_goal
 from icarus.common.logging import get_logger
 from icarus.engine.panelbuild import load_panel
 from icarus.engine.portfolio import Skipped
 from icarus.engine.runner import (
-    DEFAULT_TRIAL_LEDGER,
     BacktestResult,
     gate_verdict,
-    read_trials,
     run_walk_forward,
 )
-from icarus.strategy.dsl import parse_strategy
+from icarus.state.trial_ledger import (
+    EvaluationReservation,
+    JsonValue,
+    PostgresTrialLedger,
+    TrialBatchReceipt,
+    TrialBatchReservation,
+    TrialBatchTerminal,
+    TrialEvaluationResult,
+    TrialIdentityConflict,
+    TrialKind,
+    TrialLedgerUnavailable,
+    TrialOrigin,
+    TrialReservationAuthorization,
+)
+from icarus.strategy.dsl import Panel, StrategyCandidate, parse_strategy
 from icarus.strategy.library import default_registry
 
 log = get_logger("scripts.run_backtest")
@@ -39,6 +60,143 @@ log = get_logger("scripts.run_backtest")
 PANEL = Path("var/panel.npz")
 STRATEGY_DIR = Path("strategies")
 RESULTS = Path("var/backtest_results.json")
+GOAL = Path("goal.yaml")
+_Loaded = TypeVar("_Loaded")
+
+
+class _PortfolioLedger(Protocol):
+    def reserve(self, batch: TrialBatchReservation) -> TrialBatchReceipt: ...
+
+    def complete(
+        self,
+        receipt: TrialBatchReceipt,
+        results: tuple[TrialEvaluationResult, ...],
+    ) -> TrialBatchTerminal: ...
+
+    def fail(self, receipt: TrialBatchReceipt, *, failure_code: str) -> TrialBatchTerminal: ...
+
+
+def _read_bytes(path: Path) -> bytes:
+    try:
+        return path.read_bytes()
+    except OSError as exc:
+        raise SystemExit(f"cannot read counted-trial input: {path}") from exc
+
+
+def _load_stable(  # noqa: UP047 -- mypy lacks stable PEP 695 support
+    path: Path, loader: Callable[[Path], _Loaded]
+) -> tuple[_Loaded, str]:
+    """Bind the hash to bytes that stayed stable for the whole path-based load."""
+    before = _read_bytes(path)
+    loaded = loader(path)
+    after = _read_bytes(path)
+    if before != after:
+        raise SystemExit(f"counted-trial input changed while it was being loaded: {path}")
+    return loaded, hashlib.sha256(before).hexdigest()
+
+
+def _utc_timestamp(value: np.datetime64) -> datetime:
+    text = np.datetime_as_string(value, unit="us", timezone="UTC")
+    return datetime.fromisoformat(text.replace("Z", "+00:00")).astimezone(UTC)
+
+
+def _portfolio_reservation(
+    strategy: StrategyCandidate,
+    panel: Panel,
+    *,
+    strategy_sha256: str,
+    panel_sha256: str,
+    config_sha256: str,
+) -> TrialBatchReservation:
+    if len(panel) == 0:
+        raise ValueError("cannot reserve an empty portfolio panel")
+    return TrialBatchReservation(
+        run_group_id=uuid4(),
+        origin=TrialOrigin.OPERATOR,
+        strategy_name=strategy.name,
+        strategy_version=strategy.version,
+        strategy_sha256=strategy_sha256,
+        panel_sha256=panel_sha256,
+        config_sha256=config_sha256,
+        primitives=tuple(sorted(strategy.primitives_used())),
+        evaluations=(
+            EvaluationReservation(
+                ordinal=0,
+                kind=TrialKind.PORTFOLIO,
+                fold_index=None,
+                start_index=0,
+                end_index_exclusive=len(panel),
+                start_ts=_utc_timestamp(panel.ts[0]),
+                end_ts=_utc_timestamp(panel.ts[-1]),
+                reset_identity="walk_forward_portfolio_v1",
+            ),
+        ),
+    )
+
+
+def _json_value(value: object) -> JsonValue:
+    if value is None or isinstance(value, (bool, int, str)):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, (list, tuple)):
+        return [_json_value(item) for item in value]
+    if isinstance(value, dict):
+        if not all(isinstance(key, str) for key in value):
+            raise ValueError("portfolio result payload keys must be strings")
+        return {key: _json_value(item) for key, item in value.items()}
+    raise ValueError(f"portfolio result contains unsupported {type(value).__name__}")
+
+
+def _sharpe(result: BacktestResult, *, after_tax: bool) -> Decimal | None:
+    metrics = result.oos_after_tax if after_tax else result.oos
+    if metrics is None or not metrics.sharpe.is_estimable:
+        return None
+    point = metrics.sharpe.point
+    return Decimal(str(point)) if math.isfinite(point) else None
+
+
+def _portfolio_result(result: BacktestResult) -> TrialEvaluationResult:
+    payload = _json_value(result.as_json())
+    if not isinstance(payload, dict):
+        raise ValueError("portfolio result payload must be an object")
+    return TrialEvaluationResult(
+        ordinal=0,
+        kind=TrialKind.PORTFOLIO,
+        oos_sharpe=_sharpe(result, after_tax=False),
+        oos_sharpe_after_tax=_sharpe(result, after_tax=True),
+        observation_count=len(result.oos_trades),
+        payload=payload,
+    )
+
+
+def _execute_counted_portfolio(
+    ledger: _PortfolioLedger,
+    batch: TrialBatchReservation,
+    evaluate: Callable[[], BacktestResult],
+) -> BacktestResult:
+    """Return an evaluation only after its complete terminal is durably verified."""
+    receipt = ledger.reserve(batch)
+    if receipt.authorization is not TrialReservationAuthorization.NEW_EVALUATION:
+        raise TrialIdentityConflict(
+            "a recovery-only reservation receipt does not authorize portfolio evaluation"
+        )
+    try:
+        result = evaluate()
+        rows = (_portfolio_result(result),)
+    except Exception:
+        ledger.fail(receipt, failure_code="EVALUATION_FAILED")
+        raise RuntimeError("portfolio evaluation failed after counted reservation") from None
+    try:
+        ledger.complete(receipt, rows)
+    except TrialLedgerUnavailable:
+        # A lost COMMIT acknowledgement is ambiguous. Repeating the same idempotent persistence
+        # call verifies the terminal without running the portfolio a second time. If the datastore
+        # remains unavailable, the result stays behind this function's release barrier.
+        ledger.complete(receipt, rows)
+    return result
 
 
 def main() -> int:
@@ -52,9 +210,14 @@ def main() -> int:
     if not files:
         raise SystemExit(f"no strategy files given and none found in {STRATEGY_DIR}/")
 
-    goal = load_goal()
+    goal, config_sha256 = _load_stable(GOAL, load_goal)
     registry = default_registry()
-    panel = load_panel(args.panel)
+    panel, panel_sha256 = _load_stable(args.panel, load_panel)
+    dsn = os.environ.get("ICARUS_PG_DSN")
+    if not dsn:
+        raise SystemExit("ICARUS_PG_DSN is required for counted portfolio evaluation")
+    engine = create_engine(dsn)
+    ledger = PostgresTrialLedger(engine)
     log.info(
         "panel loaded",
         symbols=len(panel.symbols),
@@ -66,19 +229,40 @@ def main() -> int:
 
     results: list[BacktestResult] = []
     for path in files:
-        strategy = parse_strategy(
-            path.read_text(encoding="utf-8"),
-            registry=registry,
-            max_risk_r=goal.risk.per_trade_risk_r,
+        strategy, strategy_sha256 = _load_stable(
+            path,
+            lambda strategy_path: parse_strategy(
+                strategy_path.read_text(encoding="utf-8"),
+                registry=registry,
+                max_risk_r=goal.risk.per_trade_risk_r,
+            ),
         )
         log.info("running", strategy=strategy.name, file=str(path))
-        results.append(run_walk_forward(strategy, panel, goal=goal, registry=registry))
+        batch = _portfolio_reservation(
+            strategy,
+            panel,
+            strategy_sha256=strategy_sha256,
+            panel_sha256=panel_sha256,
+            config_sha256=config_sha256,
+        )
+
+        def evaluate(current: StrategyCandidate = strategy) -> BacktestResult:
+            return run_walk_forward(
+                current,
+                panel,
+                goal=goal,
+                registry=registry,
+                ledger=None,
+            )
+
+        results.append(_execute_counted_portfolio(ledger, batch, evaluate))
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps([r.as_json() for r in results], indent=2), encoding="utf-8")
     _print_sheet(results, goal)
-    print(f"\nlifetime trials on the ledger: {len(read_trials(DEFAULT_TRIAL_LEDGER))}")
+    print(f"\nlifetime trials on the ledger: {ledger.lifetime_count()}")
     print(f"full results: {args.out}")
+    engine.dispose()
     return 0
 
 

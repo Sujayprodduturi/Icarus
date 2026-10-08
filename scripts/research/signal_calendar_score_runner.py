@@ -475,7 +475,12 @@ def _record_startup_error(
     status, hint = "MISSING", None
     if process.pid is not None and process.exitcode is not None and worker is not None:
         try:
-            if connection.poll(0):
+            try:
+                pending = connection.poll(0)
+            except BrokenPipeError:
+                # An empty closed Windows pipe has no hint; receive errors stay invalid.
+                pending = False
+            if pending:
                 blob = connection.recv_bytes(_STARTUP_CAP)
                 status = "INVALID"
                 value = json.loads(blob)

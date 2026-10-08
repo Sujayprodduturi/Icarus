@@ -14,7 +14,10 @@ config = context.config
 # DSN from env, never from the ini file (no committed creds).
 dsn = os.environ.get("ICARUS_PG_DSN")
 if dsn:
-    config.set_main_option("sqlalchemy.url", dsn)
+    # Alembic stores this value in ConfigParser, where percent signs otherwise
+    # trigger interpolation.  Escaping here preserves URL-encoded query options
+    # (including the isolated test schema) for SQLAlchemy.
+    config.set_main_option("sqlalchemy.url", dsn.replace("%", "%%"))
 
 target_metadata = Base.metadata
 

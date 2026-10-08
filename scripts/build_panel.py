@@ -34,8 +34,8 @@ from icarus.agents.data.yahoo import YahooDailySource
 from icarus.common.config import load_goal
 from icarus.common.logging import get_logger
 from icarus.common.types import AssetClass
-from icarus.engine.panelbuild import build_panel, save_panel, session_axis, sessions_in
-from icarus.strategy.dsl import Bars
+from icarus.engine.panelbuild import BuildReport, build_panel, save_panel, session_axis, sessions_in
+from icarus.strategy.dsl import Bars, Panel
 
 log = get_logger("scripts.build_panel")
 
@@ -115,7 +115,9 @@ def main() -> None:
     log.info("panel written", panel=str(args.out), report=str(REPORT))
 
 
-async def _assemble(sessions: list[date], goal: object, *, skip_benchmark: bool) -> tuple:
+async def _assemble(
+    sessions: list[date], goal: object, *, skip_benchmark: bool
+) -> tuple[Panel, BuildReport]:
     frm, to = sessions[0], sessions[-1]
     async with httpx.AsyncClient(timeout=90.0, follow_redirects=True) as client:
         actions = await NseCorporateActions(client, ACTIONS).history(frm, to)

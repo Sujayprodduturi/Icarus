@@ -44,22 +44,27 @@
 ```python
 type JsonValue = None | bool | int | float | str | list[JsonValue] | dict[str, JsonValue]
 
+
 class TrialOrigin(StrEnum):
     OPERATOR = "operator"
     INVENTOR = "inventor"
+
 
 class TrialKind(StrEnum):
     PORTFOLIO = "portfolio"
     SIGNAL_FULL = "signal_full"
     SIGNAL_FOLD = "signal_fold"
 
+
 class TrialTerminalState(StrEnum):
     COMPLETED = "completed"
     FAILED = "failed"
 
+
 class TrialReservationAuthorization(StrEnum):
     NEW_EVALUATION = "new_evaluation"
     RECOVERY_ONLY = "recovery_only"
+
 
 @dataclass(frozen=True, slots=True)
 class EvaluationReservation:
@@ -71,6 +76,7 @@ class EvaluationReservation:
     start_ts: datetime | None
     end_ts: datetime | None
     reset_identity: str
+
 
 @dataclass(frozen=True, slots=True)
 class TrialBatchReservation:
@@ -85,13 +91,16 @@ class TrialBatchReservation:
     evaluations: tuple[EvaluationReservation, ...]
     source: Literal["native", "legacy_json_v1"] = "native"
 
+
 @dataclass(frozen=True, slots=True)
 class TrialEvaluationResult:
     ordinal: int
+    kind: TrialKind
     oos_sharpe: Decimal | None
     oos_sharpe_after_tax: Decimal | None
     observation_count: int
     payload: dict[str, JsonValue]
+
 
 @dataclass(frozen=True, slots=True)
 class TrialBatchReceipt:
@@ -102,12 +111,14 @@ class TrialBatchReceipt:
     newly_created: bool
     authorization: TrialReservationAuthorization
 
+
 @dataclass(frozen=True, slots=True)
 class TrialBatchTerminal:
     run_group_id: UUID
     state: TrialTerminalState
     results_sha256: str | None
     failure_code: str | None
+
 
 @dataclass(frozen=True, slots=True)
 class LegacyPortfolioTrial:
@@ -124,17 +135,20 @@ class LegacyPortfolioTrial:
     folds: int
     original_payload: dict[str, JsonValue]
 
+
 @dataclass(frozen=True, slots=True)
 class LegacyPortfolioLedger:
     schema: Literal[1]
     sha256: str
     trials: tuple[LegacyPortfolioTrial, ...]
 
+
 @dataclass(frozen=True, slots=True)
 class ActivationReceipt:
     legacy_entry_count: int
     legacy_sha256: str
     lifetime_trial_count: int
+
 
 class PostgresTrialLedger:
     def __init__(self, engine: Engine) -> None: ...
@@ -153,12 +167,22 @@ class PostgresTrialLedger:
     def lifetime_count(self) -> int: ...
     def import_legacy_and_activate(self, legacy: LegacyPortfolioLedger) -> ActivationReceipt: ...
 
+
 def read_legacy_portfolio_ledger(path: Path) -> LegacyPortfolioLedger: ...
 
+
 class TrialLedgerError(RuntimeError): ...
+
+
 class TrialLedgerUnavailable(TrialLedgerError): ...
+
+
 class TrialLedgerCorruption(TrialLedgerError): ...
+
+
 class TrialLedgerNotActivated(TrialLedgerError): ...
+
+
 class TrialIdentityConflict(TrialLedgerError): ...
 ```
 
@@ -175,12 +199,14 @@ The service catches SQLAlchemy/psycopg availability failures as `TrialLedgerUnav
 1. `trial_ledger_activation`: singleton `id SMALLINT PRIMARY KEY CHECK (id=1)`, `legacy_schema INTEGER NOT NULL CHECK (legacy_schema=1)`, `legacy_entry_count INTEGER NOT NULL CHECK (legacy_entry_count>=0)`, `legacy_sha256 CHAR(64) NOT NULL`, `activated_at TIMESTAMPTZ NOT NULL DEFAULT now()`.
 2. `trial_batches`: `run_group_id UUID PRIMARY KEY`, `reservation_sha256 CHAR(64) NOT NULL`, `origin VARCHAR(16) NOT NULL CHECK IN ('operator','inventor')`, `source VARCHAR(24) NOT NULL CHECK IN ('native','legacy_json_v1')`, `strategy_name VARCHAR(128) NOT NULL`, `strategy_version INTEGER NOT NULL`, nullable `strategy_sha256/panel_sha256/config_sha256 CHAR(64)`, `primitives JSONB NOT NULL`, `expected_evaluations INTEGER NOT NULL CHECK (>0)`, `reserved_at TIMESTAMPTZ NOT NULL DEFAULT now()`. A CHECK requires all three hashes for `source='native'`.
 3. `trial_evaluations`: `evaluation_id UUID PRIMARY KEY`, `run_group_id UUID NOT NULL REFERENCES trial_batches`, `ordinal INTEGER NOT NULL CHECK (ordinal>=0)`, `kind VARCHAR(24) NOT NULL CHECK IN ('portfolio','signal_full','signal_fold')`, nullable `fold_index/start_index/end_index_exclusive INTEGER`, nullable `start_ts/end_ts TIMESTAMPTZ`, `reset_identity VARCHAR(64) NOT NULL`, and `UNIQUE(run_group_id, ordinal)`. CHECK constraints pin full-span ordinal 0/no fold, fold ordinals >=1 with nonnegative fold index, ordered indices, and paired UTC span fields where native provenance exists.
-4. `trial_results`: `evaluation_id UUID PRIMARY KEY REFERENCES trial_evaluations`, `result_sha256 CHAR(64) NOT NULL`, nullable `oos_sharpe/oos_sharpe_after_tax NUMERIC` with no precision or scale coercion, `observation_count INTEGER NOT NULL CHECK (>=0)`, `payload JSONB NOT NULL`, `recorded_at TIMESTAMPTZ NOT NULL DEFAULT now()`. Domain validation accepts only finite Decimals with at most 128 significant digits and adjusted exponent between -128 and 128, then verifies the database round-trip is exactly equal; nonrepresentable values refuse rather than round.
+4. `trial_results`: `evaluation_id UUID PRIMARY KEY REFERENCES trial_evaluations`, `result_sha256 CHAR(64) NOT NULL`, nullable `oos_sharpe/oos_sharpe_after_tax NUMERIC` with no precision or scale coercion, `observation_count INTEGER NOT NULL CHECK (>=0)`, `payload JSONB NOT NULL`, `recorded_at TIMESTAMPTZ NOT NULL DEFAULT now()`. Domain validation accepts only finite Decimals with at most 128 significant digits and raw Decimal tuple exponent between -128 and 128, then verifies the database round-trip is exactly equal; nonrepresentable values refuse rather than round.
 5. `trial_batch_terminals`: `run_group_id UUID PRIMARY KEY REFERENCES trial_batches`, `state VARCHAR(16) NOT NULL CHECK IN ('completed','failed')`, nullable `results_sha256 CHAR(64)`, nullable `failure_code VARCHAR(64)`, `recorded_at TIMESTAMPTZ NOT NULL DEFAULT now()`, with a CHECK requiring digest only for completed and failure code only for failed.
 
 Indexes are `trial_batches(reserved_at)` and `trial_batch_terminals(state)`; the unique constraint already indexes `trial_evaluations(run_group_id, ordinal)`, so no duplicate index is added. Shared DB triggers reject UPDATE, DELETE, and statement-level TRUNCATE on all five tables. A deferred constraint trigger rejects commit unless every newly inserted batch has exactly `expected_evaluations` rows. An evaluation-insert trigger rejects ordinals outside the owning batch and any insert after a terminal. A result-insert trigger rejects results after a terminal. A deferred result-consistency trigger rejects commit if any newly inserted result lacks one `COMPLETED` terminal or if that completed batch lacks any reserved result; a result-free pending reservation remains valid. A terminal trigger requires exactly the reserved result cardinality for `completed` and zero results for `failed`. Every new batch insert requires the singleton activation row, including legacy import batches inserted later in the same activation transaction.
 
-`downgrade()` drops only these triggers/functions/tables in reverse dependency order. It is implemented for test databases but must not be run on a populated operator ledger because that would destroy the lifetime count.
+`downgrade()` first refuses when the activation singleton exists, then drops only these
+triggers/functions/tables in reverse dependency order. It therefore works only on an empty,
+unactivated test database and cannot destroy activated lifetime history.
 
 ## Task 1: Freeze Contracts and Database Invariants
 
@@ -193,7 +219,9 @@ Indexes are `trial_batches(reserved_at)` and `trial_batch_terminals(state)`; the
 
 ## Task 2: Prove Atomic Reservation, Count, Completion, Failure, and Concurrency
 
-**Files:** Modify `icarus/state/trial_ledger.py`; create `tests/integration/test_trial_ledger.py`.
+**Files:** Modify `icarus/state/trial_ledger.py`; create
+`tests/integration/test_trial_ledger_postgres.py`; modify `.github/workflows/ci.yml` to supply the
+explicit trial-test DSN from CI's existing ephemeral PostgreSQL service.
 
 - [ ] **Red:** Against an isolated migrated PostgreSQL database, add tests that reservation before activation refuses; one signal reservation inserts exactly `N+1` with exact fold geometry; a committed reservation with no terminal remains counted from a new connection; known failure remains counted; completion inserts all results and terminal atomically; and UPDATE/DELETE/TRUNCATE fail at the database layer.
 - [ ] **Red transaction guards:** Use direct SQL to attempt (a) a batch with an omitted fold, (b) one result without a terminal, (c) a partial result set plus `COMPLETED`, (d) results against `FAILED`, and (e) results added after a terminal. Each transaction must fail at commit and leave no partial result rows. A reservation with zero results and no terminal must commit and count.
@@ -219,7 +247,7 @@ Indexes are `trial_batches(reserved_at)` and `trial_batch_terminals(state)`; the
 
 **Files:** No additional runtime files. Parent owns durable status/review documents after independent review.
 
-- [ ] Run focused tests: `uv run pytest tests/unit/test_trial_ledger.py tests/unit/test_run_backtest_trial_barrier.py tests/integration/test_trial_ledger.py -q` against only the isolated migrated database.
+- [ ] Run focused tests: `uv run pytest tests/unit/test_trial_ledger.py tests/unit/test_migrate_trial_ledger.py tests/unit/test_run_backtest_trial_barrier.py tests/integration/test_trial_ledger_postgres.py -q` against only the isolated migrated database.
 - [ ] Run affected regressions: `uv run pytest tests/unit/test_runner.py tests/unit/test_metric_sheet.py tests/unit/test_signaltest.py tests/unit/test_signal_simulator.py tests/unit/test_portfolio_characterization.py -q`.
 - [ ] Run the full available unit suite: `uv run pytest tests/unit -q`.
 - [ ] Run static checks: `uv run mypy icarus scripts tests`; `uv run ruff check icarus scripts tests`; `uv run ruff format --check icarus scripts tests`; `git diff --check`.

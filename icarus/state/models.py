@@ -12,15 +12,20 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
+from uuid import UUID
 
 from sqlalchemy import (
+    CheckConstraint,
     DateTime,
     ForeignKey,
     Index,
     Integer,
     Numeric,
+    SmallInteger,
     String,
     Text,
+    UniqueConstraint,
+    Uuid,
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -136,4 +141,137 @@ class AuditLog(Base):
     __table_args__ = (
         Index("ix_audit_event_type", "event_type"),
         Index("ix_audit_correlation", "correlation_id"),
+    )
+
+
+class TrialLedgerActivation(Base):
+    """One immutable row switches the lifetime count from legacy JSON to PostgreSQL."""
+
+    __tablename__ = "trial_ledger_activation"
+
+    id: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
+    legacy_schema: Mapped[int] = mapped_column(Integer, nullable=False)
+    legacy_entry_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    legacy_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    activated_at: Mapped[datetime] = _utc_col()
+
+    __table_args__ = (
+        CheckConstraint("id = 1", name="ck_trial_activation_singleton"),
+        CheckConstraint("legacy_schema = 1", name="ck_trial_activation_schema"),
+        CheckConstraint("legacy_entry_count >= 0", name="ck_trial_activation_count"),
+    )
+
+
+class TrialBatch(Base):
+    """Immutable pre-evaluation reservation for one counted run group."""
+
+    __tablename__ = "trial_batches"
+
+    run_group_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    reservation_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    origin: Mapped[str] = mapped_column(String(16), nullable=False)
+    source: Mapped[str] = mapped_column(String(24), nullable=False)
+    strategy_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    strategy_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    strategy_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    panel_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    config_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    primitives: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    expected_evaluations: Mapped[int] = mapped_column(Integer, nullable=False)
+    reserved_at: Mapped[datetime] = _utc_col()
+
+    __table_args__ = (
+        CheckConstraint("origin IN ('operator','inventor')", name="ck_trial_batch_origin"),
+        CheckConstraint("source IN ('native','legacy_json_v1')", name="ck_trial_batch_source"),
+        CheckConstraint("expected_evaluations > 0", name="ck_trial_batch_expected"),
+        CheckConstraint(
+            "source <> 'native' OR "
+            "(strategy_sha256 IS NOT NULL AND panel_sha256 IS NOT NULL "
+            "AND config_sha256 IS NOT NULL)",
+            name="ck_trial_batch_native_hashes",
+        ),
+        Index("ix_trial_batches_reserved_at", "reserved_at"),
+    )
+
+
+class TrialEvaluation(Base):
+    """One raw counted trial within a reserved run group."""
+
+    __tablename__ = "trial_evaluations"
+
+    evaluation_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    run_group_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("trial_batches.run_group_id"), nullable=False
+    )
+    ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
+    kind: Mapped[str] = mapped_column(String(24), nullable=False)
+    fold_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    start_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    end_index_exclusive: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    start_ts: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    end_ts: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reset_identity: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("run_group_id", "ordinal", name="uq_trial_evaluation_ordinal"),
+        CheckConstraint("ordinal >= 0", name="ck_trial_evaluation_ordinal"),
+        CheckConstraint(
+            "kind IN ('portfolio','signal_full','signal_fold')", name="ck_trial_evaluation_kind"
+        ),
+        CheckConstraint(
+            "(start_index IS NULL AND end_index_exclusive IS NULL "
+            "AND start_ts IS NULL AND end_ts IS NULL) OR "
+            "(start_index >= 0 AND end_index_exclusive > start_index "
+            "AND start_ts IS NOT NULL AND end_ts IS NOT NULL AND end_ts >= start_ts)",
+            name="ck_trial_evaluation_span",
+        ),
+        CheckConstraint(
+            "(kind = 'signal_fold' AND ordinal >= 1 AND fold_index = ordinal - 1) OR "
+            "(kind <> 'signal_fold' AND fold_index IS NULL)",
+            name="ck_trial_evaluation_fold",
+        ),
+    )
+
+
+class TrialResult(Base):
+    """Result rows arrive as one complete transaction after evaluation."""
+
+    __tablename__ = "trial_results"
+
+    evaluation_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("trial_evaluations.evaluation_id"), primary_key=True
+    )
+    result_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    oos_sharpe: Mapped[Decimal | None] = mapped_column(Numeric(), nullable=True)
+    oos_sharpe_after_tax: Mapped[Decimal | None] = mapped_column(Numeric(), nullable=True)
+    observation_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    payload: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
+    recorded_at: Mapped[datetime] = _utc_col()
+
+    __table_args__ = (
+        CheckConstraint("observation_count >= 0", name="ck_trial_result_observations"),
+    )
+
+
+class TrialBatchTerminal(Base):
+    """Exactly one immutable terminal: complete full batch or known failure."""
+
+    __tablename__ = "trial_batch_terminals"
+
+    run_group_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("trial_batches.run_group_id"), primary_key=True
+    )
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    results_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    failure_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    recorded_at: Mapped[datetime] = _utc_col()
+
+    __table_args__ = (
+        CheckConstraint("state IN ('completed','failed')", name="ck_trial_terminal_state"),
+        CheckConstraint(
+            "(state = 'completed' AND results_sha256 IS NOT NULL AND failure_code IS NULL) OR "
+            "(state = 'failed' AND results_sha256 IS NULL AND failure_code IS NOT NULL)",
+            name="ck_trial_terminal_shape",
+        ),
+        Index("ix_trial_batch_terminals_state", "state"),
     )

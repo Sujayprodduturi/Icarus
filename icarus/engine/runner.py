@@ -266,6 +266,11 @@ def run_walk_forward(
     because an overlap turns the held-out slice into training data and leaves no trace in any
     metric — there is no number afterwards that looks wrong.
     """
+    if ledger is not None:
+        raise DslError(
+            "the legacy JSON trial ledger is disabled; reserve this evaluation in the "
+            "Postgres counted-trial ledger before calling run_walk_forward with ledger=None"
+        )
     source = _validated_source_indices(panel, source_indices)
     # The panel first, then the windows. `evaluate_once` runs the strategy over everything the
     # panel contains, so a panel that includes the lockbox puts it in reach however careful the
@@ -316,8 +321,6 @@ def run_walk_forward(
             "fold complete",
             fold=i,
             test=f"{dates[window.test_start]}..{dates[window.test_end - 1]}",
-            trades=len(test.trades),
-            oos_sharpe=round(result.folds[-1].out_of_sample.sharpe.point, 2),
         )
 
     result.oos_trades = [t for fold in result.folds for t in fold.trades]
@@ -343,8 +346,6 @@ def run_walk_forward(
         sessions_open=_sessions_held(result.oos_trades, _session_days(after_tax)),
     )
 
-    if ledger is not None:
-        record_trial(ledger, strategy, result, origin="operator")
     return result
 
 
@@ -699,9 +700,11 @@ def _tax(trades: Sequence[ClosedTrade], goal: GoalConfig) -> tuple[list[Financia
 def record_trial(
     path: Path, strategy: StrategyCandidate, result: BacktestResult, *, origin: str
 ) -> int:
-    """Append this evaluation to the lifetime trial ledger and return the new count.
+    """Deprecated legacy JSON fixture writer; return its historical row count.
 
-    Append-only, and it counts human attempts too. Every hand-authored strategy, every re-tuned
+    PostgreSQL is the sole trial authority after activation; this helper is only for legacy
+    fixtures and cannot authorize evaluation. Historically it counts human attempts too.
+    Every hand-authored strategy, every re-tuned
     parameter and every re-run is a trial: DSR corrects for multiple testing using the *effective*
     number of things tried, so a ledger that only counted Inventor candidates would leave the
     overfitting guard blind during exactly the phase it exists to protect (invariant #24).
@@ -740,7 +743,7 @@ def record_trial(
 
 
 def read_trials(path: Path) -> list[dict[str, object]]:
-    """The lifetime trial ledger, or an empty list if it does not exist yet."""
+    """Deprecated legacy fixture reader; PostgreSQL is the sole post-activation authority."""
     if not path.exists():
         return []
     payload = json.loads(path.read_text(encoding="utf-8"))

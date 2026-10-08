@@ -31,6 +31,7 @@ jobs:
           --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       ICARUS_PG_DSN: postgresql+psycopg://icarus:icarus@localhost:5432/icarus
+      ICARUS_TRIAL_TEST_PG_DSN: postgresql+psycopg://icarus:icarus@localhost:5432/icarus
       ICARUS_VALKEY_URL: redis://localhost:6379/0
     steps:
       - uses: actions/checkout@v4
