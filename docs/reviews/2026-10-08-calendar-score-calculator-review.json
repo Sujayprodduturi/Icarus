@@ -1,0 +1,473 @@
+{
+  "schema": 1,
+  "date": "2026-10-08",
+  "reviewed_head": "8819514944ea91365e5fa14ea32f772f4bca0913",
+  "verdict": "SCOPED_PASS_SYNTHETIC_ONLY",
+  "runtime_edits": false,
+  "new_experiment": false,
+  "cleanup": false,
+  "real_data_authorized": false,
+  "inference_enabled": false,
+  "reviewers": [
+    "calculator_math_audit",
+    "calculator_boundary_audit"
+  ],
+  "root_regression": {
+    "command": [
+      ".venv/Scripts/python.exe",
+      "-m",
+      "pytest",
+      "tests/unit/test_signal_calendar_score_research.py",
+      "tests/unit/test_signal_calendar_geometry_research.py",
+      "tests/unit/test_signal_calendar_laws_research.py",
+      "tests/unit/test_portfolio_characterization.py",
+      "-q",
+      "-p",
+      "no:cacheprovider"
+    ],
+    "returncode": 0,
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout_sha256": "1c31ce9f221d914dcb50449e880a48eef7ac2124a874097a22bdb019be6d6854",
+    "summary": "........................................................................ [ 55%]\r\n.........................................................                [100%]\r\n129 passed in 4.05s\r\n"
+  },
+  "root_spot_check": {
+    "verdict": "SCOPED_PASS",
+    "calculator_sha256": "7b19acfe21715fe082b13879ea9d3348d769131ab596553baf0c20fd5c600fc7",
+    "baseline_width_squared": [
+      "1/16000",
+      "5/128",
+      "1/25000"
+    ],
+    "three_fixed_metric_joint_lower": "6792175/7082479",
+    "rejections": [
+      [
+        "real",
+        "synthetic_only"
+      ],
+      [
+        "unknown",
+        "unknown_assumptions"
+      ],
+      [
+        "zero",
+        "zero_count"
+      ],
+      [
+        "bool_count",
+        "invalid_count"
+      ]
+    ],
+    "high_observed_count_cannot_rescue_short_history": true,
+    "false_dependence_declaration_invalidates_coverage": true,
+    "runtime_changed": false
+  },
+  "math_review_proof": {
+    "daily_states": 1088,
+    "truths": {
+      "P1": {
+        "raw": "0",
+        "win": "1/4",
+        "synthetic_excess": "-1/200"
+      },
+      "P2": {
+        "raw": "0",
+        "win": "7/12",
+        "synthetic_excess": "-1/200"
+      },
+      "P3": {
+        "raw": "0",
+        "win": "121/256",
+        "synthetic_excess": "-1/200"
+      },
+      "P4": {
+        "raw": "0",
+        "win": "9887/24576",
+        "synthetic_excess": "-1/200"
+      },
+      "P5": {
+        "raw": "0",
+        "win": "1143/2048",
+        "synthetic_excess": "-1/200"
+      },
+      "P6": {
+        "raw": "0",
+        "win": "3577/6144",
+        "synthetic_excess": "-1/200"
+      },
+      "P7": {
+        "raw": "0",
+        "win": "74146261351971311/144115188075855872",
+        "synthetic_excess": "-1/200"
+      },
+      "E+": {
+        "raw": "1/25",
+        "synthetic_excess": "7/200"
+      },
+      "E-": {
+        "raw": "-1/25",
+        "synthetic_excess": "-9/200"
+      },
+      "L1": {
+        "raw": "0",
+        "win": "7/12",
+        "synthetic_excess": "-1/200"
+      }
+    },
+    "exhaustive_small_histories": 128,
+    "P2_n2_expected_ratio_vs_population_theta": [
+      "-1/400",
+      "0"
+    ],
+    "all_profile_pattern_cases": 40,
+    "geometry": [
+      {
+        "profile": "P1",
+        "metric": "raw",
+        "delta": "1/25",
+        "n": 2048,
+        "K": 2,
+        "max_width_squared": "1/16000",
+        "max_width_float": 0.007905694150420948
+      },
+      {
+        "profile": "P1",
+        "metric": "win",
+        "delta": "1",
+        "n": 2048,
+        "K": 2,
+        "max_width_squared": "5/128",
+        "max_width_float": 0.19764235376052372
+      },
+      {
+        "profile": "P1",
+        "metric": "synthetic_excess",
+        "delta": "4/125",
+        "n": 2048,
+        "K": 2,
+        "max_width_squared": "1/25000",
+        "max_width_float": 0.006324555320336759
+      },
+      {
+        "profile": "P2",
+        "metric": "raw",
+        "delta": "3/50",
+        "n": 2048,
+        "K": 2,
+        "max_width_squared": "9/64000",
+        "max_width_float": 0.011858541225631422
+      },
+      {
+        "profile": "P2",
+        "metric": "win",
+        "delta": "1",
+        "n": 2048,
+        "K": 2,
+        "max_width_squared": "5/128",
+        "max_width_float": 0.19764235376052372
+      },
+      {
+        "profile": "P2",
+        "metric": "synthetic_excess",
+        "delta": "7/250",
+        "n": 2048,
+        "K": 2,
+        "max_width_squared": "49/1600000",
+        "max_width_float": 0.005533985905294664
+      },
+      {
+        "profile": "P3",
+        "metric": "raw",
+        "delta": "3/25",
+        "n": 16384,
+        "K": 9,
+        "max_width_squared": "81/256000",
+        "max_width_float": 0.017787811838447135
+      },
+      {
+        "profile": "P3",
+        "metric": "win",
+        "delta": "1",
+        "n": 16384,
+        "K": 9,
+        "max_width_squared": "45/2048",
+        "max_width_float": 0.14823176532039278
+      },
+      {
+        "profile": "P3",
+        "metric": "synthetic_excess",
+        "delta": "11/125",
+        "n": 16384,
+        "K": 9,
+        "max_width_squared": "1089/6400000",
+        "max_width_float": 0.013044395348194565
+      },
+      {
+        "profile": "P4",
+        "metric": "raw",
+        "delta": "3/25",
+        "n": 8192,
+        "K": 5,
+        "max_width_squared": "9/25600",
+        "max_width_float": 0.01875
+      },
+      {
+        "profile": "P4",
+        "metric": "win",
+        "delta": "1",
+        "n": 8192,
+        "K": 5,
+        "max_width_squared": "25/1024",
+        "max_width_float": 0.15625
+      },
+      {
+        "profile": "P4",
+        "metric": "synthetic_excess",
+        "delta": "11/125",
+        "n": 8192,
+        "K": 5,
+        "max_width_squared": "121/640000",
+        "max_width_float": 0.01375
+      },
+      {
+        "profile": "P5",
+        "metric": "raw",
+        "delta": "39/100",
+        "n": 32768,
+        "K": 2,
+        "max_width_squared": "1521/4096000",
+        "max_width_float": 0.01927012949165106
+      },
+      {
+        "profile": "P5",
+        "metric": "win",
+        "delta": "1",
+        "n": 32768,
+        "K": 2,
+        "max_width_squared": "5/2048",
+        "max_width_float": 0.04941058844013093
+      },
+      {
+        "profile": "P5",
+        "metric": "synthetic_excess",
+        "delta": "179/500",
+        "n": 32768,
+        "K": 2,
+        "max_width_squared": "32041/102400000",
+        "max_width_float": 0.017688990661566872
+      },
+      {
+        "profile": "P6",
+        "metric": "raw",
+        "delta": "39/100",
+        "n": 32768,
+        "K": 2,
+        "max_width_squared": "1521/4096000",
+        "max_width_float": 0.01927012949165106
+      },
+      {
+        "profile": "P6",
+        "metric": "win",
+        "delta": "1",
+        "n": 32768,
+        "K": 2,
+        "max_width_squared": "5/2048",
+        "max_width_float": 0.04941058844013093
+      },
+      {
+        "profile": "P6",
+        "metric": "synthetic_excess",
+        "delta": "179/500",
+        "n": 32768,
+        "K": 2,
+        "max_width_squared": "32041/102400000",
+        "max_width_float": 0.017688990661566872
+      },
+      {
+        "profile": "P7",
+        "metric": "raw",
+        "delta": "9/50",
+        "n": 131072,
+        "K": 40,
+        "max_width_squared": "81/204800",
+        "max_width_float": 0.019887378220871648
+      },
+      {
+        "profile": "P7",
+        "metric": "win",
+        "delta": "1",
+        "n": 131072,
+        "K": 40,
+        "max_width_squared": "25/2048",
+        "max_width_float": 0.11048543456039805
+      },
+      {
+        "profile": "P7",
+        "metric": "synthetic_excess",
+        "delta": "37/250",
+        "n": 131072,
+        "K": 40,
+        "max_width_squared": "1369/5120000",
+        "max_width_float": 0.016351844314938913
+      },
+      {
+        "profile": "E+",
+        "metric": "raw",
+        "delta": "1/25",
+        "n": 2048,
+        "K": 2,
+        "max_width_squared": "1/16000",
+        "max_width_float": 0.007905694150420948
+      },
+      {
+        "profile": "E+",
+        "metric": "synthetic_excess",
+        "delta": "4/125",
+        "n": 2048,
+        "K": 2,
+        "max_width_squared": "1/25000",
+        "max_width_float": 0.006324555320336759
+      },
+      {
+        "profile": "E-",
+        "metric": "raw",
+        "delta": "1/25",
+        "n": 2048,
+        "K": 2,
+        "max_width_squared": "1/16000",
+        "max_width_float": 0.007905694150420948
+      },
+      {
+        "profile": "E-",
+        "metric": "synthetic_excess",
+        "delta": "4/125",
+        "n": 2048,
+        "K": 2,
+        "max_width_squared": "1/25000",
+        "max_width_float": 0.006324555320336759
+      }
+    ],
+    "rounding_cases": 24,
+    "predata_boundary_rejected": true,
+    "rational_point_display_width": "1/1000000000000000000000000000000000000000000000000000000000000",
+    "refusal_cases": 7,
+    "false_independence_declaration_witness": {
+      "actual_K": 200,
+      "declared_K": 1,
+      "actual_coverage": "0/2",
+      "status": "OUTSIDE_ASSERTED_MODEL_NOT_CALCULATOR_BUG"
+    },
+    "exponential_lower": "7082479/48384",
+    "per_tail_upper_float": 0.006831506312973183,
+    "three_metric_joint_lower_float": 0.9590109621221609,
+    "exact_small_binomial_cutoff_cases": 60,
+    "large_binomial_boundary_numeric_crosscheck": [
+      {
+        "p": 0.95,
+        "cutoff": 31258,
+        "accepted_tail": 0.0005201928789330261,
+        "next_rejected_tail": 0.0005702246491237536
+      },
+      {
+        "p": 0.01,
+        "cutoff": 270,
+        "accepted_tail": 0.0005490436101641243,
+        "next_rejected_tail": 0.0006752398882924498
+      },
+      {
+        "p": 0.9,
+        "cutoff": 29668,
+        "accepted_tail": 0.0005368935559678954,
+        "next_rejected_tail": 0.000573531047887711
+      }
+    ],
+    "sha256": {
+      "scripts/research/signal_calendar_score.py": "7b19acfe21715fe082b13879ea9d3348d769131ab596553baf0c20fd5c600fc7",
+      "scripts/research/signal_calendar_score_study.py": "eca2cfd8e1ff48178a910b51e54330c78c9f60855d8dd6ef0edff010f56df974",
+      "scripts/research/signal_calendar_score_verify.py": "7748f1e560403e9f0d61976186602dfc8907ad1044a67d1b2388c6673d3a1d3c",
+      "scripts/research/signal_calendar_evidence.py": "5985f3b0f55dc0f89d2632bc9b4378b8fd3c1922029292a91ca52b848d25e234",
+      "scripts/research/signal_calendar_laws.py": "811070fa4247a10c5aad612829a6b3f20421f04793a77a3b44017e7ee18b6ba4",
+      "docs/plans/2026-10-02-calendar-score-revision-design.md": "727c725fd57ff25039664be5ab469f336ac48e9bb7d6506ff60df92e1b9567f4",
+      "docs/plans/2026-10-04-calendar-score-study-protocol.md": "130569a78811e9ad4f9dcdb915410b3c350e137a78bc70974eb81ac4daf13b71",
+      "docs/plans/2026-10-07-calendar-score-replacement-protocol-v3.md": "9622e655175401b7f99f64448168eab848a546a14e77771e35f7134fd48ed064",
+      "docs/reviews/2026-10-08-v3-artificial-study-completed.json": "a94bcda4bc363fd0c086900020039f37721889516dd0000dc372fcd4510ca726"
+    },
+    "script_sha256": "a6744f6a638b33c592ab791be50332d33734177fb9d5b0b0b3e3a1f4973e7c43",
+    "elapsed_seconds": 1.181876699993154,
+    "verdict": "SCOPED_PASS"
+  },
+  "boundary_review_proof": {
+    "schema": 1,
+    "review_head": "8819514944ea91365e5fa14ea32f772f4bca0913",
+    "scope": "active synthetic calendar-score calculator boundary audit",
+    "source_hashes": {
+      "scripts/research/signal_calendar_score.py": "7b19acfe21715fe082b13879ea9d3348d769131ab596553baf0c20fd5c600fc7",
+      "scripts/research/signal_calendar_score_study.py": "eca2cfd8e1ff48178a910b51e54330c78c9f60855d8dd6ef0edff010f56df974",
+      "scripts/research/signal_calendar_score_verify.py": "7748f1e560403e9f0d61976186602dfc8907ad1044a67d1b2388c6673d3a1d3c",
+      "tests/unit/test_signal_calendar_score_research.py": "6e2807a0eda37ab7c2e4276592b7f09e4119954a147dfc239fd607d6f2415b6c"
+    },
+    "probe": {
+      "path": "var/verification/2026-10-08/calculator-review/boundary/boundary_probe.py",
+      "sha256": "6b07faa51c719a153fc7e08268a9089aea2eea2405783fe7d61a2a0509ba45df",
+      "interpreter": ".venv/Scripts/python.exe 3.12.10",
+      "elapsed_seconds": 1.168,
+      "passed": 22,
+      "failed": 0,
+      "cases": [
+        "float_nan_refused",
+        "float_inf_refused",
+        "decimal_refused",
+        "bool_count_refused",
+        "bool_target_bound_refused",
+        "bool_model_integer_refused",
+        "257_bit_integer_refused",
+        "duplicate_metric_refused",
+        "different_cohorts_refused",
+        "dense_count_below_n_refused",
+        "zero_count_dense_refused",
+        "zero_count_sparse_refused",
+        "support_violation_refused",
+        "noninteger_win_total_refused",
+        "real_scope_refused",
+        "observed_assumption_refused",
+        "unknown_assumption_refused",
+        "rounding_equality_not_eligible",
+        "sparse_never_eligible",
+        "maximum_geometry_and_count_accepted",
+        "exact_256_bit_denominator_accepted",
+        "caller_asserted_fixture_metadata_accepted_without_authentication"
+      ]
+    },
+    "focused_regression": {
+      "command": ".venv/Scripts/python.exe -m pytest tests/unit/test_signal_calendar_score_research.py -q",
+      "elapsed_seconds": 1.941,
+      "passed": 52,
+      "failed": 0
+    },
+    "environment_note": "uv did not launch because its sandbox cache was read-only; the repository virtual-environment interpreter completed both checks.",
+    "working_tree_note": "The pre-existing untracked AGENTS.md was not modified; var/ is ignored."
+  },
+  "root_reproduced_reviewers": {
+    "math_command": ".venv/Scripts/python.exe -B var/verification/2026-10-08/calculator-review/math/independent_check.py",
+    "math_exit": 0,
+    "boundary_command": ".venv/Scripts/python.exe -B -m var.verification.2026-10-08.calculator-review.boundary.boundary_probe",
+    "boundary_exit": 0,
+    "boundary_passed": 22
+  },
+  "review_report_sha256": {
+    "docs\\reviews\\2026-10-08-calendar-score-calculator-review-math.md": "72968db02a034f10e8fdfdd0d56c576e56b275860a1a3b023519c8f98a3d6429",
+    "docs\\reviews\\2026-10-08-calendar-score-calculator-review-boundary.md": "86aa0134ecdcfca244d2e0e9d09d3149db09023c2f0a049be6f8e02004174305"
+  },
+  "review_harness_sha256": {
+    "math/independent_check.py": "a6744f6a638b33c592ab791be50332d33734177fb9d5b0b0b3e3a1f4973e7c43",
+    "boundary/boundary_probe.py": "6b07faa51c719a153fc7e08268a9089aea2eea2405783fe7d61a2a0509ba45df",
+    "root/spot_check.py": "c6a8c4caa193e3d9b75f7e916b07c505a00fd682046931ebd7e9896b39332700"
+  },
+  "primary_paper_access": "Math reviewer retrieved full Newton preprint Theorem 2.1 live; parent Newton/author PDF fetches timed out. Parent verified algebra and exact bound values independently; Wiley metadata/abstract retrieved.",
+  "open_findings": [
+    "M4: unverified real-data premises and source provenance",
+    "P3: optional additional boundary unit regression cases",
+    "F48: delivery-DP cost correction",
+    "Step7: atomic counted trial persistence",
+    "complete benchmark/time/source matching"
+  ]
+}

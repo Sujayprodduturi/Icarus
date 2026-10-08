@@ -1,3 +1,5 @@
+**Calculator review complete - 2026-10-08:** Two independent reviewers and parent reproductions give SCOPED PASS for the active synthetic calendar-score calculator. Parent 129 regressions pass; boundary 22 probes and math exact/enumerated checks pass. No reproduced calculator defect; no runtime edit, new study, cleanup or real-data execution. Caller declarations cannot authenticate market assumptions: M4 remains open, sparse histories unsupported, artificial PASS is not strategy profitability or adoption. Next scheduled build is Step7 atomic counted-trial persistence; before Step8 require separately reviewed applicability/refusal policy and explicit source/time/benchmark/F48 dependency amendment. Inference remains disabled; Task3a/R4/M1-M4/F48 remain open. [Review](2026-10-08-calendar-score-calculator-review.md).
+
 # Signal uncertainty research audit
 Date: 2026-09-30; updated2026-10-01 for D37 completed research build. Scope: current Phase-1 statistical-method continuation. This is not a whole-runner attestation. Original post-backtest findings/repair schedule and the Task-3 runner audit retain their own ID namespaces.
 
