@@ -46,15 +46,34 @@ def test_catalogue_demo_records_real_dsl_trades_and_refuses_reuse(
     root = demo.run_demo("test")
     summary = json.loads((root / "summary.json").read_bytes())
     assert summary["inference_enabled"] is False and summary["real_market_data"] is False
-    assert len(summary["strategies"]) == 3
+    rows = {row["strategy"]: row for row in summary["strategies"]}
+    expected = {
+        "baseline_buy_and_hold",
+        "donlevey_sweep_reclaim",
+        "short_term_reversal_uptrend",
+        "xs_momentum_20",
+        "xs_momentum_252_21",
+    }
+    assert set(rows) == expected
+    for name in expected - {"short_term_reversal_uptrend"}:
+        assert rows[name]["portfolio_trades"] > 0
+    # The fixed catalogue fixture has symmetric highs/lows, so IBS is about 0.5 and the strict
+    # pullback card correctly emits nothing.  Its positive path has a dedicated boundary fixture.
+    assert rows["short_term_reversal_uptrend"]["signals"] == 0
+    assert rows["short_term_reversal_uptrend"]["portfolio_trades"] == 0
+    details = {
+        payload["summary"]["strategy"]: payload
+        for path in root.glob("*-results.json")
+        if (payload := json.loads(path.read_bytes()))
+    }
+    assert set(details) == expected
     for row in summary["strategies"]:
-        assert row["portfolio_trades"] > 0
         assert row["signals"] == row["signal_trades"] + row["signal_skips"]
         assert row["benchmark_alpha"] is None and row["after_tax_promotion_metrics"] is None
-        detail = json.loads((root / f"{row['strategy']}-results.json").read_bytes())
+        detail = details[row["strategy"]]
         for trade in detail["signal_run"]["trades"]:
             assert trade["entry_index"] > trade["signal_id"]["decision_index"]
-    assert len(list(root.glob("*-trial.json"))) == 3
-    assert len(list(root.glob("*-trial-complete.json"))) == 3
+    assert len(list(root.glob("*-trial.json"))) == 5
+    assert len(list(root.glob("*-trial-complete.json"))) == 5
     with pytest.raises(FileExistsError):
         demo.run_demo("test")

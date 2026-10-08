@@ -1,0 +1,25 @@
+# PRE-REGISTERED CARD — approved 2026-10-08; no market-data result has been observed.
+# Twelve-minus-one cross-sectional momentum: rank the dated eligible universe by percentage
+# return from t-252 to t-21.  This is the second specification in the momentum family, not an
+# independent family.  Any evaluation or re-run is a new counted trial.
+name: xs_momentum_252_21
+version: 1
+timeframe: 1d
+universe: nse_liquid
+
+entry:
+  xs_top_n:
+    expr: {roc_skip: {n: 252, skip: 21}}
+    n: 10
+    min_symbols: 20
+
+rank_by:
+  roc_skip: {n: 252, skip: 21}
+
+exit:
+  - stop_loss_atr: {atr_mult: 3.0, atr_period: 14}
+  - time_stop: {bars: 63}
+
+sizing:
+  risk_r: 0.005
+  weighting: equal_weight

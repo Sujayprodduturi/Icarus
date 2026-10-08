@@ -125,5 +125,27 @@
     "database": "icarus_trial_test",
     "removed": true
   },
-  "hosted_checks": "pending push; not claimed PASS"
+  "hosted_checks": {
+    "ci": {
+      "conclusion": "success",
+      "databaseId": 37745785618,
+      "headSha": "175f3dbdc75d5bd6ad2f1881e9b323bcf1956ed3",
+      "status": "completed",
+      "url": "https://github.com/Sujayprodduturi/Icarus/actions/runs/37745785618"
+    },
+    "resource": {
+      "conclusion": "success",
+      "databaseId": 37745785586,
+      "headSha": "175f3dbdc75d5bd6ad2f1881e9b323bcf1956ed3",
+      "status": "completed",
+      "url": "https://github.com/Sujayprodduturi/Icarus/actions/runs/37745785586"
+    },
+    "full_suite": {
+      "passed": 2881,
+      "skipped": 4,
+      "warnings": 4,
+      "seconds": 1940.68
+    },
+    "applies_to_commit": "175f3dbdc75d5bd6ad2f1881e9b323bcf1956ed3"
+  }
 }

@@ -1,0 +1,31 @@
+# PRE-REGISTERED CARD — approved 2026-10-08; no market-data result has been observed.
+# Short-term reversal inside a primary uptrend: strictly above SMA(200), at least three lower
+# closes, and IBS strictly below 0.2.  No parameter sweep, cooldown or unwritten filter is part of
+# this card.  Any evaluation or re-run is a new counted trial.
+name: short_term_reversal_uptrend
+version: 1
+timeframe: 1d
+universe: nse_liquid
+
+entry:
+  all:
+    - above:
+        a: {close: {}}
+        b: {sma: {n: 200}}
+    - above:
+        a: {down_streak: {}}
+        b: {constant: {value: 2.0}}
+    - below:
+        a: {internal_bar_strength: {}}
+        b: {constant: {value: 0.2}}
+
+rank_by:
+  down_streak: {}
+
+exit:
+  - stop_loss_atr: {atr_mult: 2.0, atr_period: 14}
+  - time_stop: {bars: 5}
+
+sizing:
+  risk_r: 0.005
+  weighting: equal_weight

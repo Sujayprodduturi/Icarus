@@ -102,13 +102,14 @@ def _eligible(panel: Panel, values: Matrix, min_symbols: int) -> Mask:
     """Which ``(symbol, date)`` cells may take part in that date's cross-section.
 
     Three conditions, all of which must hold: the symbol was **tradable** on that date under the
-    point-in-time universe rules, the expression being ranked has a **value** there (a warm-up
-    ``nan`` cannot be ranked), and the date has **enough** participants to be worth ranking at all.
+    point-in-time universe rules, the expression being ranked has a **finite value** there (a
+    warm-up ``nan`` or an overflowed infinity cannot be ranked), and the date has **enough**
+    participants to be worth ranking at all.
 
     The third is applied to the whole column at once — a date that fails it produces no ranking for
     anybody, rather than a ranking among the handful that happened to qualify.
     """
-    usable = panel.tradable & ~np.isnan(values)
+    usable = panel.tradable & np.isfinite(values)
     deep_enough = usable.sum(axis=0) >= min_symbols
     out: Mask = usable & deep_enough
     return out
