@@ -1,7 +1,8 @@
 # Strategy breadth screen before any real-market evaluation
 
-**Status:** research and test proposal only  
-**Evidence checked through:** 2026-10-08  
+**Status:** research and test proposal only
+
+**Evidence checked through:** 2026-10-08
 **Authority created:** none. This document does not authorize a real-data run, lockbox access, a catalogue/YAML change, an inference claim, or any broker/live path.
 
 **Independent review:** [tracked review evidence](../reviews/2026-10-08-strategy-breadth-review.md) gives a scoped GO for literature screening and rule-card planning, and a NO-GO for treating all six specifications as immediately executable.
