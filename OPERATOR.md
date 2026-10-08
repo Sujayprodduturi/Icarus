@@ -412,6 +412,12 @@ Dated decisions that are not code and not in `goal.yaml`, so they have nowhere e
 
 | D44 | **Use the storage needed on this PC, and delete generated artificial test histories after their tests and independent result checks are complete. Real-market data may be retained.** Keep compact results, source/generator identities, hashes, trial/audit records and cleanup provenance; raw artificial payloads are temporary rather than a permanent archive. Future artificial runners must implement this lifecycle, including explicit cleanup after verification. Storage planning and finite operational disk guards are not a renewed operator-permission barrier. This does not authorize real-data evaluation, a reserved-stream rerun, changed statistical gates or live orders. | operator, direct instruction on2026-10-02 |
 
+### 2026-10-08 - proceed and broaden strategy research before real-data runs
+
+| id | decision | owner |
+|---|---|---|
+| D45 | **Proceed with the next steps and broaden the candidate strategy research beyond the current control and two hypotheses, considering professional and high-frequency families before any real-market run.** This authorizes reviewed planning, exact rule-card preparation and the already reviewed isolated synthetic trial-ledger infrastructure build. It does not authorize real-data evaluation, a guaranteed winner count, a new win-rate gate, high-frequency implementation or stage advancement, short selling, inference enablement, broker access or live orders. HFT is considered as a researched boundary and remains excluded by the PRD; current strategy work remains long-only. D41's instruction to stop before real market data remains in force, and Step 7 scheduling does not adopt a statistical method or close Step 6b/M4. | operator, direct instruction on2026-10-08 |
+
 ## 7c. Deferred by decision — not forgotten
 
 Things consciously postponed. **Each names the condition that reopens it.** A deferral without a
