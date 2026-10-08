@@ -1,0 +1,133 @@
+{
+  "scope": "SCOPED PASS - artificial candidate mechanics only",
+  "source_commit": "a14384c6a564770b052d643ba7cfdde210fc2235",
+  "candidates": [
+    {
+      "path": "strategies/xs_momentum_252_skip21.yaml",
+      "sha256": "814023ec6f40f245f68cdd82e010f56883601faeed0d24e6dffe2e4b6643fcec"
+    },
+    {
+      "path": "strategies/uptrend_pullback_3.yaml",
+      "sha256": "3c32817984012706e8c2e9fc1e7c6a10ce13f2fd249ea45ee0c390e7a8eb4880"
+    }
+  ],
+  "catalogue": {
+    "total": 5,
+    "control": 1,
+    "signal_specifications": 4,
+    "signal_families": 3,
+    "wider_proposed_families": 5,
+    "wider_proposed_specifications": 6
+  },
+  "verification": {
+    "builder_candidates": {
+      "passed": 24,
+      "seconds": 1.44
+    },
+    "builder_affected": {
+      "passed": 472,
+      "seconds": 22.26
+    },
+    "root_focused": {
+      "passed": 72,
+      "seconds": 5.12
+    },
+    "independent_reviewer_selected": {
+      "passed": 4,
+      "seconds": 1.3
+    },
+    "restored": {
+      "passed": 56,
+      "seconds": 1.99
+    },
+    "mypy_source_files": 198,
+    "ruff_lint": "PASS",
+    "ruff_format_files": 376,
+    "diff_check": "PASS"
+  },
+  "mutations": {
+    "commit": "a14384c6a564770b052d643ba7cfdde210fc2235",
+    "cases": [
+      {
+        "name": "nonfinite_scores_ranked",
+        "exit_code": 1,
+        "assertion_failed": true,
+        "caught": true
+      },
+      {
+        "name": "momentum_skip_changed",
+        "exit_code": 1,
+        "assertion_failed": true,
+        "caught": true
+      },
+      {
+        "name": "momentum_time_exit_changed",
+        "exit_code": 1,
+        "assertion_failed": true,
+        "caught": true
+      },
+      {
+        "name": "three_day_reversal_refused",
+        "exit_code": 1,
+        "assertion_failed": true,
+        "caught": true
+      }
+    ],
+    "restored_tests_pass": true,
+    "all_tracked_hashes_restored": true,
+    "snapshot_sha256": {
+      "OPERATOR.md": "19530f2e8cc5e55ddc313ca85495384d9a65402e8c4bb83c71f8cd41a9a30ba8",
+      "docs/reviews/2026-10-08-trial-ledger-build-proof.json": "d5f189e1071ef6781389f0af10c2f6ac6bd716986f401ecbb4b8b557c6d3f68a",
+      "docs/reviews/2026-10-08-trial-ledger-build-review.md": "5febf2d7aef94d8217817d016ddfcff74e393222cbe89120262fe9c041d93892",
+      "docs/strategy-research/2026-10-08-exact-first-batch-cards.md": "2a24c889c935f10ac31681b37b2c156030dc84d13f342f2d027c3b5bcc7d9ec2",
+      "goal.yaml": "c886aca6b198257486d0daefc484f818458e60fa32a5aa861b95d1413282fa0c",
+      "icarus/strategy/library/cross_sectional.py": "c7e9067a720b64b30dcce8f54bb4d09ff934570ba45bd6969f88d107f62534a3",
+      "scripts/synthetic_strategy_demo.py": "1bdcee49b6c8d2f85a064781008f061ec2d447529683c5f8d9e65abe57fcbc41",
+      "strategies/baseline_buy_and_hold.yaml": "b1bded2f21c1817adced9d4e789ae79f5e9058e433827276d0d1e434c1fd721e",
+      "strategies/donlevey_sweep_reclaim.yaml": "a39f9d507b16550b1bcf4a4997abd1ba73643fcf8b52b2aec4ea036a3bdfb295",
+      "strategies/uptrend_pullback_3.yaml": "3c32817984012706e8c2e9fc1e7c6a10ce13f2fd249ea45ee0c390e7a8eb4880",
+      "strategies/xs_momentum_20.yaml": "8905d1162d1fea9d2194e0a39312e2512b726b24db4b06f5d20fc5533614d725",
+      "strategies/xs_momentum_252_skip21.yaml": "814023ec6f40f245f68cdd82e010f56883601faeed0d24e6dffe2e4b6643fcec",
+      "tests/unit/test_dsl_cross_sectional.py": "f50c4f9429113144cff8ccd7a1680c9a94bbcae5fc4d4ab774eb45aeeebac512",
+      "tests/unit/test_strategy_breadth_candidates.py": "f6119004f3525a614a666bcbd96f1c2d8801313ad12a80974c251ccdad81c70e",
+      "tests/unit/test_synthetic_strategy_demo.py": "bb2da1077fe20fa682995cf285fe01538c8c8e917016a01b856cce1616471c4d"
+    }
+  },
+  "root_probes": {
+    "literal_and_overflow": {
+      "new_two_yaml_models_match_reviewed_cards": true,
+      "all_input_prices_positive_finite": true,
+      "ordinary_ohlc_consistent": true,
+      "computed_overflow_excluded": true,
+      "nineteen_finite_scores_refuse_whole_column": true
+    },
+    "unchanged_baseline": {
+      "all_seven_baseline_hashes_unchanged": true,
+      "sha256": {
+        "goal.yaml": "c886aca6b198257486d0daefc484f818458e60fa32a5aa861b95d1413282fa0c",
+        "strategies/baseline_buy_and_hold.yaml": "b1bded2f21c1817adced9d4e789ae79f5e9058e433827276d0d1e434c1fd721e",
+        "strategies/donlevey_sweep_reclaim.yaml": "a39f9d507b16550b1bcf4a4997abd1ba73643fcf8b52b2aec4ea036a3bdfb295",
+        "strategies/xs_momentum_20.yaml": "8905d1162d1fea9d2194e0a39312e2512b726b24db4b06f5d20fc5533614d725",
+        "icarus/engine/portfolio.py": "14d918491043ff796fd0b9f32007ebd06367466a6b75441bff9f14acfca39634",
+        "icarus/engine/fills.py": "6c3a18d24cdaf6bd90d604b8f54ea014b8fd0db29828367eefba0fb5dbb91867",
+        "icarus/strategy/dsl.py": "d63435edc67db6d3599c6851a0064158b253dc35d22c905414a73f368a499bae"
+      }
+    }
+  },
+  "full_suite": {
+    "previous_commit": "175f3dbdc75d5bd6ad2f1881e9b323bcf1956ed3",
+    "passed": 2881,
+    "skipped": 4,
+    "latest_candidate_commit_full_suite": "not run locally; hosted checks pending push"
+  },
+  "holds": [
+    "real-market data evaluation",
+    "operator trial-ledger activation/import",
+    "inference",
+    "broker/live",
+    "lockbox",
+    "F48 fee accuracy",
+    "source/time/benchmark/applicability"
+  ],
+  "owned_data": "deterministic invented fixtures only; no actual operator ledger or real panel loaded"
+}
