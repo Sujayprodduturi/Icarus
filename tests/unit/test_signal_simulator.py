@@ -261,6 +261,8 @@ def test_empty_result_is_frozen_slotted_and_has_no_portfolio_metrics() -> None:
         "missing",
         "emitted_signals",
         "unfilled_exits",
+        "management_exit_events",
+        "rebalance_events",
     }
     for forbidden in ("equity", "sharpe", "max_drawdown", "gate_verdict"):
         assert not hasattr(result, forbidden)

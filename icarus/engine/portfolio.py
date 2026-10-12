@@ -47,12 +47,22 @@ from icarus.common.types import OrderSide
 from icarus.engine.costmodel import DeliveryFeeContext, Segment
 from icarus.engine.fills import FillModel, Intent, OrderKind
 from icarus.engine.simcore import (
+    AdmissionRefusal,
+    ManagementExitEvent,
+    RebalanceEvent,
+    RebalanceStatus,
+    SignalId,
+    admission_order_unavailable,
+    management_intent,
+    rebalance_decision,
+    validate_consumer_columns,
+)
+from icarus.engine.simcore import (
     ExitPlan as ExitPlan,
 )
 from icarus.engine.simcore import (
     ExitReason as ExitReason,
 )
-from icarus.engine.simcore import SignalId
 from icarus.engine.simcore import (
     _dec as _dec,
 )
@@ -115,6 +125,7 @@ class Skipped(enum.StrEnum):
     NO_STOP_DISTANCE = "no_stop_distance"
     ENTRY_NOT_FILLED = "entry_not_filled"
     ALREADY_HELD = "already_held"
+    EXECUTION_ORDER_UNAVAILABLE = "execution_order_unavailable"
 
 
 class PortfolioOmission(enum.StrEnum):
@@ -178,6 +189,7 @@ class OpenPosition:
     trailing: bool = False
     bars_held: int = 0
     peak_close: Decimal = Decimal(0)
+    pending_exit: ManagementExitEvent | None = None
     dark_sessions: int = 0
     """Consecutive sessions the symbol has printed no bar. Reset by any bar that arrives.
 
@@ -242,6 +254,8 @@ class RunResult:
     emitted_signals: int = 0
     accepted_signal_ids: list[SignalId] = field(default_factory=list)
     portfolio_discards: list[PortfolioDiscard] = field(default_factory=list)
+    rebalance_events: list[RebalanceEvent] = field(default_factory=list)
+    management_exit_events: list[ManagementExitEvent] = field(default_factory=list)
     unfilled_exits: int = 0
     ambiguous_selection_days: int = 0
     """Days where more candidates fired than there were slots and nothing ordered them.
@@ -341,6 +355,8 @@ class PortfolioSimulator:
         *,
         starting_equity: Decimal,
         ranks: Mapping[str, Column] | None = None,
+        exit_signals: Mapping[str, Column] | None = None,
+        rebalance_pulses: npt.NDArray[np.bool_] | None = None,
         source_indices: Sequence[int] | None = None,
     ) -> RunResult:
         """Walk the panel.
@@ -358,6 +374,7 @@ class PortfolioSimulator:
         if any(current != previous + 1 for previous, current in pairwise(source)):
             raise ValueError("source_indices must be contiguous full-source indices")
 
+        validate_consumer_columns(strategy, panel, exit_signals, rebalance_pulses, source)
         result = RunResult()
         plan = ExitPlan.of(strategy.exits)
         book: dict[str, OpenPosition] = {}
@@ -371,8 +388,20 @@ class PortfolioSimulator:
             if signals[symbol][t] == 1.0
         }
 
+        queued: tuple[int, RebalanceEvent] | None = None
+        effective = {s: np.zeros(len(panel), dtype=np.float64) for s in panel.symbols}
+        if strategy.rebalance is not None:
+            expected_signals = set()
+
         for t in range(last + 1):
             ts = _ts_at(panel, t)
+            trade_start = len(result.trades)
+            unavailable_order = queued is not None and any(
+                admission_order_unavailable(
+                    position, _sim_bar(panel, panel.index_of(symbol), t, ts), final=t == last
+                )
+                for symbol, position in book.items()
+            )
             # Exits first: a slot freed this morning is available to this morning's signal.
             equity += self._process_exits(
                 book,
@@ -383,8 +412,113 @@ class PortfolioSimulator:
                 stops,
                 result,
                 final=t == last,
+                source_index=source[t],
             )
-            if t == last:
+            if strategy.rebalance is not None:
+                if queued is not None:
+                    decision_local, event = queued
+                    unavailable_order = unavailable_order or any(
+                        trade.reason is ExitReason.STALE_MARK
+                        for trade in result.trades[trade_start:]
+                    )
+                    if unavailable_order:
+                        for symbol in event.pending_admissions:
+                            result.record_discard(
+                                PortfolioDiscard(
+                                    SignalId(
+                                        strategy.name,
+                                        strategy.version,
+                                        symbol,
+                                        event.decision_ts,
+                                        event.decision_index,
+                                    ),
+                                    Skipped.EXECUTION_ORDER_UNAVAILABLE,
+                                )
+                            )
+                    else:
+                        before = set(book)
+                        self._process_entries(
+                            strategy,
+                            plan,
+                            book,
+                            panel,
+                            decision_local,
+                            event.decision_ts,
+                            effective,
+                            stops,
+                            ranks,
+                            equity,
+                            result,
+                            event.decision_index,
+                        )
+                        new_symbols = set(book) - before
+                        equity += self._process_exits(
+                            book,
+                            delivery_fees,
+                            panel,
+                            t,
+                            ts,
+                            stops,
+                            result,
+                            final=t == last,
+                            source_index=source[t],
+                            only_symbols=new_symbols,
+                        )
+                    result.rebalance_events[-1] = replace(
+                        event,
+                        holdings_after=tuple(sorted(book)),
+                        admission_refusal=AdmissionRefusal.EXECUTION_ORDER_UNAVAILABLE
+                        if unavailable_order
+                        else None,
+                        pending_admissions=tuple(
+                            s for s in event.pending_admissions if s not in book
+                        ),
+                    )
+                    queued = None
+                if rebalance_pulses is not None and rebalance_pulses[t]:
+                    event = rebalance_decision(
+                        strategy,
+                        panel,
+                        signals,
+                        ranks,
+                        t,
+                        source[t],
+                        tuple(book),
+                        tuple(s for s, p in book.items() if p.pending_exit is not None),
+                    )
+                    result.rebalance_events.append(event)
+                    if event.status is RebalanceStatus.VALID:
+                        for symbol, position in book.items():
+                            if (
+                                symbol not in event.candidates
+                                and position.pending_exit is None
+                                and position.entry_ts <= ts
+                            ):
+                                pending = ManagementExitEvent(
+                                    symbol, ts, source[t], source[t] + 1, ExitReason.REBALANCE
+                                )
+                                position.pending_exit = pending
+                                result.management_exit_events.append(pending)
+                        for symbol in event.candidates:
+                            if symbol in book and book[symbol].pending_exit is not None:
+                                continue
+                            signal_id = SignalId(
+                                strategy.name, strategy.version, symbol, ts, source[t]
+                            )
+                            expected_signals.add(signal_id)
+                            if symbol in event.retained:
+                                result.record_discard(
+                                    PortfolioDiscard(signal_id, Skipped.ALREADY_HELD)
+                                )
+                                continue
+                            effective[symbol][t] = 1.0
+                            if t == last:
+                                result.record_discard(
+                                    PortfolioDiscard(signal_id, PortfolioOmission.NO_NEXT_BAR)
+                                )
+                        if t < last:
+                            queued = (t, event)
+            elif t == last:
                 for symbol in panel.symbols:
                     if signals[symbol][t] == 1.0:
                         result.record_discard(
@@ -416,6 +550,18 @@ class PortfolioSimulator:
                     result,
                     source[t],
                 )
+            if exit_signals is not None:
+                for symbol, position in book.items():
+                    if (
+                        exit_signals[symbol][t] == 1.0
+                        and position.pending_exit is None
+                        and position.entry_ts <= ts
+                    ):
+                        management_event = ManagementExitEvent(
+                            symbol, ts, source[t], source[t] + 1, ExitReason.OPPOSITE_SIGNAL
+                        )
+                        position.pending_exit = management_event
+                        result.management_exit_events.append(management_event)
             result.equity.append((ts, equity + self._unrealised(book, panel, t, ts)))
         result.reconcile_signals(expected_signals)
         return result
@@ -433,9 +579,13 @@ class PortfolioSimulator:
         result: RunResult,
         *,
         final: bool,
+        source_index: int | None = None,
+        only_symbols: set[str] | None = None,
     ) -> Decimal:
         realised = Decimal(0)
         for symbol in list(book):
+            if only_symbols is not None and symbol not in only_symbols:
+                continue
             position = book[symbol]
             index = panel.index_of(symbol)
             bar = _sim_bar(panel, index, t, ts)
@@ -457,6 +607,13 @@ class PortfolioSimulator:
             _trail_stop(position, float(stops[symbol][t]))
 
             intent, reason = _exit_intent(position, bar, ts, final=final)
+            if intent is None:
+                intent, reason = management_intent(
+                    position.pending_exit,
+                    position.quantity,
+                    ts,
+                    t if source_index is None else source_index,
+                )
             if intent is None or reason is None:
                 continue
             fill = self._fills.execute(intent, bar)
@@ -506,6 +663,8 @@ class PortfolioSimulator:
         # it to be exposed into, and the only honest treatment is a mark (finding F4, second half).
         if final:
             for symbol in list(book):
+                if only_symbols is not None and symbol not in only_symbols:
+                    continue
                 realised += self._write_off(book, panel, panel.index_of(symbol), symbol, t, result)
         return realised
 

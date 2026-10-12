@@ -14,16 +14,29 @@ from typing import Any
 import numpy as np
 
 from icarus.common.config import load_goal
+from icarus.engine.backtest import longest_lookback
 from icarus.engine.costmodel import CostModel
 from icarus.engine.fills import FillModel
 from icarus.engine.portfolio import PortfolioSimulator
+from icarus.engine.runner import evaluate_once
 from icarus.engine.signalmetrics import SourceSessionAxis, summarize_signal_run
-from icarus.engine.signaltest import SignalSimulator
-from icarus.strategy.dsl import Bars, Panel, evaluate_universe, parse_strategy
+from icarus.engine.signaltest import SignalMissingReason, SignalSimulator
+from icarus.strategy.dsl import Bars, Panel, parse_strategy
 from icarus.strategy.library import default_registry
 
 PROJECT = Path(__file__).resolve().parents[1]
 SCOPE = "SYNTHETIC_MECHANICS_ONLY_NO_STRATEGY_PERFORMANCE_INFERENCE"
+CATALOGUE = frozenset(
+    {
+        "baseline_buy_and_hold",
+        "donlevey_sweep_reclaim",
+        "uptrend_pullback_3",
+        "xs_momentum_20",
+        "xs_momentum_252_skip21",
+        "donchian_55_20",
+        "defensive_low_vol_252_q63",
+    }
+)
 
 
 def invented_panel() -> Panel:
@@ -61,6 +74,9 @@ def run_demo(case: str) -> Path:
     goal = load_goal(PROJECT / "goal.yaml")
     if goal.signal_test.inference_enabled:
         raise ValueError("synthetic demo requires inference disabled")
+    paths = sorted((PROJECT / "strategies").glob("*.yaml"))
+    if {path.stem for path in paths} != CATALOGUE:
+        raise ValueError("synthetic demo requires the exact seven-card catalogue")
     root = PROJECT / "var" / "synthetic-strategy-demo" / case
     root.mkdir(parents=True, exist_ok=False)
     panel = invented_panel()
@@ -84,7 +100,7 @@ def run_demo(case: str) -> Path:
     costs = CostModel(goal.costs)
     fills = FillModel(goal.execution_realism)
     rows = []
-    for path in sorted((PROJECT / "strategies").glob("*.yaml")):
+    for path in paths:
         write_once(
             root / f"{path.stem}-trial.json",
             {
@@ -102,26 +118,35 @@ def run_demo(case: str) -> Path:
         strategy = parse_strategy(
             path.read_text(), registry=registry, max_risk_r=goal.risk.per_trade_risk_r
         )
-        signals = evaluate_universe(strategy.entry, panel, registry)
-        ranks = evaluate_universe(strategy.rank_by, panel, registry) if strategy.rank_by else None
-        rule = next(x for x in strategy.exits if x.rule in ("stop_loss_atr", "stop_loss_pct"))
-        stops = {}
-        for s, b in zip(panel.symbols, panel.bars, strict=True):
-            if rule.rule == "stop_loss_pct":
-                stops[s] = b.close * float(rule.literals["pct"])
-            else:
-                stops[s] = registry.get("atr").compute(b, n=rule.literals["atr_period"]) * float(
-                    rule.literals["atr_mult"]
+        columns = evaluate_once(strategy, panel, registry)
+        signals, stops, ranks, exit_signals, pulses = columns.slice(origin, len(panel))
+        missing = {
+            s: {
+                indices[i]: (
+                    SignalMissingReason.WARMUP
+                    if indices[i] < longest_lookback(strategy)
+                    else SignalMissingReason.MISSING_INPUT
                 )
-        signals = {s: v[origin:].copy() for s, v in signals.items()}
-        stops = {s: v[origin:].copy() for s, v in stops.items()}
-        ranks = {s: v[origin:].copy() for s, v in ranks.items()} if ranks else None
+                for i in np.flatnonzero(np.isnan(column)).tolist()
+            }
+            for s, column in signals.items()
+        }
         signal_run = SignalSimulator(
             notional_inr=Decimal(str(goal.signal_test.notional_inr)),
             costs=costs,
             fills=fills,
             stale_after_sessions=goal.backtest.stale_position_sessions,
-        ).run(strategy, cropped, signals, stops, source_indices=indices)
+        ).run(
+            strategy,
+            cropped,
+            signals,
+            stops,
+            source_indices=indices,
+            exit_signals=exit_signals,
+            ranks=ranks,
+            rebalance_pulses=pulses,
+            missing_reasons=missing,
+        )
         diagnostics = summarize_signal_run(
             signal_run,
             source_axis=axis,
@@ -138,6 +163,8 @@ def run_demo(case: str) -> Path:
             signals,
             stops,
             ranks=ranks,
+            exit_signals=exit_signals,
+            rebalance_pulses=pulses,
             starting_equity=Decimal(str(goal.backtest.starting_equity_inr)),
             source_indices=indices,
         )
@@ -149,6 +176,9 @@ def run_demo(case: str) -> Path:
             "strategy": strategy.name,
             "scope": SCOPE,
             "signals": signal_run.emitted_signals,
+            "rebalance_refusals": sum(
+                event.status.value != "valid" for event in portfolio_run.rebalance_events
+            ),
             "signal_trades": len(signal_run.trades),
             "signal_skips": len(signal_run.skips),
             "portfolio_trades": len(portfolio_run.trades),

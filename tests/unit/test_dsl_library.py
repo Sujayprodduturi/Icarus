@@ -115,13 +115,18 @@ def _call(name: str, **params: object) -> Call:
     registry = default_registry()
     primitive = registry.get(name)
     literals: dict[str, int | float | str] = {}
+    nested: dict[str, Call] = {}
     for spec in primitive.params:
         if spec.name in params:
             literals[spec.name] = params[spec.name]  # type: ignore[assignment]
+        elif isinstance(spec, SeriesParam):
+            nested[spec.name] = (
+                _call("realized_vol", n=5) if spec.requires_scale_free else _call("close")
+            )
         else:
             default = getattr(spec, "default", None)
             literals[spec.name] = _fallback(spec) if default is None else default
-    return Call(primitive=name, kind=primitive.kind, literals=literals, nested={})
+    return Call(primitive=name, kind=primitive.kind, literals=literals, nested=nested)
 
 
 def _compute(name: str, bars: Bars | None = None, **params: object) -> npt.NDArray[np.float64]:

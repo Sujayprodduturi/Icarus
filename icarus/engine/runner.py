@@ -62,7 +62,7 @@ from icarus.engine.portfolio import (
     RunResult,
     stop_distance_from_exits,
 )
-from icarus.engine.simcore import SignalId
+from icarus.engine.simcore import SignalId, rebalance_grid
 from icarus.engine.taxmodel import RealizedTrade, TaxModel, financial_year
 from icarus.strategy.dsl import DslError, evaluate_universe
 from icarus.strategy.library import _ops
@@ -286,7 +286,7 @@ def run_walk_forward(
     result = BacktestResult(strategy=strategy.name)
     # Once, over the whole span, rather than per fold over a slice with a lead-in in front of it.
     # See `evaluate_once` for why the lead-in could not be made large enough to be honest.
-    columns = evaluate_once(strategy, panel, registry)
+    columns = evaluate_once(strategy, panel, registry, source_indices=source)
     dates = [str(t)[:10] for t in panel.ts]
 
     for i, window in enumerate(windows):
@@ -361,18 +361,37 @@ class _Columns:
     signals: dict[str, Column]
     stops: dict[str, Column]
     ranks: dict[str, Column] | None
+    exit_signals: dict[str, Column] | None = None
+    rebalance_pulses: npt.NDArray[np.bool_] | None = None
+    source_indices: tuple[int, ...] | None = None
 
     def slice(
         self, start: int, end: int
-    ) -> tuple[dict[str, Column], dict[str, Column], dict[str, Column] | None]:
+    ) -> tuple[
+        dict[str, Column],
+        dict[str, Column],
+        dict[str, Column] | None,
+        dict[str, Column] | None,
+        npt.NDArray[np.bool_] | None,
+    ]:
         return (
             {s: c[start:end] for s, c in self.signals.items()},
             {s: c[start:end] for s, c in self.stops.items()},
             None if self.ranks is None else {s: c[start:end] for s, c in self.ranks.items()},
+            None
+            if self.exit_signals is None
+            else {s: c[start:end] for s, c in self.exit_signals.items()},
+            None if self.rebalance_pulses is None else self.rebalance_pulses[start:end],
         )
 
 
-def evaluate_once(strategy: StrategyCandidate, panel: Panel, registry: Registry) -> _Columns:
+def evaluate_once(
+    strategy: StrategyCandidate,
+    panel: Panel,
+    registry: Registry,
+    *,
+    source_indices: Sequence[int] | None = None,
+) -> _Columns:
     """Compute every column the simulator needs, over the full development history.
 
     **This replaces the warm-up prefix, and it is not an optimisation — it is the only correct
@@ -399,7 +418,22 @@ def evaluate_once(strategy: StrategyCandidate, panel: Panel, registry: Registry)
 
     It is also cheaper: one evaluation instead of two per fold.
     """
+    source = _validated_source_indices(panel, source_indices)
+    events = [
+        evaluate_universe(rule.event, panel, registry)
+        for rule in strategy.exits
+        if rule.event is not None
+    ]
+    exits = (
+        None
+        if not events
+        else {s: np.maximum.reduce([event[s] for event in events]) for s in panel.symbols}
+    )
+    pulses = rebalance_grid(strategy, source)
     return _Columns(
+        exit_signals=exits,
+        rebalance_pulses=pulses,
+        source_indices=source,
         signals=evaluate_universe(strategy.entry, panel, registry),
         stops=_stops(strategy, panel),
         ranks=(
@@ -420,9 +454,13 @@ def _run_span(
     source_indices: Sequence[int] | None = None,
 ) -> RunResult:
     """Simulate ``[start, end)`` against columns already computed over the whole span."""
-    source = _validated_source_indices(panel, source_indices)
+    source = _validated_source_indices(
+        panel, columns.source_indices if source_indices is None else source_indices
+    )
+    if columns.source_indices is not None and source != columns.source_indices:
+        raise ValueError("fold source indices must match the evaluated columns")
     window = slice_panel(panel, start, end)
-    signals, stops, ranks = columns.slice(start, end)
+    signals, stops, ranks, exit_signals, pulses = columns.slice(start, end)
 
     simulator = PortfolioSimulator(
         risk=goal.risk,
@@ -440,6 +478,8 @@ def _run_span(
         # whole money ledger. costmodel and taxmodel both use the same guard.
         starting_equity=Decimal(str(goal.backtest.starting_equity_inr)),
         ranks=ranks,
+        exit_signals=exit_signals,
+        rebalance_pulses=pulses,
         source_indices=source[start:end],
     )
     return run

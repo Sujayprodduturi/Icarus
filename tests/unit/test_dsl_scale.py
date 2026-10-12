@@ -298,6 +298,10 @@ def _invoke(primitive: Primitive, bars: Bars, registry: Registry) -> npt.NDArray
         default = getattr(spec, "default", None)
         if primitive.name in _NESTED_CLOSE and spec.name == "series":
             nested["series"] = Call(primitive="close", kind=Kind.SERIES, literals={}, nested={})
+        elif isinstance(spec, SeriesParam) and spec.requires_scale_free:
+            nested[spec.name] = Call(
+                primitive="realized_vol", kind=Kind.SERIES, literals={"n": 20}, nested={}
+            )
         elif default is not None:
             literals[spec.name] = default
         else:

@@ -172,10 +172,11 @@ sizing:
         max_risk_r=0.005,
     )
     columns = evaluate_once(strategy, panel, default_registry())
-    signals, stops, ranks = columns.slice(100, 160)
+    signals, stops, ranks, exits, pulses = columns.slice(100, 160)
     assert len(signals["AAA"]) == 60
     assert len(stops["AAA"]) == 60
     assert ranks is None
+    assert exits is None and pulses is None
     assert np.array_equal(signals["AAA"], columns.signals["AAA"][100:160], equal_nan=True)
 
 

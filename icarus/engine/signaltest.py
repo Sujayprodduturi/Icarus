@@ -8,7 +8,7 @@ Actual fills and assumed stale marks remain visibly distinct.
 from __future__ import annotations
 
 import enum
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from itertools import pairwise
@@ -20,8 +20,12 @@ from icarus.common.types import OrderSide
 from icarus.engine.costmodel import Charges, CostModel, DeliveryFeeContext, Segment
 from icarus.engine.fills import FillModel, Intent, OrderKind
 from icarus.engine.simcore import (
+    AdmissionRefusal,
     ExitPlan,
     ExitReason,
+    ManagementExitEvent,
+    RebalanceEvent,
+    RebalanceStatus,
     SignalId,
     _dec,
     _exit_intent,
@@ -29,6 +33,10 @@ from icarus.engine.simcore import (
     _sim_bar,
     _trail_stop,
     _ts_at,
+    admission_order_unavailable,
+    management_intent,
+    rebalance_decision,
+    validate_consumer_columns,
 )
 
 if TYPE_CHECKING:
@@ -87,6 +95,7 @@ class SignalSkipReason(enum.StrEnum):
     PRICE_ABOVE_NOTIONAL = "price_above_notional"
     INVALID_STOP_DISTANCE = "invalid_stop_distance"
     ENTRY_NOT_FILLED = "entry_not_filled"
+    EXECUTION_ORDER_UNAVAILABLE = "execution_order_unavailable"
 
 
 @dataclass(frozen=True, slots=True)
@@ -357,6 +366,7 @@ class _SignalPosition:
     trailing: bool
     bars_held: int = 0
     peak_close: Decimal = Decimal(0)
+    pending_exit: ManagementExitEvent | None = None
     dark_sessions: int = 0
     fragments: list[SignalExitFragment] = field(default_factory=list)
 
@@ -383,6 +393,8 @@ class SignalRunResult:
     missing: tuple[SignalMissing, ...]
     emitted_signals: int
     unfilled_exits: int
+    management_exit_events: tuple[ManagementExitEvent, ...] = ()
+    rebalance_events: tuple[RebalanceEvent, ...] = ()
 
     def __post_init__(self) -> None:
         for name, values, expected in (
@@ -441,22 +453,40 @@ class SignalSimulator:
         stops: Mapping[str, Column],
         *,
         source_indices: Sequence[int],
+        exit_signals: Mapping[str, Column] | None = None,
+        ranks: Mapping[str, Column] | None = None,
+        rebalance_pulses: npt.NDArray[np.bool_] | None = None,
         missing_reasons: Mapping[str, Mapping[int, SignalMissingReason]] | None = None,
     ) -> SignalRunResult:
         """Preflight the complete input before simulating any event."""
         source, missing, emitted = self._preflight(
             panel, signals, stops, source_indices, missing_reasons or {}
         )
+        validate_consumer_columns(strategy, panel, exit_signals, rebalance_pulses, source)
         plan = ExitPlan.of(strategy.exits)
         book: dict[str, _SignalPosition] = {}
         delivery_fees = DeliveryFeeContext()
         trades: list[SignalTrade] = []
         skips: list[SignalSkipped] = []
+        management_events: list[ManagementExitEvent] = []
+        rebalance_events: list[RebalanceEvent] = []
+        queued: tuple[int, RebalanceEvent] | None = None
+        if strategy.rebalance is not None:
+            emitted = 0
         unfilled_exits = 0
         last = len(source) - 1
 
         for local in range(last + 1):
             ts = _ts_at(panel, local)
+            trade_start = len(trades)
+            unavailable_order = queued is not None and any(
+                admission_order_unavailable(
+                    position,
+                    _sim_bar(panel, panel.index_of(symbol), local, ts),
+                    final=local == last,
+                )
+                for symbol, position in book.items()
+            )
             unfilled_exits += self._process_exits(
                 book,
                 delivery_fees,
@@ -468,24 +498,164 @@ class SignalSimulator:
                 ts,
                 final=local == last,
             )
-            for symbol in panel.symbols:
-                if float(signals[symbol][local]) != 1.0:
-                    continue
-                skipped = self._process_entry(
-                    strategy,
-                    plan,
-                    book,
-                    panel,
-                    stops,
-                    source,
-                    symbol,
-                    local,
-                    ts,
-                )
-                if skipped is not None:
-                    skips.append(skipped)
+            if strategy.rebalance is not None:
+                if queued is not None:
+                    decision_local, event = queued
+                    unavailable_order = unavailable_order or any(
+                        fragment.reason is ExitReason.STALE_MARK
+                        for trade in trades[trade_start:]
+                        for fragment in trade.exit_fragments
+                    )
+                    if unavailable_order:
+                        for symbol in event.pending_admissions:
+                            skips.append(
+                                SignalSkipped(
+                                    SignalId(
+                                        strategy.name,
+                                        strategy.version,
+                                        symbol,
+                                        event.decision_ts,
+                                        event.decision_index,
+                                    ),
+                                    SignalSkipReason.EXECUTION_ORDER_UNAVAILABLE,
+                                )
+                            )
+                    else:
+                        before = set(book)
+                        for symbol in event.pending_admissions:
+                            if symbol in book and book[symbol].pending_exit is not None:
+                                continue
+                            skipped = self._process_entry(
+                                strategy,
+                                plan,
+                                book,
+                                panel,
+                                stops,
+                                source,
+                                symbol,
+                                decision_local,
+                                event.decision_ts,
+                            )
+                            if skipped is not None:
+                                skips.append(skipped)
+                        new_symbols = set(book) - before
+                        unfilled_exits += self._process_exits(
+                            book,
+                            delivery_fees,
+                            trades,
+                            panel,
+                            stops,
+                            source,
+                            local,
+                            ts,
+                            final=local == last,
+                            only_symbols=new_symbols,
+                        )
+                    rebalance_events[-1] = replace(
+                        event,
+                        holdings_after=tuple(sorted(book)),
+                        admission_refusal=AdmissionRefusal.EXECUTION_ORDER_UNAVAILABLE
+                        if unavailable_order
+                        else None,
+                        pending_admissions=tuple(
+                            s for s in event.pending_admissions if s not in book
+                        ),
+                    )
+                    queued = None
+                if rebalance_pulses is not None and rebalance_pulses[local]:
+                    event = rebalance_decision(
+                        strategy,
+                        panel,
+                        signals,
+                        ranks,
+                        local,
+                        source[local],
+                        tuple(book),
+                        tuple(s for s, p in book.items() if p.pending_exit is not None),
+                    )
+                    rebalance_events.append(event)
+                    if event.status is RebalanceStatus.VALID:
+                        for symbol, position in book.items():
+                            if symbol not in event.candidates and position.pending_exit is None:
+                                pending = ManagementExitEvent(
+                                    symbol,
+                                    ts,
+                                    source[local],
+                                    source[local] + 1,
+                                    ExitReason.REBALANCE,
+                                )
+                                position.pending_exit = pending
+                                management_events.append(pending)
+                        allowed = tuple(
+                            s
+                            for s in event.candidates
+                            if s not in book or book[s].pending_exit is None
+                        )
+                        emitted += len(allowed)
+                        for symbol in event.retained:
+                            skips.append(
+                                SignalSkipped(
+                                    SignalId(
+                                        strategy.name, strategy.version, symbol, ts, source[local]
+                                    ),
+                                    SignalSkipReason.ALREADY_OPEN,
+                                )
+                            )
+                        if local == last:
+                            for symbol in event.pending_admissions:
+                                skips.append(
+                                    SignalSkipped(
+                                        SignalId(
+                                            strategy.name,
+                                            strategy.version,
+                                            symbol,
+                                            ts,
+                                            source[local],
+                                        ),
+                                        SignalSkipReason.NO_NEXT_BAR,
+                                    )
+                                )
+                        else:
+                            queued = (local, event)
+            else:
+                for symbol in panel.symbols:
+                    if float(signals[symbol][local]) != 1.0:
+                        continue
+                    skipped = self._process_entry(
+                        strategy,
+                        plan,
+                        book,
+                        panel,
+                        stops,
+                        source,
+                        symbol,
+                        local,
+                        ts,
+                    )
+                    if skipped is not None:
+                        skips.append(skipped)
+            if exit_signals is not None:
+                for symbol, position in book.items():
+                    if (
+                        exit_signals[symbol][local] == 1.0
+                        and position.pending_exit is None
+                        and position.entry_ts <= ts
+                    ):
+                        management_event = ManagementExitEvent(
+                            symbol, ts, source[local], source[local] + 1, ExitReason.OPPOSITE_SIGNAL
+                        )
+                        position.pending_exit = management_event
+                        management_events.append(management_event)
 
-        return SignalRunResult(tuple(trades), tuple(skips), missing, emitted, unfilled_exits)
+        return SignalRunResult(
+            tuple(trades),
+            tuple(skips),
+            missing,
+            emitted,
+            unfilled_exits,
+            tuple(management_events),
+            tuple(rebalance_events),
+        )
 
     def _process_entry(
         self,
@@ -563,9 +733,12 @@ class SignalSimulator:
         ts: datetime,
         *,
         final: bool,
+        only_symbols: set[str] | None = None,
     ) -> int:
         unfilled = 0
         for symbol in list(book):
+            if only_symbols is not None and symbol not in only_symbols:
+                continue
             position = book[symbol]
             index = panel.index_of(symbol)
             bar = _sim_bar(panel, index, local, ts)
@@ -579,6 +752,10 @@ class SignalSimulator:
             position.peak_close = max(position.peak_close, bar.close)
             _trail_stop(position, float(stops[symbol][local]))
             intent, reason = _exit_intent(position, bar, ts, final=final)
+            if intent is None:
+                intent, reason = management_intent(
+                    position.pending_exit, position.quantity, ts, source[local]
+                )
             if intent is None or reason is None:
                 continue
             fill = self._fills.execute(intent, bar)
@@ -614,6 +791,8 @@ class SignalSimulator:
 
         if final:
             for symbol in list(book):
+                if only_symbols is not None and symbol not in only_symbols:
+                    continue
                 self._mark_position(book, trades, panel, source, symbol, local, ts)
         return unfilled
 

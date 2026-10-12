@@ -1,0 +1,11 @@
+# Icarus pre-registration: ATR stop and candidate-slot fallback are project-owned.
+name: donchian_55_20
+version: 1
+timeframe: 1d
+universe: nse_liquid
+entry: {donchian_breakout_up: {n: 55, basis: close}}
+exit:
+  - stop_loss_atr: {atr_mult: 3.0, atr_period: 14}
+  - opposite_signal:
+      event: {donchian_breakout_down: {n: 20, basis: close}}
+sizing: {risk_r: 0.005, weighting: equal_weight}

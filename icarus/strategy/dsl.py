@@ -644,6 +644,13 @@ class ExitRule(Node):
 
     rule: str
     literals: dict[str, int | float | str] = {}
+    event: Condition | None = None
+
+
+class RebalanceRule(Node):
+    """Whole-source session schedule, anchored at source index zero."""
+
+    every_sessions: int
 
 
 # How a basket is split across its members, once the strategy has chosen the members. Only
@@ -701,6 +708,7 @@ class StrategyCandidate(Node):
     entry: Condition
     exits: tuple[ExitRule, ...]
     sizing: Sizing
+    rebalance: RebalanceRule | None = None
     rank_by: Call | None = None
     """Which candidate wins when more fire than there are open slots. Higher is preferred.
 
@@ -718,6 +726,9 @@ class StrategyCandidate(Node):
         used = set(_walk_names(self.entry))
         if self.rank_by is not None:
             used |= set(_walk_names(self.rank_by))
+        for rule in self.exits:
+            if rule.event is not None:
+                used |= set(_walk_names(rule.event))
         return frozenset(used)
 
 
@@ -751,6 +762,7 @@ EXIT_RULES: dict[str, tuple[ParamSpec, ...]] = {
     "take_profit_r": (FloatParam("r_multiple", 0.1, 20.0),),
     "take_profit_pct": (FloatParam("pct", 0.001, 5.0),),
     "time_stop": (IntParam("bars", 1, 500),),
+    "opposite_signal": (),
 }
 
 # Rules that actually bound the loss. Invariant #16 requires every open position to carry a
@@ -767,7 +779,7 @@ _COMPOSITE_OPS = ("all", "any")
 _REQUIRED_KEYS = frozenset({"name", "version", "timeframe", "universe", "entry", "exit", "sizing"})
 # Optional keys are listed separately so "unknown key" and "missing key" stay two different
 # refusals. Folding them into one set would make every optional key silently required.
-_OPTIONAL_KEYS = frozenset({"rank_by"})
+_OPTIONAL_KEYS = frozenset({"rank_by", "rebalance"})
 _TOP_LEVEL_KEYS = _REQUIRED_KEYS | _OPTIONAL_KEYS
 
 
@@ -802,15 +814,35 @@ def parse_strategy(
 
     timeframe = _timeframe(raw["timeframe"])
     context = _Context(registry=registry, timeframe=timeframe, available_feeds=available_feeds)
-    return StrategyCandidate(
+    candidate = StrategyCandidate(
         name=_text(raw["name"], "name"),
         version=_version(raw["version"]),
         timeframe=timeframe,
         universe=_text(raw["universe"], "universe"),
         entry=_condition(raw["entry"], context, where="entry"),
-        exits=_exits(raw["exit"]),
+        exits=_exits(raw["exit"], context),
         sizing=_sizing(raw["sizing"], max_risk_r=max_risk_r),
         rank_by=_rank_by(raw.get("rank_by"), context),
+        rebalance=_rebalance(raw.get("rebalance")),
+    )
+    if candidate.rebalance is not None and (
+        not isinstance(candidate.entry, Call)
+        or candidate.entry.primitive not in {"xs_bottom_n", "xs_top_n"}
+        or candidate.rank_by is None
+    ):
+        raise DslError("rebalance requires xs_bottom_n/xs_top_n entry and rank_by")
+    return candidate
+
+
+def _rebalance(node: object) -> RebalanceRule | None:
+    if node is None:
+        return None
+    if not isinstance(node, dict) or set(node) != {"every_sessions"}:
+        raise DslError("rebalance accepts exactly every_sessions")
+    return RebalanceRule(
+        every_sessions=IntParam("every_sessions", 1, 10000).validate(
+            node["every_sessions"], where="rebalance"
+        )
     )
 
 
@@ -1076,10 +1108,10 @@ def _default_of(spec: ParamSpec) -> int | float | str:
     return default  # type: ignore[no-any-return]
 
 
-def _exits(node: object) -> tuple[ExitRule, ...]:
+def _exits(node: object, ctx: _Context) -> tuple[ExitRule, ...]:
     if not isinstance(node, list) or not node:
         raise DslError(f"exit must be a non-empty list of exit rules, got {node!r}")
-    rules = tuple(_exit_rule(item, where=f"exit[{i}]") for i, item in enumerate(node))
+    rules = tuple(_exit_rule(item, ctx, where=f"exit[{i}]") for i, item in enumerate(node))
     names = {rule.rule for rule in rules}
     if not names & PROTECTIVE_EXITS:
         raise DslError(
@@ -1090,7 +1122,7 @@ def _exits(node: object) -> tuple[ExitRule, ...]:
     return rules
 
 
-def _exit_rule(node: object, *, where: str) -> ExitRule:
+def _exit_rule(node: object, ctx: _Context, *, where: str) -> ExitRule:
     if isinstance(node, str):
         name, params = node, {}
     elif isinstance(node, dict) and len(node) == 1:
@@ -1104,6 +1136,10 @@ def _exit_rule(node: object, *, where: str) -> ExitRule:
     specs = EXIT_RULES.get(name)
     if specs is None:
         raise DslError(f"{where}: unknown exit rule {name!r}; allowed: {sorted(EXIT_RULES)}")
+    if name == "opposite_signal":
+        if set(params) != {"event"}:
+            raise DslError(f"{where}.opposite_signal accepts exactly event")
+        return ExitRule(rule=name, event=_condition(params["event"], ctx, where=f"{where}.event"))
     unknown = set(params) - {spec.name for spec in specs}
     if unknown:
         raise DslError(f"{where}.{name}: unknown parameter(s) {sorted(unknown)}")

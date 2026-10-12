@@ -165,9 +165,21 @@ def _ibs(bars: Bars, **_: object) -> Column:
     return _ops.safe_divide(bars.close - bars.low, bars.high - bars.low)
 
 
+def _negate(bars: Bars, *, series: Column) -> Column:
+    return -series
+
+
 def primitives() -> tuple[Primitive, ...]:
     """Catalogue §4."""
     return (
+        Primitive(
+            "negate",
+            Kind.SERIES,
+            "Reverse a scale-free series for ascending admission rank.",
+            _negate,
+            (SeriesParam("series", requires_scale_free=True),),
+            scale_free=True,
+        ),
         Primitive(
             "rsi",
             Kind.SERIES,

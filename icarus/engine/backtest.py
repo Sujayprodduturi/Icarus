@@ -151,6 +151,8 @@ def _strategy_integers(strategy: StrategyCandidate) -> Iterator[int]:
         yield from _integer_literals(strategy.rank_by)
     for rule in strategy.exits:
         yield from _whole_numbers(rule.literals)
+        if rule.event is not None:
+            yield from _integer_literals(rule.event)
 
 
 def _integer_literals(node: Condition) -> Iterator[int]:

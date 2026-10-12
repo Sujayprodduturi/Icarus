@@ -1,0 +1,15 @@
+# Icarus equal-stop-risk, at-most-four holding adaptation; thirty candidate names.
+name: defensive_low_vol_252_q63
+version: 1
+timeframe: 1d
+universe: nse_liquid
+entry:
+  xs_bottom_n:
+    expr: {realized_vol: {n: 252}}
+    n: 30
+    min_symbols: 31
+rank_by: {negate: {series: {realized_vol: {n: 252}}}}
+rebalance: {every_sessions: 63}
+exit:
+  - stop_loss_atr: {atr_mult: 3.0, atr_period: 14}
+sizing: {risk_r: 0.005, weighting: equal_weight}

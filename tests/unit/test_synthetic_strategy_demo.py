@@ -53,14 +53,25 @@ def test_catalogue_demo_records_real_dsl_trades_and_refuses_reuse(
         "short_term_reversal_uptrend",
         "xs_momentum_20",
         "xs_momentum_252_21",
+        "donchian_55_20",
+        "defensive_low_vol_252_q63",
     }
     assert set(rows) == expected
-    for name in expected - {"short_term_reversal_uptrend"}:
+    for name in expected - {
+        "short_term_reversal_uptrend",
+        "defensive_low_vol_252_q63",
+        "donchian_55_20",
+    }:
         assert rows[name]["portfolio_trades"] > 0
     # The fixed catalogue fixture has symmetric highs/lows, so IBS is about 0.5 and the strict
     # pullback card correctly emits nothing.  Its positive path has a dedicated boundary fixture.
+    assert rows["donchian_55_20"]["signals"] == 0
+    assert rows["donchian_55_20"]["portfolio_trades"] == 0
     assert rows["short_term_reversal_uptrend"]["signals"] == 0
     assert rows["short_term_reversal_uptrend"]["portfolio_trades"] == 0
+    assert rows["defensive_low_vol_252_q63"]["signals"] == 0
+    assert rows["defensive_low_vol_252_q63"]["portfolio_trades"] == 0
+    assert rows["defensive_low_vol_252_q63"]["rebalance_refusals"] > 0
     details = {
         payload["summary"]["strategy"]: payload
         for path in root.glob("*-results.json")
@@ -73,7 +84,7 @@ def test_catalogue_demo_records_real_dsl_trades_and_refuses_reuse(
         detail = details[row["strategy"]]
         for trade in detail["signal_run"]["trades"]:
             assert trade["entry_index"] > trade["signal_id"]["decision_index"]
-    assert len(list(root.glob("*-trial.json"))) == 5
-    assert len(list(root.glob("*-trial-complete.json"))) == 5
+    assert len(list(root.glob("*-trial.json"))) == 7
+    assert len(list(root.glob("*-trial-complete.json"))) == 7
     with pytest.raises(FileExistsError):
         demo.run_demo("test")

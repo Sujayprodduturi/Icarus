@@ -357,6 +357,7 @@ def test_every_rule_the_dsl_accepts_is_one_the_simulator_implements() -> None:
         "take_profit_r": {"r_multiple": 3.0},
         "take_profit_pct": {"pct": 0.1},
         "time_stop": {"bars": 20},
+        "opposite_signal": {},
     }
     assert set(defaults) == set(EXIT_RULES), "a rule was added to the DSL; teach ExitPlan about it"
     for name, literals in defaults.items():

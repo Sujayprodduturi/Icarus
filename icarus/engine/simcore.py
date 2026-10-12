@@ -21,11 +21,11 @@ from icarus.common.types import OrderSide
 from icarus.engine.fills import Intent, OrderKind, SimBar
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
 
     import numpy.typing as npt
 
-    from icarus.strategy.dsl import ExitRule, Panel
+    from icarus.strategy.dsl import ExitRule, Panel, StrategyCandidate
 
     Column = npt.NDArray[np.float64]
 
@@ -38,6 +38,8 @@ class ExitReason(enum.StrEnum):
     TRAILING_STOP = "trailing_stop"
     TAKE_PROFIT = "take_profit"
     TIME_STOP = "time_stop"
+    OPPOSITE_SIGNAL = "opposite_signal"
+    REBALANCE = "rebalance"
     END_OF_DATA = "end_of_data"
     STALE_MARK = "stale_mark"
     """The symbol stopped printing bars while the position was open, so it was written off at the
@@ -94,6 +96,137 @@ class SignalId:
             separators=(",", ":"),
         )
         object.__setattr__(self, "uuid", uuid5(NAMESPACE_URL, f"icarus:signal:{canonical}"))
+
+
+@dataclass(frozen=True, slots=True)
+class ManagementExitEvent:
+    symbol: str
+    decision_ts: datetime
+    decision_index: int
+    first_execution_index: int
+    reason: ExitReason
+
+
+def management_intent(
+    pending: ManagementExitEvent | None, quantity: int, ts: datetime, source_index: int
+) -> tuple[Intent | None, ExitReason | None]:
+    if pending is None or source_index < pending.first_execution_index or ts <= pending.decision_ts:
+        return None, None
+    return Intent(
+        OrderSide.SELL, OrderKind.MARKETABLE_LIMIT, quantity, pending.decision_ts
+    ), pending.reason
+
+
+class AdmissionRefusal(enum.StrEnum):
+    EXECUTION_ORDER_UNAVAILABLE = "execution_order_unavailable"
+
+
+class RebalanceStatus(enum.StrEnum):
+    VALID = "valid"
+    COHORT_UNAVAILABLE = "cohort_unavailable"
+    CARDINALITY_MISMATCH = "cardinality_mismatch"
+
+
+@dataclass(frozen=True, slots=True)
+class RebalanceEvent:
+    decision_ts: datetime
+    decision_index: int
+    first_execution_index: int
+    status: RebalanceStatus
+    candidates: tuple[str, ...] = ()
+    retained: tuple[str, ...] = ()
+    holdings_after: tuple[str, ...] = ()
+    pending_admissions: tuple[str, ...] = ()
+    admission_refusal: AdmissionRefusal | None = None
+
+
+def rebalance_decision(
+    strategy: StrategyCandidate,
+    panel: Panel,
+    signals: Mapping[str, Column],
+    ranks: Mapping[str, Column] | None,
+    local: int,
+    source_index: int,
+    holdings: Sequence[str],
+    pending_symbols: Sequence[str] = (),
+) -> RebalanceEvent:
+    from icarus.strategy.dsl import Call
+
+    if not isinstance(strategy.entry, Call) or "n" not in strategy.entry.literals:
+        raise ValueError("rebalance requires a cross-sectional fixed-count entry")
+    count = int(strategy.entry.literals["n"])
+    minimum = int(strategy.entry.literals["min_symbols"])
+    eligible = [
+        s
+        for s in panel.symbols
+        if panel.tradable[panel.index_of(s), local]
+        and np.isfinite(signals[s][local])
+        and ranks is not None
+        and np.isfinite(ranks[s][local])
+    ]
+    selected = tuple(s for s in eligible if signals[s][local] == 1.0)
+    status = (
+        RebalanceStatus.COHORT_UNAVAILABLE
+        if len(eligible) < minimum
+        else RebalanceStatus.CARDINALITY_MISMATCH
+        if len(selected) != count
+        else RebalanceStatus.VALID
+    )
+    target = selected if status is RebalanceStatus.VALID else ()
+    return RebalanceEvent(
+        _ts_at(panel, local),
+        source_index,
+        source_index + 1,
+        status,
+        target,
+        tuple(sorted((set(holdings) & set(target)) - set(pending_symbols))),
+        tuple(sorted(holdings)),
+        tuple(s for s in target if s not in holdings),
+    )
+
+
+def rebalance_grid(
+    strategy: StrategyCandidate, source: Sequence[int]
+) -> npt.NDArray[np.bool_] | None:
+    from icarus.engine.backtest import longest_lookback
+
+    if strategy.rebalance is None:
+        return None
+    lookback = longest_lookback(strategy)
+    return np.array(
+        [index >= lookback and index % strategy.rebalance.every_sessions == 0 for index in source],
+        dtype=np.bool_,
+    )
+
+
+def validate_consumer_columns(
+    strategy: StrategyCandidate,
+    panel: Panel,
+    exit_signals: Mapping[str, Column] | None,
+    pulses: npt.NDArray[np.bool_] | None,
+    source: Sequence[int],
+) -> None:
+    if any(rule.rule == "opposite_signal" and rule.event is None for rule in strategy.exits):
+        raise ValueError("opposite_signal requires a declared event")
+    if any(rule.rule == "opposite_signal" for rule in strategy.exits) and exit_signals is None:
+        raise ValueError("opposite_signal requires evaluated exit columns")
+    if exit_signals is not None:
+        if set(exit_signals) != set(panel.symbols):
+            raise ValueError("exit signals must exactly match panel symbols")
+        for column in exit_signals.values():
+            if np.asarray(column).shape != (len(panel),) or not np.all(
+                np.isnan(column) | (column == 0) | (column == 1)
+            ):
+                raise ValueError("exit signals must be aligned 0/1/NaN columns")
+    if strategy.rebalance is not None and pulses is None:
+        raise ValueError("rebalance requires whole-source pulse columns")
+    if pulses is not None and (
+        np.asarray(pulses).shape != (len(panel),) or pulses.dtype != np.bool_
+    ):
+        raise ValueError("rebalance pulses must be aligned boolean columns")
+    expected = rebalance_grid(strategy, source)
+    if expected is not None and (pulses is None or not np.array_equal(pulses, expected)):
+        raise ValueError("rebalance pulses must match the declared whole-source grid")
 
 
 class _ExitPosition(Protocol):
@@ -218,6 +351,24 @@ def _exit_intent(
     return None, None
 
 
+def admission_order_unavailable(
+    position: _ExitPosition, bar: SimBar | None, *, final: bool
+) -> bool:
+    """Refuse using a whole-bar release to fund a queued fill at that bar's open.
+
+    Inspect pre-bar state, before close/ATR trailing updates or fills. Already-decided marketable
+    exits and genuine gap stops may release capacity through real fills. An intrabar stop/target,
+    an unavailable bar, or a close-dependent trail cannot establish opening capacity.
+    """
+    if bar is None or position.trailing:
+        return True
+    if final:
+        return False
+    if bar.low <= position.stop_price:
+        return bar.open > position.stop_price
+    return position.take_profit is not None and bar.high > position.take_profit
+
+
 def _trail_stop(position: _ExitPosition, distance: float) -> None:
     """Ratchet a trailing stop up behind the peak close. It never moves down.
 
@@ -258,7 +409,7 @@ class ExitPlan:
 
     @classmethod
     def of(cls, exits: Sequence[ExitRule]) -> ExitPlan:
-        known = {"stop_loss_atr", "stop_loss_pct", "trailing_stop_atr"}
+        known = {"stop_loss_atr", "stop_loss_pct", "trailing_stop_atr", "opposite_signal"}
         plan = cls()
         for rule in exits:
             if rule.rule in known:
