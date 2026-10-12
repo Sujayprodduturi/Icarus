@@ -1,0 +1,21 @@
+# Synthetic benchmark-matching build review - 2026-10-12
+
+SCOPED PASS for isolated synthetic exact-timestamp benchmark arithmetic at source `7e66c7246a20496230690d9c91254140cd20a780`. The implementation adds one pure research module and its unit tests. All 18 protected product, goal, strategy-card, demo, calendar and ledger files match their prerequisite bytes. No product integration or I/O path was added.
+
+The matcher accepts one declared synthetic fixture identity and requires exact resolved timestamps with zero allowed age: the observed quote time equals the resolved fill time and its availability time is no later than that fill. This is a fixed invented-fixture policy, not a certified real-vendor source, availability rule or market-calendar claim. It performs no nearest/as-of lookup, interpolation, calendar inference or source certification.
+
+Malformed primitive, UTC, schema, price and chronology inputs fail immutable-record construction. Well-typed missing, ambiguous, late, stale, duplicate, incompatible or quantity-incomplete inputs return typed whole-trade unavailability. A stale residual cannot use a recognition-time quote. Local diagnostics expose matched quantities and per-leg refusals, but quote coverage never becomes a partial numerical return. Entry and exit diagnostic identities cannot collide because exit diagnostics use `exit/<fragment-id>`.
+
+Exact `Fraction` arithmetic weights every executed exit fragment by its quantity divided by the original entry quantity. The hand-worked case has benchmark entry level 100, original quantity 100, and partial quantities 25/75 at benchmark exit levels 102/104; it returns `7/200`; changing the second exit to 80 returns `-29/200`. Removing the benchmark quote for the losing 75-share exit returns `None` rather than the favorable 25-share subset. An observed flat path returns exact zero. The output is benchmark return only; it does not subtract stock return or emit alpha, confidence, certification, profitability, promotion or readiness.
+
+TDD began with 47 API-contract failures in 1.89 seconds. A later diagnostic-identity test exposed a real collision when an exit fragment used the identifier `entry`; prefixing exit diagnostic identities fixed it, and the complete matcher suite then passed 48 tests in 0.15 seconds. Builder affected checks passed 155 tests in 0.89 seconds. Strict mypy over 201 source files, global Ruff lint, formatting over 387 files and diff checks passed.
+
+Parent verification passed 219 tests in 1.18 seconds and 11 independently assembled positive, negative, zero and refusal cases. It reproduced `7/200` and `-29/200`. Independent review is GO: five selected public functions produced 14 passes in 0.19 seconds, and a separate original-Q7 fixture with exits 2 and 5 at levels 90 and 120 returned exact `4/35`; removing a required quote returned `None`. Root cleared only the verified local Ruff cache after a known cache panic, then confirmed the normal cached format check worked; no source changed.
+
+All five postcommit defect variants were caught by behavioral assertions: equal fragment weights, a favorable subset return, late availability accepted, bar precision treated as a point and fixture identity ignored. Their failure counts were 1, 1, 3, 2 and 4 respectively. Exact committed source and test bytes were restored and matched to `git show`; the restored matcher suite passed 48 tests in 0.18 seconds. No precommit mutation was run. The frozen two-file source manifest is `ed0ae11f0dda8e948b5e40ab48b7eb30fa2c253352125d50fa8aa9c3d56afbfe`.
+
+This result establishes only arithmetic and refusal behavior for invented declarations. It does not establish stock excess return, an alpha estimate, real quote coverage, market applicability, product Step 8, actual-ledger evidence or any strategy result. No real data, actual ledger, inference, lockbox, broker, live path or artificial-study stream was accessed.
+
+The prior source `2922109` separately passed hosted CI `38234029118` with 2,992 passed/four skipped in 2,017.50 seconds and native-resource check `38234029185`. Those prerequisite results do not cover this change. Hosted verification of this implementation remains pending and is not claimed PASS.
+
+[Compact proof](2026-10-12-synthetic-benchmark-matching-build-proof.json).

@@ -1,0 +1,152 @@
+{
+  "status": "SCOPED_PASS",
+  "verdict": "SCOPED_PASS_SYNTHETIC_DECLARATIONS_ONLY",
+  "source_commit": "7e66c7246a20496230690d9c91254140cd20a780",
+  "scope": "synthetic exact-timestamp benchmark arithmetic and typed refusals only",
+  "contract": {
+    "sha256": "51f38238ede64a6028e746b92b6d85c70a3b454485883529e3a6098ff9474a68"
+  },
+  "source_freeze": {
+    "manifest_sha256": "ed0ae11f0dda8e948b5e40ab48b7eb30fa2c253352125d50fa8aa9c3d56afbfe",
+    "source_freeze_sha256": "8830b5665ea8ca71bbd6f30fa4950210eb5417f0679f50cf97c37761044a5246",
+    "matcher_sha256": "3074ae6315e08f3dd133853b62751f1e053409f93f6d855f11afcf46aa8c771b",
+    "test_sha256": "500e203c190ee47d43a4cede105bf6956d94039a93488c5813970fba3da2a52d",
+    "protected_files": 18,
+    "protected_hashes_match": true,
+    "product_integration": false
+  },
+  "policy": {
+    "name": "SYNTHETIC_EXACT_TIMESTAMP_ONLY",
+    "expected_fixture_identity_count": 1,
+    "observed_time_equals_resolved_fill_time": true,
+    "availability_no_later_than_fill": true,
+    "allowed_age": "zero",
+    "nearest_or_asof": false,
+    "interpolation": false,
+    "real_vendor_rule": false,
+    "source_or_calendar_certification": false
+  },
+  "behavior": {
+    "malformed_inputs": "constructor failure",
+    "well_typed_unavailable_inputs": "typed whole-trade None with per-leg diagnostics",
+    "partial_numeric_return": false,
+    "quote_coverage_is_partial_return": false,
+    "exit_diagnostic_identity": "exit/<fragment-id>",
+    "output": "benchmark Fraction or None",
+    "stock_return_subtraction": false,
+    "alpha_output": false
+  },
+  "exact_references": {
+    "original_quantity": 100,
+    "positive_exits": [
+      [
+        25,
+        102
+      ],
+      [
+        75,
+        104
+      ]
+    ],
+    "positive_return": "7/200",
+    "negative_exits": [
+      [
+        25,
+        102
+      ],
+      [
+        75,
+        80
+      ]
+    ],
+    "negative_return": "-29/200",
+    "missing_losing_leg": null,
+    "observed_flat": "0"
+  },
+  "builder_verification": {
+    "contract_red": "47 failed in 1.89s",
+    "identity_collision_red": "1 failed, 47 deselected",
+    "focused": "48 passed in 0.15s",
+    "affected": "155 passed in 0.89s",
+    "mypy": "201 source files PASS plus changed two PASS",
+    "ruff_lint": "PASS",
+    "ruff_format": "387 files PASS",
+    "diff_check": "PASS",
+    "build_report_sha256": "d54fc1d7d0174440762471bf6b67ee5bb79948d378df4cce1ac0c5f123f7be47"
+  },
+  "root_verification": {
+    "pytest": "219 passed in 1.18s",
+    "numeric_cases": 11,
+    "numeric_probe_sha256": "80c9ffa43a58ec01bdd0d393f32ce05a12e903628a6b726abd9f74375fe6628d",
+    "mypy": "201 source files PASS",
+    "ruff_lint": "global no-cache PASS",
+    "ruff_format": "387 files PASS",
+    "diff_check": "PASS",
+    "final_proof_sha256": "a9796e10c0ac8f3182d179f212c36f8079286807fe599147348132e4925b6937",
+    "ruff_cache_note": "cleared only verified local .ruff_cache after known panic; fresh cached format check then passed"
+  },
+  "independent_review": {
+    "verdict": "GO",
+    "selected_tests": "14 passed in 0.19s across five functions",
+    "independent_fixture": "original Q7, exits 2/5, levels 100/90/120 returned 4/35",
+    "missing_required_leg": null,
+    "source_check_sha256": "a1c824ed99a6a323c4c16faa792d4bb196cc0fcc93ce49b2f397140558e5111d",
+    "source_review_sha256": "d056786ff3ead1002b97eb10853f5b4745e95a84c5775fd447d5b3ac759660ef"
+  },
+  "postcommit_mutations": {
+    "passed": true,
+    "commit": "7e66c7246a20496230690d9c91254140cd20a780",
+    "count": 5,
+    "labels": [
+      "benchmark-equal-fragments",
+      "benchmark-subset-return",
+      "benchmark-late-available",
+      "benchmark-bar-is-point",
+      "benchmark-artifact-ignored"
+    ],
+    "behavioral_failure_counts": [
+      1,
+      1,
+      3,
+      2,
+      4
+    ],
+    "receipt_sha256": "292b3476e1187a6750803e9548ede7a7978dc13ee31e39f4faea769838040fb4",
+    "restored_matcher_sha256": "3074ae6315e08f3dd133853b62751f1e053409f93f6d855f11afcf46aa8c771b",
+    "restored_test_sha256": "500e203c190ee47d43a4cede105bf6956d94039a93488c5813970fba3da2a52d",
+    "restored_regression": "48 passed in 0.18s",
+    "restored_log_sha256": "ca275d4b7d7f7ceb560fb1e208f198b01fe1e12e1f903afdd6398d972cb6ca3a",
+    "restored_to_exact_committed_bytes": true,
+    "precommit_mutations": false
+  },
+  "prior_prerequisite": {
+    "source_commit": "292210915cc356f83a661121ffca0527abbc16ba",
+    "ci_id": 38234029118,
+    "ci_result": "2992 passed, 4 skipped in 2017.50s",
+    "resource_id": 38234029185,
+    "resource_result": "SUCCESS",
+    "receipt_sha256": "aff9b99473e29e4f62765c244dad7ba9de07e7afd4f745c56b7f4f2ec8fccd39",
+    "applies_to_new_change": false
+  },
+  "hosted_new_source_ci": "PENDING_VERIFICATION_NOT_CLAIMED_PASS",
+  "not_claimed": [
+    "stock excess return",
+    "alpha",
+    "confidence or p-value",
+    "real quote coverage",
+    "source or calendar certification",
+    "market applicability",
+    "profitability",
+    "promotion",
+    "product Step 8",
+    "actual ledger evidence"
+  ],
+  "no_access": [
+    "real data",
+    "actual ledger",
+    "inference",
+    "lockbox",
+    "broker/live",
+    "artificial-study streams"
+  ]
+}
