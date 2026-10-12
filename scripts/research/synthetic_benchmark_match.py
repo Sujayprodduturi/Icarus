@@ -10,14 +10,11 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from fractions import Fraction
 
+from icarus.engine.timing import Precision as Precision
+from icarus.engine.timing import Timing as Timing
+
 SCOPE = "SYNTHETIC_DECLARATIONS_ONLY_NOT_MARKET_EVIDENCE"
 POLICY = "SYNTHETIC_EXACT_TIMESTAMP_ONLY"
-
-
-class Precision(StrEnum):
-    SESSION_ONLY = "session_only"
-    BAR_RESOLVED = "bar_resolved"
-    EVENT_RESOLVED = "event_resolved"
 
 
 class FragmentStatus(StrEnum):
@@ -81,32 +78,6 @@ class FixtureIdentity:
             raise ValueError("artifact_sha256 must be a lowercase SHA256 declaration")
         if type(self.schema_version) is not int or self.schema_version != 1:
             raise ValueError("only integer fixture schema_version 1 is supported")
-
-
-@dataclass(frozen=True, slots=True)
-class Timing:
-    precision: Precision
-    event_ts: datetime | None = None
-    interval_start: datetime | None = None
-    interval_end: datetime | None = None
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.precision, Precision):
-            raise TypeError("precision must be Precision")
-        for name in ("event_ts", "interval_start", "interval_end"):
-            value = getattr(self, name)
-            if value is not None:
-                _utc(name, value)
-        if (self.interval_start is None) != (self.interval_end is None):
-            raise ValueError("interval bounds must both be present or both absent")
-        if self.interval_start is not None and self.interval_end is not None:
-            if self.interval_end < self.interval_start:
-                raise ValueError("interval end precedes start")
-            if (
-                self.event_ts is not None
-                and not self.interval_start <= self.event_ts <= self.interval_end
-            ):
-                raise ValueError("declared event lies outside its interval")
 
 
 @dataclass(frozen=True, slots=True)

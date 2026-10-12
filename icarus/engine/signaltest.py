@@ -38,6 +38,7 @@ from icarus.engine.simcore import (
     rebalance_decision,
     validate_consumer_columns,
 )
+from icarus.engine.timed_simulation import TimedFixture, TimedRun
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping, Sequence
@@ -426,6 +427,34 @@ class SignalRunResult:
 
 class SignalSimulator:
     """Synthetic signal diagnostic with no portfolio constraints or external side effects."""
+
+    def run_time_resolved(
+        self,
+        strategy: StrategyCandidate,
+        panel: Panel,
+        signals: Mapping[str, Column],
+        stops: Mapping[str, Column],
+        *,
+        fixture: TimedFixture,
+        source_indices: Sequence[int],
+        ranks: Mapping[str, Column] | None = None,
+    ) -> TimedRun:
+        from icarus.engine.timed_simulation import run_timed
+
+        if self._segment is not Segment.EQUITY_DELIVERY:
+            raise ValueError("timed mode supports long cash-equity delivery only")
+        return run_timed(
+            strategy,
+            panel,
+            signals,
+            stops,
+            fixture=fixture,
+            source_indices=source_indices,
+            ranks=ranks,
+            fills=self._fills,
+            costs=self._costs,
+            notional=self._notional,
+        )
 
     def __init__(
         self,

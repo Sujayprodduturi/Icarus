@@ -37,7 +37,7 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass, field, replace
-from decimal import ROUND_DOWN, Decimal
+from decimal import Decimal
 from itertools import pairwise
 from typing import TYPE_CHECKING
 
@@ -45,6 +45,7 @@ import numpy as np
 
 from icarus.common.types import OrderSide
 from icarus.engine.costmodel import DeliveryFeeContext, Segment
+from icarus.engine.entry_accounting import entry_outlay, scaled_charges, whole_shares
 from icarus.engine.fills import FillModel, Intent, OrderKind
 from icarus.engine.simcore import (
     AdmissionRefusal,
@@ -84,6 +85,7 @@ from icarus.engine.simcore import (
 from icarus.engine.simcore import (
     stop_distance_from_exits as stop_distance_from_exits,
 )
+from icarus.engine.timed_simulation import TimedFixture, TimedRun
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -330,6 +332,36 @@ class PortfolioSimulator:
     (task 1.4c). A symbol-major loop cannot compute a ranking at all — it has already finished with
     the first symbol before it reaches the second.
     """
+
+    def run_time_resolved(
+        self,
+        strategy: StrategyCandidate,
+        panel: Panel,
+        signals: Mapping[str, Column],
+        stops: Mapping[str, Column],
+        *,
+        fixture: TimedFixture,
+        source_indices: Sequence[int],
+        starting_equity: Decimal,
+        ranks: Mapping[str, Column] | None = None,
+    ) -> TimedRun:
+        from icarus.engine.timed_simulation import run_timed
+
+        if self._segment is not Segment.EQUITY_DELIVERY:
+            raise ValueError("timed mode supports long cash-equity delivery only")
+        return run_timed(
+            strategy,
+            panel,
+            signals,
+            stops,
+            fixture=fixture,
+            source_indices=source_indices,
+            ranks=ranks,
+            fills=self._fills,
+            costs=self._costs,
+            risk=self._risk,
+            starting_equity=starting_equity,
+        )
 
     def __init__(
         self,
@@ -843,7 +875,7 @@ class PortfolioSimulator:
                     PortfolioDiscard(signal_ids[symbol], Skipped.NO_STOP_DISTANCE)
                 )
                 continue
-            quantity = int((risk_budget / stop_distance).to_integral_value(rounding=ROUND_DOWN))
+            quantity = whole_shares(risk_budget, stop_distance)
             if quantity <= 0:
                 # Whole shares only. At seed capital this is common, and it is a trade that did
                 # not happen rather than a fractional one that did (task 2.1b).
@@ -861,7 +893,7 @@ class PortfolioSimulator:
             # paid. Sizing off the open leaves the filled value a few basis points over — a limit
             # that nearly holds, which is the whole family of bug this file keeps finding.
             price = self._fills.marketable_price(bar.open, side=OrderSide.BUY)
-            affordable = int((position_cap / price).to_integral_value(rounding=ROUND_DOWN))
+            affordable = whole_shares(position_cap, price)
             if affordable <= 0:
                 result.record_discard(
                     PortfolioDiscard(signal_ids[symbol], Skipped.CONCENTRATION_CAP)
@@ -901,7 +933,7 @@ class PortfolioSimulator:
             entry_charges = self._costs.charges(
                 self._segment, OrderSide.BUY, fill.price, Decimal(filled)
             )
-            outlay = fill.price * filled + entry_charges.total
+            outlay = entry_outlay(fill.price, filled, entry_charges)
             if committed + outlay > equity:
                 # **The account cannot buy what it cannot pay for.** Nothing checked this before:
                 # slots, heat, whole shares and the fill were all tested, and the rupee cost was
@@ -994,17 +1026,7 @@ def _scaled(charges: Charges, fraction: Decimal) -> Charges:
     booked ₹2,673 of entry cost against ₹297 actually paid — straight into net P&L, expectancy and
     the tax ledger, in the direction that understates the strategy.
     """
-    return replace(
-        charges,
-        brokerage=charges.brokerage * fraction,
-        stt=charges.stt * fraction,
-        exchange_txn=charges.exchange_txn * fraction,
-        sebi_fee=charges.sebi_fee * fraction,
-        gst=charges.gst * fraction,
-        stamp_duty=charges.stamp_duty * fraction,
-        dp_charge=charges.dp_charge * fraction,
-        turnover=charges.turnover * fraction,
-    )
+    return scaled_charges(charges, fraction)
 
 
 def _rank_of(column: Column, t: int) -> float:

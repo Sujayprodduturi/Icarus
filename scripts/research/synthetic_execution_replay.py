@@ -1,11 +1,10 @@
 """One preset invented stock trade; declared timing is never market certification."""
 
-import json
-from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime, timedelta
-from decimal import ROUND_DOWN, Decimal
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+from decimal import Decimal
 from enum import StrEnum
-from hashlib import sha256
+from fractions import Fraction
 from itertools import pairwise
 
 from scripts.research.synthetic_benchmark_match import (
@@ -20,27 +19,48 @@ from scripts.research.synthetic_benchmark_match import (
     match_benchmark,
 )
 
-from icarus.common.calendar import IST
 from icarus.common.config import ExecutionRealism
 from icarus.common.types import OrderSide
 from icarus.engine.costmodel import Charges, CostModel, DeliveryFeeContext, Segment
-from icarus.engine.fills import FillModel, FillResult, Intent, NoFillReason, OrderKind, SimBar
+from icarus.engine.fills import FillModel, FillResult, Intent, OrderKind
 from icarus.engine.simcore import SignalId
+from icarus.engine.timed_execution import (
+    ExitCause as ExitCause,
+)
+from icarus.engine.timed_execution import (
+    ReplayRefusal as ReplayRefusal,
+)
+from icarus.engine.timed_execution import (
+    _cap,
+    _fill,
+    _proxy_refusal,
+    select_end,
+    select_open,
+)
+from icarus.engine.timed_simulation import TimedRun
+from icarus.engine.timing import (
+    OpeningLiquidity as OpeningLiquidity,
+)
+from icarus.engine.timing import (
+    ReplayBar as ReplayBar,
+)
+from icarus.engine.timing import (
+    Session as Session,
+)
+from icarus.engine.timing import (
+    SourceDeclaration as SourceDeclaration,
+)
+from icarus.engine.timing import (
+    _integer,
+    _money,
+    _utc,
+)
+from icarus.engine.timing import (
+    fixture_digest as fixture_digest,
+)
 
 STEP = timedelta(minutes=15)
 SCOPE = "SYNTHETIC_PRESET_TRADE_NOT_PORTFOLIO_OR_MARKET_EVIDENCE"
-
-
-class ReplayRefusal(StrEnum):
-    MISSING_REFINEMENT = "missing_or_conflicting_refinement"
-    SOURCE_MISMATCH = "incompatible_source_or_fixture_hash"
-    INVALID_DECISION = "decision_session_or_availability_mismatch"
-    NO_ELIGIBLE_OPEN = "no_eligible_next_session_open"
-    MISSING_OPENING_LIQUIDITY = "missing_opening_liquidity"
-    LATE_OPENING_LIQUIDITY = "late_opening_liquidity"
-    LIQUIDITY_UNAVAILABLE = "opening_candidate_unsupported_by_realized_volume"
-    PATH_ORDER_UNAVAILABLE = "protective_activation_path_order_unavailable"
-    ORDER_UNAVAILABLE = "stop_target_order_unavailable"
 
 
 class ReplayStatus(StrEnum):
@@ -48,117 +68,6 @@ class ReplayStatus(StrEnum):
     OPEN = "residual_inventory_open"
     COMPLETE = "fully_executed"
     REFUSED = "replay_refused"
-
-
-class ExitCause(StrEnum):
-    ENTRY = "entry"
-    STOP = "stop"
-    TARGET = "target"
-    TIME_STOP = "time_stop"
-
-
-def _utc(value: datetime) -> None:
-    if not isinstance(value, datetime) or value.tzinfo is not UTC:
-        raise ValueError("fixture times must use datetime.UTC")
-
-
-def _integer(value: int, *, zero: bool = False) -> None:
-    if type(value) is not int or value < (0 if zero else 1):
-        raise ValueError("expected a whole quantity/index, excluding bool")
-
-
-def _money(value: Decimal, *, zero: bool = False) -> None:
-    if type(value) is not Decimal or not value.is_finite() or (value < 0 if zero else value <= 0):
-        raise ValueError("expected finite Decimal money/volume")
-
-
-def _window(start: datetime, end: datetime) -> None:
-    _utc(start)
-    _utc(end)
-    if end <= start or start.astimezone(IST).date() != end.astimezone(IST).date():
-        raise ValueError("window must be ordered within one IST date")
-
-
-@dataclass(frozen=True, slots=True)
-class SourceDeclaration:
-    """Expected fixture identity/hash declaration, not authenticated source evidence."""
-
-    artifact_id: str
-    version: str
-    sha256: str
-    schema_version: int = 1
-
-    def __post_init__(self) -> None:
-        if any(type(s) is not str or not s.strip() for s in (self.artifact_id, self.version)):
-            raise ValueError("source identity/version must be nonempty strings")
-        if (
-            type(self.sha256) is not str
-            or len(self.sha256) != 64
-            or any(c not in "0123456789abcdef" for c in self.sha256)
-        ):
-            raise ValueError("source SHA256 must be lowercase hex")
-        if type(self.schema_version) is not int or self.schema_version != 1:
-            raise ValueError("only integer schema1 is supported")
-
-
-@dataclass(frozen=True, slots=True)
-class Session:
-    index: int
-    open_ts: datetime
-    close_ts: datetime
-    source: SourceDeclaration
-
-    def __post_init__(self) -> None:
-        _integer(self.index, zero=True)
-        _window(self.open_ts, self.close_ts)
-        if (self.close_ts - self.open_ts) % STEP:
-            raise ValueError("declared session must partition into exact M15 bars")
-        if not isinstance(self.source, SourceDeclaration):
-            raise TypeError("session requires a source declaration")
-
-
-@dataclass(frozen=True, slots=True)
-class OpeningLiquidity:
-    quantity: Decimal
-    available_ts: datetime
-    source: SourceDeclaration
-
-    def __post_init__(self) -> None:
-        _money(self.quantity, zero=True)
-        _utc(self.available_ts)
-        if not isinstance(self.source, SourceDeclaration):
-            raise TypeError("opening proxy requires a source declaration")
-
-
-@dataclass(frozen=True, slots=True)
-class ReplayBar:
-    session_index: int
-    bar: SimBar
-    end_ts: datetime
-    opening: OpeningLiquidity | None
-    source: SourceDeclaration
-
-    def __post_init__(self) -> None:
-        _integer(self.session_index, zero=True)
-        if not isinstance(self.bar, SimBar):
-            raise TypeError("replay bar requires SimBar")
-        _window(self.bar.ts, self.end_ts)
-        if self.end_ts - self.bar.ts != STEP:
-            raise ValueError("only exact M15 intervals are supported")
-        for price in (self.bar.open, self.bar.high, self.bar.low, self.bar.close):
-            _money(price)
-        _money(self.bar.volume, zero=True)
-        if (
-            not self.bar.low
-            <= min(self.bar.open, self.bar.close)
-            <= max(self.bar.open, self.bar.close)
-            <= self.bar.high
-        ):
-            raise ValueError("OHLC range is inconsistent")
-        if self.opening is not None and not isinstance(self.opening, OpeningLiquidity):
-            raise TypeError("opening proxy must be a typed declaration or None")
-        if not isinstance(self.source, SourceDeclaration):
-            raise TypeError("bar requires a source declaration")
 
 
 @dataclass(frozen=True, slots=True)
@@ -236,24 +145,44 @@ class ReplayComparison:
     benchmark: BenchmarkMatch | None
 
 
-def fixture_digest(sessions: tuple[Session, ...], bars: tuple[ReplayBar, ...]) -> str:
-    """Bind actual fixture values, excluding circular identity/hash declarations."""
-    payload = [
-        [(s.index, s.open_ts.isoformat(), s.close_ts.isoformat()) for s in sessions],
-        [
-            (
-                b.session_index,
-                b.bar.ts.isoformat(),
-                b.end_ts.isoformat(),
-                *(str(v) for v in (b.bar.open, b.bar.high, b.bar.low, b.bar.close, b.bar.volume)),
-                None
-                if b.opening is None
-                else (str(b.opening.quantity), b.opening.available_ts.isoformat()),
-            )
-            for b in bars
-        ],
-    ]
-    return sha256(json.dumps(payload, separators=(",", ":")).encode("utf-8")).hexdigest()
+@dataclass(frozen=True, slots=True)
+class TimedBenchmark:
+    benchmark_return: Fraction | None
+    match: BenchmarkMatch | None
+    run_unavailable: bool
+
+
+def match_timed_trade(
+    run: TimedRun,
+    signal_id: SignalId,
+    observations: tuple[BenchmarkObservation, ...],
+    expected_benchmark: FixtureIdentity,
+) -> TimedBenchmark:
+    """The containing run is mandatory: a later whole-run refusal invalidates every trade."""
+    if not isinstance(run, TimedRun) or not isinstance(signal_id, SignalId):
+        raise TypeError("matching requires the containing timed run and SignalId")
+    trade = next((t for t in run.trades if t.signal_id == signal_id), None)
+    if trade is None:
+        raise ValueError("signal is not an accepted trade in this run")
+    if not run.valid:
+        return TimedBenchmark(None, None, True)
+    exits = tuple(
+        ExitFragment(
+            str(i),
+            e.quantity,
+            e.timing,
+            FragmentStatus.EXECUTED,
+            e.recognition_ts,
+            e.recognition_ts,
+        )
+        for i, e in enumerate(trade.exits)
+    )
+    matched = match_benchmark(
+        SyntheticTrade(trade.original_quantity, trade.entry.timing, exits),
+        observations,
+        expected_benchmark,
+    )
+    return TimedBenchmark(matched.benchmark_return, matched, False)
 
 
 def _preflight(
@@ -295,41 +224,6 @@ def _preflight(
     ):
         return ReplayRefusal.SOURCE_MISMATCH
     return None
-
-
-def _proxy_refusal(row: ReplayBar) -> ReplayRefusal | None:
-    if row.opening is None:
-        return ReplayRefusal.MISSING_OPENING_LIQUIDITY
-    if row.opening.available_ts > row.bar.ts:
-        return ReplayRefusal.LATE_OPENING_LIQUIDITY
-    return None
-
-
-def _cap(volume: Decimal, execution: ExecutionRealism) -> int:
-    return int(
-        (volume * Decimal(str(execution.max_participation_of_depth))).to_integral_value(
-            rounding=ROUND_DOWN
-        )
-    )
-
-
-def _fill(
-    intent: Intent, row: ReplayBar, model: FillModel, execution: ExecutionRealism, *, opening: bool
-) -> FillResult:
-    assert row.opening is not None
-    raw = model.execute(
-        intent, replace(row.bar, volume=row.opening.quantity) if opening else row.bar
-    )
-    allowance = _cap(row.opening.quantity, execution)
-    if not opening:
-        allowance = min(allowance, _cap(row.bar.volume, execution))
-    if raw.filled and (
-        allowance <= 0 or (not execution.model_partial_fills and allowance < intent.quantity)
-    ):
-        return FillResult(0, intent.quantity, None, NoFillReason.TOO_LARGE_FOR_BAR, None)
-    if raw.filled and raw.filled_quantity > allowance:
-        return FillResult(allowance, intent.quantity, raw.price, None, raw.ts)
-    return raw
 
 
 def _attempt(
@@ -429,47 +323,34 @@ def replay_trade(
             original = remaining = fill.filled_quantity
             entry_session = row.session_index
             activated = ts + timedelta(milliseconds=execution.latency_ms)
-            if row.bar.low <= request.stop_price or (
-                request.target_price is not None and row.bar.high > request.target_price
-            ):
-                refusal = ReplayRefusal.PATH_ORDER_UNAVAILABLE
+            selected = select_end(
+                row, request.stop_price, request.target_price, activated=activated
+            )
+            if selected.refusal is not None:
+                refusal = selected.refusal
                 break
             continue
         assert activated is not None
-        stop = row.bar.low <= request.stop_price
-        target = request.target_price is not None and row.bar.high > request.target_price
-        if ts < activated:
-            if stop or target:
-                refusal = ReplayRefusal.PATH_ORDER_UNAVAILABLE
-                break
-            continue
-        opening = True
-        kind = OrderKind.MARKETABLE_LIMIT
-        limit = None
-        if latched or row.bar.open <= request.stop_price:
-            cause = ExitCause.STOP
-            if not latched:
-                kind, limit = OrderKind.STOP, request.stop_price
-            latched = True
-        elif request.time_stop_sessions is not None and (
-            row.session_index - entry_session + 1 >= request.time_stop_sessions
-        ):
-            cause = ExitCause.TIME_STOP
-        elif stop and target:
-            refusal = ReplayRefusal.ORDER_UNAVAILABLE
-            break
-        elif stop:
-            cause, kind, limit, opening = ExitCause.STOP, OrderKind.STOP, request.stop_price, False
-            latched = True
-        elif target:
-            cause, kind, limit, opening = (
-                ExitCause.TARGET,
-                OrderKind.RESTING_LIMIT,
-                request.target_price,
-                False,
+        selected = select_open(
+            row,
+            request.stop_price,
+            latched=latched,
+            activated=activated,
+            timer_due=request.time_stop_sessions is not None
+            and row.session_index - entry_session + 1 >= request.time_stop_sessions,
+        )
+        opening = selected.cause is not None
+        if not opening:
+            selected = select_end(
+                row, request.stop_price, request.target_price, activated=activated
             )
-        else:
+        if selected.refusal is not None:
+            refusal = selected.refusal
+            break
+        if selected.cause is None:
             continue
+        cause, kind, limit = selected.cause, selected.kind, selected.limit
+        latched = latched or selected.latched
         refusal = _proxy_refusal(row)
         if refusal is not None:
             break

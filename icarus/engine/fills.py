@@ -181,6 +181,11 @@ class FillModel:
             return self._stop(intent, bar)
         return self._resting(intent, bar)
 
+    @property
+    def execution_config(self) -> ExecutionRealism:
+        """Configuration actually used by this model, for shared timed execution."""
+        return self._cfg
+
     # -- the three kinds -------------------------------------------------------------------
 
     def marketable_price(self, reference: Decimal, *, side: OrderSide) -> Decimal:
