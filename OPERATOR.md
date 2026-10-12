@@ -440,6 +440,8 @@ Dated decisions that are not code and not in `goal.yaml`, so they have nowhere e
 
 | D50 | **Build the finer-grained stock-execution replay, then connect it to benchmark matching.** Authorizes independently reviewed isolated synthetic single-position fixed-size M15 execution and actual pure-matcher adapter, with deterministic invented-data tests. Daily engines/goal/cards and matcher policy stay unchanged; full strategy/portfolio M15 integration and authoritative market-source matching are separate. Also repair the reproduced duplicate-READY startup race before publication without a new study, retry or budget change. D41, actual-ledger, lockbox, inference and broker/live holds remain. [Contract](docs/plans/2026-10-12-synthetic-stock-replay.md). | operator, direct request on2026-10-12; implementation bounded by review |
 
+| D51 | **Proceed to connect the finer replay to the strategy and portfolio simulators.** Authorizes independently reviewed synthetic-only explicit timed methods with a shared incremental execution clock, genuine inventory/cash/risk accounting and a derived benchmark adapter. First timed subset is fixed stops/targets/session timers (five cards); trailing/opposite/rebalance refuse explicitly until a subsequent increment. Daily default, goal/cards and risk thresholds stay unchanged. No real data, actual ledger/study, inference, lockbox, broker/live or source procurement is implied. [Contract](docs/plans/2026-10-12-shared-timing-integration.md). | operator, direct Go ahead after the replay milestone on2026-10-12; bounded implementation by review |
+
 ## 7c. Deferred by decision — not forgotten
 
 Things consciously postponed. **Each names the condition that reopens it.** A deferral without a

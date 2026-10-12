@@ -1,0 +1,238 @@
+{
+  "status": "SCOPED_PASS",
+  "verdict": "SCOPED_PASS_SYNTHETIC_INCREMENTAL_FIVE_CARD_TIMING_MECHANICS_ONLY",
+  "source_commit": "dd4b8fa2432bc9223f4ec9a8d75205f9ff2ca177",
+  "scope": "shared incremental synthetic M15 timing lane for five fixed-rule cards",
+  "contract": {
+    "path": "docs/plans/2026-10-12-shared-timing-integration.md",
+    "sha256": "7ab752beb95d1ae82a5eb6a563a99f1d29b66975b2cb0e35a3018a1a6ffcdd6a",
+    "independent_plan_review": "GO"
+  },
+  "source_freeze": {
+    "manifest_sha256": "a58676147b0ba58ccefd53731f3f8d5fbf66894a04fa60652b934229c5e70e84",
+    "builder_report_sha256": "473ce8c517db1aed65ca4d8fcf0b7cc31931bd9409e9331323295e1d0915c35b",
+    "writes_stopped": true,
+    "sources": {
+      "icarus/engine/entry_accounting.py": "7ac33df744738c7e4ff4a5b9bc1de1251c888503182584033b691c249e16339b",
+      "icarus/engine/fills.py": "ee4a9d757596ce0fee6c5373223f76b5b5b54a54b285653ae49ccae90dec26db",
+      "icarus/engine/portfolio.py": "2b0b3d6d0e1cacefca13ff5820122394dc7207c5ddd0e2bf84fe3db62ca7b86c",
+      "icarus/engine/signaltest.py": "8b2a19add208d1b4abe86734d42b4e2823141ca1a9765a521d42324e8f142d6d",
+      "icarus/engine/timed_execution.py": "19eb3cd8b6bc5c673b64523b8e7716885239ffce8ac540c31f79128a4b53786a",
+      "icarus/engine/timed_simulation.py": "61c9497162c00d09c92a9cf2867b07d7cc6408d66cd9c63420e261035e147776",
+      "icarus/engine/timing.py": "a59bbaa06970502b42a2a134992c71056147ce292821a4d1cb88bdb6b3545ced",
+      "scripts/research/synthetic_benchmark_match.py": "7a973dadc006dc5ae79d2f58430d17c2669f3e0978e2bd4f6fdf3583dcedd191",
+      "scripts/research/synthetic_execution_replay.py": "130fe5bbc288b884863d4c8561b0145c52c5910ff092f677c64e16e7858a7dea",
+      "tests/unit/test_shared_timing_integration.py": "94eaebd338e120e3964a2e17e005df68c90f96df7406207671098beb6aaac945",
+      "tests/unit/test_timed_accounting_boundaries.py": "28980fb35b2ce2560f38088f36cce454b4990a3ab8bea400fda6ab77c060a9b0"
+    }
+  },
+  "mechanics": {
+    "public_entrypoints": [
+      "SignalSimulator.run_time_resolved",
+      "PortfolioSimulator.run_time_resolved"
+    ],
+    "incremental_book_not_posthoc": true,
+    "event_phases": [
+      "OPEN",
+      "BAR_END",
+      "DAILY_CLOSE"
+    ],
+    "timed_supported_cards": 5,
+    "supported_management": [
+      "fixed stop",
+      "fixed optional target",
+      "held-session timer"
+    ],
+    "prefill_unsupported_cards": [
+      "Donchian opposite-signal management",
+      "low-volatility rebalancing"
+    ],
+    "daily_default_unchanged": true,
+    "whole_batch_causality": "future realized-volume contradiction invalidates the whole run without resizing",
+    "invalid_run_benchmark_block": true,
+    "risk_basis": "realized equity; closing mark is cash plus residual holdings",
+    "fee_scope": "portfolio book-wide by symbol and IST day; signal scope independent by SignalId",
+    "bounded_shared_extraction": [
+      "immutable timing records",
+      "execution selection/fill steps",
+      "whole-share sizing and acquisition-charge allocation"
+    ],
+    "guards": [
+      "source/schema/type mismatch",
+      "missing or conflicting refinement",
+      "NaN/nonbinary daily columns",
+      "nonpositive/nonfinite/non-Decimal capital",
+      "nonpositive protection distance",
+      "path-order ambiguity"
+    ]
+  },
+  "builder_verification": {
+    "tdd_red_categories": [
+      "public module absence",
+      "protection and missing refinement",
+      "capital and schema closure",
+      "exact fee conservation",
+      "intraday clock",
+      "universe preservation",
+      "ranking/filter order"
+    ],
+    "focused": "159 passed in 3.97s",
+    "focused_breakdown": {
+      "shared_integration": 53,
+      "preset_replay": 56,
+      "matcher": 48,
+      "independent_accounting": 2
+    }
+  },
+  "independent_accounting": {
+    "status": "PASS",
+    "tests": "2 passed in 0.56s",
+    "test_sha256": "28980fb35b2ce2560f38088f36cce454b4990a3ab8bea400fda6ab77c060a9b0",
+    "receipt_sha256": "9efde22822e5a4e1bdb746876af73268b7cb8276140c6b1836ae215f20e68737",
+    "semantic_red_claimed": false,
+    "partial_quantity": "2/7",
+    "remaining_quantity": 5,
+    "component_conservation": true,
+    "portfolio_dp_by_signal_inr": [
+      "15.34",
+      "0"
+    ],
+    "signal_dp_by_signal_inr": [
+      "15.34",
+      "15.34"
+    ]
+  },
+  "root_verification": {
+    "related_golden": "326 passed in 6.45s",
+    "mypy": "209 source files PASS",
+    "ruff_lint": "global PASS",
+    "ruff_format": "399 files PASS",
+    "receipt_sha256": "62e2c56ac638af79501880c4e577fa1924902c7e27684bd5ad31d1998a8dc9e0",
+    "tracked_baseline": 496,
+    "unchanged_tracked": 487,
+    "approved_existing_drift": [
+      "TASKS.md",
+      "docs/HANDOVER.md",
+      "docs/STATE.md",
+      "docs/reviews/2026-09-30-signal-method-audit.md",
+      "icarus/engine/fills.py",
+      "icarus/engine/portfolio.py",
+      "icarus/engine/signaltest.py",
+      "scripts/research/synthetic_benchmark_match.py",
+      "scripts/research/synthetic_execution_replay.py"
+    ],
+    "public_numeric_probe": {
+      "receipt_sha256": "636d140bde0263005ddbebd3add134c5a7d776865615473547630a3338dbd13a",
+      "modes": [
+        "signal",
+        "portfolio"
+      ],
+      "original_quantity": 7,
+      "exit_fragments": [
+        2,
+        5
+      ],
+      "benchmark_fraction": "4/35",
+      "missing_leg": null,
+      "portfolio_cash": "9970.41502797200",
+      "invalid_future_volume": "whole run unavailable; original quantity preserved"
+    },
+    "invalid_capital_cases_rejected": 6
+  },
+  "independent_precommit_review": {
+    "verdict": "GO",
+    "source_freeze_sha256": "a58676147b0ba58ccefd53731f3f8d5fbf66894a04fa60652b934229c5e70e84",
+    "review_sha256": "92bcdc7e2440e19d2b589c6f8063e9c97f8b720f7b48292aa8bb1c18ae13d255",
+    "numeric_receipt_sha256": "2047618117f820dd8f93a331803c140de3604568ef59a8e41881ecebbb879cda",
+    "selected_tests": "9 passed in 1.00s",
+    "original_quantity": 9,
+    "exit_fragments": [
+      3,
+      6
+    ],
+    "benchmark_fraction": "-1/10",
+    "missing_second_quote": null,
+    "portfolio_cash_realized_final": "19948.43627500800",
+    "fixture_expectations_corrected_without_production_change": true
+  },
+  "published_prerequisite": {
+    "commit": "a21dde7a454787dc1eb81dc9f05bc5a416b65dfd",
+    "ci": "38262763200 SUCCESS: 3101 passed, 4 skipped in 1957.00s",
+    "native_resource": "38262763091 SUCCESS",
+    "receipt_sha256": "ae6e7c8a4efabbfab33dc8568d5758b54a72a5457f189d058bf2108c9086fa14",
+    "covers_new_integration_source": false
+  },
+  "postcommit_mutations": {
+    "status": "PASS",
+    "source_commit": "dd4b8fa2432bc9223f4ec9a8d75205f9ff2ca177",
+    "count": 7,
+    "labels": [
+      "timed-invalid-capital",
+      "timed-lost-latch",
+      "timed-false-point",
+      "timed-budget-reused",
+      "timed-portfolio-dp",
+      "timed-invalid-run-match",
+      "timed-negative-stop"
+    ],
+    "failure_counts": [
+      6,
+      1,
+      2,
+      2,
+      1,
+      1,
+      4
+    ],
+    "junit_errors": 0,
+    "all_caught_by_intended_behavioral_assertions": true,
+    "receipt_sha256": "04066fe3fe01c5d67bbe55cab45961c7bbb1ed009e11d08930db00c1d683f94f",
+    "restored_regression": "159 passed in 4.28s",
+    "restored_log_sha256": "820467b5ecedec4d5ba9b802da30509ff4ef605d42e5c44d1d810400cad34c01",
+    "exact_committed_bytes_restored": true,
+    "restored_file_count": 11,
+    "classification_correction": {
+      "issue": "generic AssertionError-only predicate rejected the negative-stop test's explicit pytest.fail witness",
+      "source_faults_rerun": false,
+      "production_or_gate_changed": false,
+      "receipt_sha256": "ef750d03f4ab53fca635934dcbdcc881752d9ce002d238fe131579b2205c7b72"
+    },
+    "independent_postcommit_review": "GO",
+    "independent_postcommit_review_sha256": "4416f288c35fb4f093c616167ac1fc3dfbec8d490a2eeb5858fa0dde3a287075"
+  },
+  "additional_required_postcommit_checks": {
+    "status": "PASS",
+    "labels": [
+      "residual-decimal-roundoff",
+      "rank-filter",
+      "nan-classification"
+    ],
+    "failure_counts": [
+      1,
+      2,
+      2
+    ],
+    "junit_errors": 0,
+    "all_caught_by_intended_behavioral_assertions": true,
+    "receipt_sha256": "0fcf5c0e22dc9e555586d82b9be433e59053c289d84523d4b8c1e198fc621bba",
+    "restored_regression": "55 passed in 2.91s",
+    "restored_log_sha256": "44c49dee08c5877124bbe38769f03b723474f6106b14a42de0f10c3ebfe6bcb6",
+    "exact_committed_bytes_restored": true,
+    "restored_file_count": 11,
+    "independent_review": "GO",
+    "independent_review_sha256": "47fc5b221d2b128c1fb9aa3b204da9a3e387c0746c759fc2aa6f5fbb94c71498"
+  },
+  "total_known_defects_caught_postcommit": 10,
+  "hosted_new_source_ci": "PENDING_VERIFICATION_NOT_CLAIMED_PASS",
+  "holds": [
+    "real market data and performance evidence",
+    "authoritative source and exchange-calendar matching",
+    "full seven-card timed readiness",
+    "actual study and actual trial-ledger activation",
+    "inference and statistical adoption",
+    "tax, alpha, confidence and promotion",
+    "cleanup",
+    "lockbox",
+    "broker/live"
+  ]
+}
