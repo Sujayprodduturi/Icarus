@@ -432,6 +432,12 @@ Dated decisions that are not code and not in `goal.yaml`, so they have nowhere e
 |---|---|---|
 | D48 | **Proceed with the next comparison-readiness task after the fee/exit/rebalance milestone.** The bounded reviewed implementation extends the existing fixed synthetic demo to one signal and two independent portfolio capital rows per card under D8. It reports descriptive mechanics and unavailable-measure reasons; it does not schedule product Step8, adopt a method, activate the actual ledger or authorize real data. D41 and all live/lockbox/inference holds remain. [Concrete contract](docs/plans/2026-10-12-synthetic-capital-comparison.md). | operator, direct "Okay, go ahead" on2026-10-12; implementation scope bounded by agent and independent review |
 
+### 2026-10-12 - proceed with synthetic timing and benchmark matching
+
+| id | decision | owner |
+|---|---|---|
+| D49 | **Continue with the next timing/benchmark prerequisite.** Authorizes the bounded independently reviewed synthetic exact-time records and pure benchmark-return matcher with invented deterministic tests. The fixed zero-age fixture policy does not choose a real vendor sampling rule or certify sources. No simulator/metrics integration, stock alpha, M15 lane, method adoption, actual-ledger activation or real-data evaluation is scheduled. D22 product holds and D41 remain. [Concrete contract](docs/plans/2026-10-12-synthetic-benchmark-matching.md). | operator, direct "Continue with the next step" on2026-10-12; implementation scope bounded by agent and independent review |
+
 ## 7c. Deferred by decision — not forgotten
 
 Things consciously postponed. **Each names the condition that reopens it.** A deferral without a
