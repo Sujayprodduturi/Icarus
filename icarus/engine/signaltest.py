@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from icarus.common.types import OrderSide
-from icarus.engine.costmodel import Charges, CostModel, Segment
+from icarus.engine.costmodel import Charges, CostModel, DeliveryFeeContext, Segment
 from icarus.engine.fills import FillModel, Intent, OrderKind
 from icarus.engine.simcore import (
     ExitPlan,
@@ -151,6 +151,8 @@ class SignalExitFragment:
             self.charges,
             expected_turnover=self.price * self.quantity,
         )
+        if self.reason is ExitReason.STALE_MARK and self.charges.dp_charge != 0:
+            raise ValueError("stale mark cannot carry a DP charge because no sale executed")
         if self.benchmark_return is not None:
             _require_finite_decimal("SignalExitFragment.benchmark_return", self.benchmark_return)
 
@@ -447,6 +449,7 @@ class SignalSimulator:
         )
         plan = ExitPlan.of(strategy.exits)
         book: dict[str, _SignalPosition] = {}
+        delivery_fees = DeliveryFeeContext()
         trades: list[SignalTrade] = []
         skips: list[SignalSkipped] = []
         unfilled_exits = 0
@@ -455,7 +458,15 @@ class SignalSimulator:
         for local in range(last + 1):
             ts = _ts_at(panel, local)
             unfilled_exits += self._process_exits(
-                book, trades, panel, stops, source, local, ts, final=local == last
+                book,
+                delivery_fees,
+                trades,
+                panel,
+                stops,
+                source,
+                local,
+                ts,
+                final=local == last,
             )
             for symbol in panel.symbols:
                 if float(signals[symbol][local]) != 1.0:
@@ -543,6 +554,7 @@ class SignalSimulator:
     def _process_exits(
         self,
         book: dict[str, _SignalPosition],
+        delivery_fees: DeliveryFeeContext,
         trades: list[SignalTrade],
         panel: Panel,
         stops: Mapping[str, Column],
@@ -573,8 +585,14 @@ class SignalSimulator:
             if not fill.filled or fill.price is None or fill.ts is None:
                 unfilled += 1
                 continue
-            charges = self._costs.charges(
-                self._segment, OrderSide.SELL, fill.price, Decimal(fill.filled_quantity)
+            charges = delivery_fees.executed_sell_charges(
+                self._costs,
+                self._segment,
+                fill.price,
+                Decimal(fill.filled_quantity),
+                symbol=symbol,
+                executed_at=fill.ts,
+                scope=position.signal_id,
             )
             position.fragments.append(
                 SignalExitFragment(
@@ -611,8 +629,8 @@ class SignalSimulator:
     ) -> None:
         position = book.pop(symbol)
         price, price_local = _last_traded_close(panel, panel.index_of(symbol), local)
-        charges = self._costs.charges(
-            self._segment, OrderSide.SELL, price, Decimal(position.quantity)
+        charges = self._costs.nonexecuted_sell_estimate(
+            self._segment, price, Decimal(position.quantity)
         )
         position.fragments.append(
             SignalExitFragment(

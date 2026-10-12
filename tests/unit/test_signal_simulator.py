@@ -19,6 +19,7 @@ from tests.unit.test_portfolio_characterization import (
     _panel,
 )
 
+from icarus.common.calendar import IST
 from icarus.engine.costmodel import Charges, CostModel
 from icarus.engine.fills import FillModel
 from icarus.engine.signaltest import (
@@ -457,14 +458,38 @@ def test_trailing_ratchet_order_matches_portfolio() -> None:
 
 def test_partial_real_exits_aggregate_one_trade_and_charge_entry_once() -> None:
     strategy, panel, signals, stops, simulator = _case()
+    axis = np.array(
+        [
+            "2023-12-30T23:00:00",
+            "2023-12-31T23:00:00",
+            "2024-01-01T23:00:00",
+            "2024-01-02T00:00:00",
+            "2024-01-03T00:00:00",
+            "2024-01-04T00:00:00",
+        ],
+        dtype="datetime64[ns]",
+    )
+    for series in panel.bars:
+        series.ts[:] = axis
     signals["AAA"][0] = 1.0
     bars = panel.bars[panel.index_of("AAA")]
     bars.low[2:] = 80.0
-    bars.volume[2:5] = 1_000.0
+    bars.volume[2] = 10_000.0
 
     trade = simulator.run(strategy, panel, signals, stops, source_indices=range(6)).trades[0]
 
-    assert len(trade.exit_fragments) > 1
+    assert len(trade.exit_fragments) == 2
+    assert [
+        fragment.recognition_ts.astimezone(IST).date().isoformat()
+        for fragment in trade.exit_fragments
+    ] == [
+        "2024-01-02",
+        "2024-01-02",
+    ]
+    assert [fragment.charges.dp_charge for fragment in trade.exit_fragments] == [
+        Decimal("15.34"),
+        Decimal(0),
+    ]
     assert sum(fragment.quantity for fragment in trade.exit_fragments) == trade.filled_quantity
     assert trade.entry_charges.turnover == trade.deployed_capital
     assert trade.total_charges.turnover == trade.entry_charges.turnover + sum(
@@ -510,15 +535,15 @@ def test_dark_sessions_mark_at_last_close_with_separate_recognition() -> None:
         sebi_fee=Decimal("0.0020000"),
         gst=Decimal("0.0114120000"),
         stamp_duty=Decimal("0"),
-        dp_charge=Decimal("15.34"),
+        dp_charge=Decimal("0"),
         turnover=Decimal("2000.0"),
     )
     assert trade.deployed_capital == Decimal("2001.00")
-    assert trade.costs == Decimal("19.79081140600")
+    assert trade.costs == Decimal("4.45081140600")
     assert trade.gross_pnl == Decimal("-1.00")
-    assert trade.net_pnl == Decimal("-20.79081140600")
+    assert trade.net_pnl == Decimal("-5.45081140600")
     assert trade.gross_return == Decimal("-0.0004997501249375312343828085957")
-    assert trade.net_return == Decimal("-0.01039021059770114942528735632")
+    assert trade.net_return == Decimal("-0.002724043681159420289855072464")
 
 
 def test_unfilled_final_exit_marks_residual_and_counts_refusal() -> None:
@@ -571,17 +596,67 @@ def test_partial_final_exit_and_residual_mark_have_literal_accounting() -> None:
         sebi_fee=Decimal("0.0010000"),
         gst=Decimal("0.0057060000"),
         stamp_duty=Decimal("0"),
-        dp_charge=Decimal("15.34"),
+        dp_charge=Decimal("0"),
         turnover=Decimal("1000.0"),
     )
     assert trade.entry_charges.total == Decimal("2.37599940600")
     assert trade.deployed_capital == Decimal("2001.00")
-    assert trade.costs == Decimal("35.13029270300")
+    assert trade.costs == Decimal("19.79029270300")
     assert trade.gross_pnl == Decimal("-1.50")
-    assert trade.net_pnl == Decimal("-36.63029270300")
+    assert trade.net_pnl == Decimal("-21.29029270300")
     assert trade.gross_return == Decimal("-0.0007496251874062968515742128936")
-    assert trade.net_return == Decimal("-0.01830599335482258870564717641")
-    assert trade.r_multiple == Decimal("-0.183151463515")
+    assert trade.net_return == Decimal("-0.01063982643828085957021489255")
+    assert trade.r_multiple == Decimal("-0.106451463515")
+
+
+def test_no_fill_does_not_consume_later_signal_delivery_fee() -> None:
+    _old, panel, signals, stops, simulator = _case()
+    strategy = _strategy_with(
+        "stop_loss_atr: {atr_mult: 2.0, atr_period: 14}",
+        "time_stop: {bars: 2}",
+    )
+    signals["BBB"][0] = 1.0
+    bars = panel.bars[panel.index_of("BBB")]
+    bars.volume[2] = 0.0
+
+    result = simulator.run(strategy, panel, signals, stops, source_indices=range(6))
+
+    assert result.unfilled_exits == 1
+    assert result.trades[0].exit_fragments[0].charges.dp_charge == Decimal("15.34")
+
+
+def test_serial_signal_reentries_each_pay_their_own_delivery_fee() -> None:
+    strategy, panel, signals, stops, simulator = _case()
+    axis = np.array(
+        [
+            "2023-12-31T23:00:00",
+            "2024-01-01T23:00:00",
+            "2024-01-02T00:00:00",
+            "2024-01-03T00:00:00",
+            "2024-01-04T00:00:00",
+            "2024-01-05T00:00:00",
+        ],
+        dtype="datetime64[ns]",
+    )
+    for series in panel.bars:
+        series.ts[:] = axis
+    signals["AAA"][[0, 1]] = 1.0
+    panel.bars[panel.index_of("AAA")].low[1:3] = 70.0
+
+    first = simulator.run(strategy, panel, signals, stops, source_indices=range(40, 46))
+    second = simulator.run(strategy, panel, signals, stops, source_indices=range(40, 46))
+
+    assert len(first.trades) == len(second.trades) == 2
+    assert first.skips == second.skips == ()
+    for result in (first, second):
+        assert [
+            trade.exit_fragments[0].recognition_ts.astimezone(IST).date().isoformat()
+            for trade in result.trades
+        ] == ["2024-01-02", "2024-01-02"]
+        assert [trade.total_charges.dp_charge for trade in result.trades] == [
+            Decimal("15.34"),
+            Decimal("15.34"),
+        ]
 
 
 def test_canonical_offset_and_reentry_after_close_are_preserved() -> None:

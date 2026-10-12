@@ -10,11 +10,12 @@ real outcome). Keeping the two apart is what stops the same friction being count
 either direction.
 
 **The fixed-rupee problem.** Most charges are proportional, so they scale with position size and
-their *percentage* bite is constant. One is not: the **DP charge of ₹15.34 per scrip on every
-delivery sell**. It does not shrink with position size, so it lands hardest on the smallest
-accounts — 0.77% one-way on a ₹2,000 position, 0.06% on ₹25,000. Most of the seed-capital
-cold-start risk (BUILD_MAP C1) is this one line, and :meth:`CostModel.breakeven_move` is what puts
-a number on it.
+their *percentage* bite is constant. One is not: the **DP charge of ₹15.34 per scrip on a day with
+one or more executed delivery sells**. It does not shrink with position size, so it lands hardest
+on the smallest accounts — 0.77% one-way on a ₹2,000 position, 0.06% on ₹25,000. Most of the
+seed-capital cold-start risk (BUILD_MAP C1) is this one line, and
+:meth:`CostModel.breakeven_move` is what puts a number on it. A standalone stateless sell quote
+includes the full fee; a simulator run uses :class:`DeliveryFeeContext` to allocate it once.
 
 **Rates live in ``goal.yaml``, not here** (CLAUDE.md §2, PRD Appendix B: re-pull the circulars,
 never hard-code). That file carries the full source list and as-of dates, including the resolution
@@ -41,10 +42,13 @@ crypto cost raises rather than returning a plausible-looking guess.
 from __future__ import annotations
 
 import enum
-from dataclasses import dataclass
+from collections.abc import Hashable
+from dataclasses import dataclass, field, replace
+from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+from icarus.common.calendar import IST
 from icarus.common.types import AssetClass, OrderSide
 
 if TYPE_CHECKING:
@@ -185,6 +189,20 @@ class CostModel:
             sell=self.charges(segment, OrderSide.SELL, sell_price, quantity),
         )
 
+    def nonexecuted_sell_estimate(
+        self, segment: Segment, price: Decimal, quantity: Decimal
+    ) -> Charges:
+        """Estimate sell-side friction without claiming an executed depository sale.
+
+        A stale mark still carries the existing pessimistic proportional sell costs.  The fixed
+        delivery DP fee is different: shares did not leave the demat account, so that component is
+        zero.  This quote has no run state and cannot consume a later executed-sale fee.
+        """
+        return replace(
+            self.charges(segment, OrderSide.SELL, price, quantity),
+            dp_charge=Decimal(0),
+        )
+
     def breakeven_move(self, segment: Segment, price: Decimal, quantity: Decimal) -> Decimal:
         """The fractional price rise a long trade needs just to net zero.
 
@@ -202,6 +220,52 @@ class CostModel:
     def _schedule(self, segment: Segment) -> SegmentSchedule:
         schedule: SegmentSchedule = getattr(self._cfg.segments, segment.value)
         return schedule
+
+
+@dataclass(slots=True)
+class DeliveryFeeContext:
+    """Allocate fixed delivery DP fees across confirmed sells in one simulator run.
+
+    ``scope`` defines the economic book: the portfolio uses one shared value, while the signal
+    diagnostic uses each standalone signal ID.  The model remains stateless; this short-lived
+    context is deliberately constructed inside ``run()`` so state cannot cross evaluations.
+    """
+
+    _charged: set[tuple[Hashable, str, date]] = field(default_factory=set, init=False, repr=False)
+
+    def executed_sell_charges(
+        self,
+        model: CostModel,
+        segment: Segment,
+        price: Decimal,
+        quantity: Decimal,
+        *,
+        symbol: str,
+        executed_at: datetime,
+        scope: Hashable,
+    ) -> Charges:
+        """Return sell charges, applying DP once per scope/symbol/IST day.
+
+        The ordinary quote and every context input are validated before the key is consumed.  A
+        failed attempt therefore cannot cause a later valid fill to lose its DP fee.
+        """
+        charges = model.charges(segment, OrderSide.SELL, price, quantity)
+        if not isinstance(symbol, str) or not symbol.strip():
+            raise ValueError("symbol must be a non-empty string")
+        if not isinstance(executed_at, datetime) or executed_at.utcoffset() is None:
+            raise ValueError("executed_at must be timezone-aware")
+        try:
+            hash(scope)
+        except TypeError as exc:
+            raise ValueError("scope must be hashable") from exc
+
+        if charges.dp_charge == 0:
+            return charges
+        key = (scope, symbol, executed_at.astimezone(IST).date())
+        if key in self._charged:
+            return replace(charges, dp_charge=Decimal(0))
+        self._charged.add(key)
+        return charges
 
 
 def clears_hurdle(

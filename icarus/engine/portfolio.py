@@ -44,7 +44,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from icarus.common.types import OrderSide
-from icarus.engine.costmodel import Segment
+from icarus.engine.costmodel import DeliveryFeeContext, Segment
 from icarus.engine.fills import FillModel, Intent, OrderKind
 from icarus.engine.simcore import (
     ExitPlan as ExitPlan,
@@ -361,6 +361,7 @@ class PortfolioSimulator:
         result = RunResult()
         plan = ExitPlan.of(strategy.exits)
         book: dict[str, OpenPosition] = {}
+        delivery_fees = DeliveryFeeContext()
         equity = starting_equity
         last = len(panel) - 1
         expected_signals = {
@@ -373,7 +374,16 @@ class PortfolioSimulator:
         for t in range(last + 1):
             ts = _ts_at(panel, t)
             # Exits first: a slot freed this morning is available to this morning's signal.
-            equity += self._process_exits(book, panel, t, ts, stops, result, final=t == last)
+            equity += self._process_exits(
+                book,
+                delivery_fees,
+                panel,
+                t,
+                ts,
+                stops,
+                result,
+                final=t == last,
+            )
             if t == last:
                 for symbol in panel.symbols:
                     if signals[symbol][t] == 1.0:
@@ -415,6 +425,7 @@ class PortfolioSimulator:
     def _process_exits(
         self,
         book: dict[str, OpenPosition],
+        delivery_fees: DeliveryFeeContext,
         panel: Panel,
         t: int,
         ts: datetime,
@@ -455,8 +466,14 @@ class PortfolioSimulator:
                 # simulator that assumes its stops worked can never show.
                 result.unfilled_exits += 1
                 continue
-            charges = self._costs.charges(
-                self._segment, OrderSide.SELL, fill.price, Decimal(fill.filled_quantity)
+            charges = delivery_fees.executed_sell_charges(
+                self._costs,
+                self._segment,
+                fill.price,
+                Decimal(fill.filled_quantity),
+                symbol=symbol,
+                executed_at=fill.ts,
+                scope="actual-book",
             )
             trade = ClosedTrade(
                 symbol=symbol,
@@ -516,8 +533,9 @@ class PortfolioSimulator:
         chew on would dress an assumption up as a measurement. The trade is booked directly and
         tagged ``STALE_MARK`` so the metric sheet can separate it out.
 
-        The exit charges *are* applied, because the pessimistic reading is that closing this costs
-        what closing anything costs. It is the one part of the write-off that is not a guess.
+        Proportional sell friction is still applied under the pessimistic reading. The fixed DP fee
+        is not: no depository sale executed, so no shares left the demat account. These remain
+        modelled costs on an assumed mark, not a claim that a contract note or tax event exists.
 
         Marking at the last traded close is the **optimistic** choice, and knowingly so (operator,
         2026-08-14): a stock usually stops printing because something went wrong, so the last print
@@ -527,8 +545,8 @@ class PortfolioSimulator:
         """
         position = book.pop(symbol)
         price, at = _last_traded_close(panel, index, t)
-        charges = self._costs.charges(
-            self._segment, OrderSide.SELL, price, Decimal(position.quantity)
+        charges = self._costs.nonexecuted_sell_estimate(
+            self._segment, price, Decimal(position.quantity)
         )
         trade = ClosedTrade(
             symbol=symbol,

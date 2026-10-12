@@ -420,6 +420,12 @@ Dated decisions that are not code and not in `goal.yaml`, so they have nowhere e
 
 | D46 | **Strategy breadth proposal reviewed and approved; proceed.** Authorizes exact cards, supported long-only candidate YAMLs and reviewed artificial-data behavior checks for the approved five-family/six-specification proposal. Existing candidates and numeric gates remain unchanged. Capability gaps remain explicit; no profitability claim, HFT/shorting expansion, actual-ledger activation, real-market evaluation or broker/live authority is implied. The existing stop before real data remains until separately lifted. | operator, direct approval on2026-10-08 |
 
+### 2026-10-12 - continue through simulator prerequisites
+
+| id | decision | owner |
+|---|---|---|
+| D47 | **Fix delivery-fee accounting, then build the missing breakout exit and low-volatility rebalance features before comparing performance. Continue autonomously; stop only at major milestones or doubts, explain in plain English, and use sub-agents and skills.** Authorizes reviewed implementation and artificial behavior/regression checks for these prerequisites, without another routine approval pause. Existing risk limits and gates remain fixed. D41 still stops before real-market data; no broker/live, lockbox, inference enablement or actual-ledger activation is implied. | operator, direct instruction on2026-10-12 |
+
 ## 7c. Deferred by decision — not forgotten
 
 Things consciously postponed. **Each names the condition that reopens it.** A deferral without a

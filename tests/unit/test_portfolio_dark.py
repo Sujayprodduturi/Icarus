@@ -168,6 +168,7 @@ def test_the_entry_brokerage_is_charged_rather_than_forgotten(goal: GoalConfig) 
     result = _run(goal, {"AAA": _goes_dark(30, at=5)}, stale_after=20)
     assert result.trades[0].entry_charges.total > 0
     assert result.trades[0].exit_charges.total > 0
+    assert result.trades[0].exit_charges.dp_charge == 0
 
 
 def test_the_slot_is_released_so_a_later_signal_can_use_it(goal: GoalConfig) -> None:

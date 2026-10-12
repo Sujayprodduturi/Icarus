@@ -9,6 +9,7 @@ most expensive class of bug in this repo (CLAUDE.md §5).
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -18,7 +19,13 @@ import yaml
 
 from icarus.common.config import ConfigError, Costs, SegmentSchedules, load_goal
 from icarus.common.types import AssetClass, OrderSide
-from icarus.engine.costmodel import CostModel, Segment, clears_hurdle, segment_for
+from icarus.engine.costmodel import (
+    CostModel,
+    DeliveryFeeContext,
+    Segment,
+    clears_hurdle,
+    segment_for,
+)
 
 
 @pytest.fixture
@@ -109,6 +116,169 @@ def test_dp_charge_is_flat_regardless_of_size(model: CostModel) -> None:
     small = model.charges(Segment.EQUITY_DELIVERY, OrderSide.SELL, Decimal(100), Decimal(20))
     large = model.charges(Segment.EQUITY_DELIVERY, OrderSide.SELL, Decimal(10000), Decimal(200))
     assert small.dp_charge == large.dp_charge == Decimal("15.34")
+
+
+def test_executed_delivery_sells_pay_dp_once_per_scope_symbol_and_ist_day(
+    model: CostModel,
+) -> None:
+    """Catches per-fill charging, UTC-date grouping, and accidental cross-symbol aggregation."""
+    fees = DeliveryFeeContext()
+    before_ist_midnight = datetime(2026, 1, 1, 18, 29, tzinfo=UTC)
+    after_ist_midnight = datetime(2026, 1, 1, 18, 30, tzinfo=UTC)
+
+    first = fees.executed_sell_charges(
+        model,
+        Segment.EQUITY_DELIVERY,
+        Decimal(100),
+        Decimal(5),
+        symbol="AAA",
+        executed_at=before_ist_midnight,
+        scope="actual-book",
+    )
+    partial = fees.executed_sell_charges(
+        model,
+        Segment.EQUITY_DELIVERY,
+        Decimal(101),
+        Decimal(2),
+        symbol="AAA",
+        executed_at=before_ist_midnight,
+        scope="actual-book",
+    )
+    other_symbol = fees.executed_sell_charges(
+        model,
+        Segment.EQUITY_DELIVERY,
+        Decimal(102),
+        Decimal(1),
+        symbol="BBB",
+        executed_at=before_ist_midnight,
+        scope="actual-book",
+    )
+    next_ist_day = fees.executed_sell_charges(
+        model,
+        Segment.EQUITY_DELIVERY,
+        Decimal(103),
+        Decimal(1),
+        symbol="AAA",
+        executed_at=after_ist_midnight,
+        scope="actual-book",
+    )
+
+    assert [row.dp_charge for row in (first, partial, other_symbol, next_ist_day)] == [
+        Decimal("15.34"),
+        Decimal(0),
+        Decimal("15.34"),
+        Decimal("15.34"),
+    ]
+
+
+def test_delivery_fee_scopes_and_contexts_are_independent(model: CostModel) -> None:
+    """A standalone signal observation and a later re-entry are separate cost observations."""
+    at = datetime(2026, 1, 1, 10, tzinfo=UTC)
+    first_run = DeliveryFeeContext()
+    signal_one = first_run.executed_sell_charges(
+        model,
+        Segment.EQUITY_DELIVERY,
+        Decimal(100),
+        Decimal(5),
+        symbol="AAA",
+        executed_at=at,
+        scope="signal-1",
+    )
+    signal_two = first_run.executed_sell_charges(
+        model,
+        Segment.EQUITY_DELIVERY,
+        Decimal(100),
+        Decimal(5),
+        symbol="AAA",
+        executed_at=at,
+        scope="signal-2",
+    )
+    next_run = DeliveryFeeContext().executed_sell_charges(
+        model,
+        Segment.EQUITY_DELIVERY,
+        Decimal(100),
+        Decimal(5),
+        symbol="AAA",
+        executed_at=at,
+        scope="signal-1",
+    )
+
+    assert signal_one.dp_charge == signal_two.dp_charge == next_run.dp_charge == Decimal("15.34")
+
+
+def test_nonexecuted_sell_estimate_has_no_dp_and_does_not_consume_the_day(
+    model: CostModel,
+) -> None:
+    """A stale mark is not a demat sale and cannot suppress a later executed-sale fee."""
+    at = datetime(2026, 1, 1, 10, tzinfo=UTC)
+    estimated = model.nonexecuted_sell_estimate(Segment.EQUITY_DELIVERY, Decimal(100), Decimal(5))
+    executed = DeliveryFeeContext().executed_sell_charges(
+        model,
+        Segment.EQUITY_DELIVERY,
+        Decimal(100),
+        Decimal(5),
+        symbol="AAA",
+        executed_at=at,
+        scope="actual-book",
+    )
+
+    assert estimated.dp_charge == Decimal(0)
+    assert estimated.stt > 0 and estimated.exchange_txn > 0
+    assert executed.dp_charge == Decimal("15.34")
+
+
+def test_invalid_executed_sell_does_not_consume_the_delivery_fee_key(model: CostModel) -> None:
+    """Validation must finish before the context mutates or a retry would undercharge."""
+    fees = DeliveryFeeContext()
+    at = datetime(2026, 1, 1, 10, tzinfo=UTC)
+    with pytest.raises(ValueError, match="price and quantity"):
+        fees.executed_sell_charges(
+            model,
+            Segment.EQUITY_DELIVERY,
+            Decimal(0),
+            Decimal(5),
+            symbol="AAA",
+            executed_at=at,
+            scope="actual-book",
+        )
+
+    valid = fees.executed_sell_charges(
+        model,
+        Segment.EQUITY_DELIVERY,
+        Decimal(100),
+        Decimal(5),
+        symbol="AAA",
+        executed_at=at,
+        scope="actual-book",
+    )
+    assert valid.dp_charge == Decimal("15.34")
+
+
+def test_delivery_fee_context_rejects_naive_execution_time_without_consuming_key(
+    model: CostModel,
+) -> None:
+    fees = DeliveryFeeContext()
+    with pytest.raises(ValueError, match="timezone-aware"):
+        fees.executed_sell_charges(
+            model,
+            Segment.EQUITY_DELIVERY,
+            Decimal(100),
+            Decimal(5),
+            symbol="AAA",
+            executed_at=datetime(2026, 1, 1, 10),
+            scope="actual-book",
+        )
+
+    valid = fees.executed_sell_charges(
+        model,
+        Segment.EQUITY_DELIVERY,
+        Decimal(100),
+        Decimal(5),
+        symbol="AAA",
+        executed_at=datetime(2026, 1, 1, 10, tzinfo=UTC),
+        scope="actual-book",
+    )
+    assert valid.dp_charge == Decimal("15.34")
 
 
 def test_intraday_brokerage_takes_the_lower_of_percent_and_cap(model: CostModel) -> None:
@@ -206,6 +376,16 @@ def test_stress_multiplier_scales_every_line(costs: Costs) -> None:
     args = (Segment.EQUITY_DELIVERY, OrderSide.SELL, Decimal(1000), Decimal(10))
     assert stressed.charges(*args).total == base.charges(*args).total * Decimal("1.5")
     assert stressed.charges(*args).dp_charge == Decimal("15.34") * Decimal("1.5")
+    allocated = DeliveryFeeContext().executed_sell_charges(
+        stressed,
+        Segment.EQUITY_DELIVERY,
+        Decimal(1000),
+        Decimal(10),
+        symbol="AAA",
+        executed_at=datetime(2026, 1, 1, 10, tzinfo=UTC),
+        scope="actual-book",
+    )
+    assert allocated.dp_charge == Decimal("23.010")
 
 
 def test_stress_multiplier_leaves_turnover_alone(costs: Costs) -> None:

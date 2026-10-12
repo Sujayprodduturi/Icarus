@@ -217,7 +217,7 @@ def test_actual_fill_and_stale_residual_keep_price_and_recognition_coordinates_s
             recognition_ts=_at(7),
             recognition_index=16,
             reason=simcore.ExitReason.STALE_MARK,
-            charges=_charges("240", dp_charge="2"),
+            charges=_charges("240"),
         ),
     )
     trade = _trade(exit_fragments=exits)
@@ -226,6 +226,14 @@ def test_actual_fill_and_stale_residual_keep_price_and_recognition_coordinates_s
     assert trade.marked_value == Decimal("240")
     assert trade.final_recognition_index == 16
     assert trade.holding_sessions == 6
+
+
+def test_stale_mark_refuses_a_dp_charge_because_no_sale_executed() -> None:
+    with pytest.raises(ValueError, match="stale mark cannot carry a DP charge"):
+        _fragment(
+            reason=simcore.ExitReason.STALE_MARK,
+            charges=_charges("660", dp_charge="1"),
+        )
 
 
 def test_entry_bar_exit_is_one_holding_session() -> None:

@@ -110,6 +110,113 @@ def _run(goal: GoalConfig, strategy: object, panel: Panel, stop: float = 10.0) -
     )
 
 
+def _partial_exit_panel(timestamps: list[str]) -> Panel:
+    """A 50-share position sold in 20, 20, and 10-share fragments from bar two."""
+    panel = _panel([100.0] * len(timestamps))
+    bars = panel.bars[0]
+    bars.ts[:] = np.array(timestamps, dtype="datetime64[ns]")
+    bars.low[2:] = 80.0
+    bars.volume[2:] = 400.0
+    return panel
+
+
+def _dp_charges(result: object) -> list[Decimal]:
+    return [trade.exit_charges.dp_charge for trade in result.trades]  # type: ignore[attr-defined]
+
+
+def test_same_ist_day_partial_exits_pay_one_portfolio_delivery_fee(goal: GoalConfig) -> None:
+    panel = _partial_exit_panel(
+        [
+            "2024-01-01T04:00:00",
+            "2024-01-01T05:00:00",
+            "2024-01-01T06:00:00",
+            "2024-01-01T07:00:00",
+            "2024-01-01T08:00:00",
+        ]
+    )
+
+    result = _run(goal, _strategy("  - stop_loss_atr: {atr_mult: 2.0}"), panel)
+
+    assert [trade.quantity for trade in result.trades] == [20, 20, 10]  # type: ignore[attr-defined]
+    assert _dp_charges(result) == [Decimal("15.34"), Decimal(0), Decimal(0)]
+
+
+def test_portfolio_delivery_fee_resets_at_ist_midnight(goal: GoalConfig) -> None:
+    panel = _partial_exit_panel(
+        [
+            "2024-01-01T18:27:00",
+            "2024-01-01T18:28:00",
+            "2024-01-01T18:29:00",
+            "2024-01-01T18:30:00",
+            "2024-01-01T18:31:00",
+        ]
+    )
+
+    result = _run(goal, _strategy("  - stop_loss_atr: {atr_mult: 2.0}"), panel)
+
+    assert _dp_charges(result) == [Decimal("15.34"), Decimal("15.34"), Decimal(0)]
+
+
+def test_unfilled_portfolio_exit_does_not_consume_delivery_fee(goal: GoalConfig) -> None:
+    panel = _partial_exit_panel(
+        [
+            "2024-01-01T04:00:00",
+            "2024-01-01T05:00:00",
+            "2024-01-01T06:00:00",
+            "2024-01-01T07:00:00",
+            "2024-01-01T08:00:00",
+            "2024-01-01T09:00:00",
+        ]
+    )
+    panel.bars[0].volume[2] = 0.0
+
+    result = _run(goal, _strategy("  - stop_loss_atr: {atr_mult: 2.0}"), panel)
+
+    assert result.unfilled_exits == 1  # type: ignore[attr-defined]
+    assert _dp_charges(result)[0] == Decimal("15.34")
+
+
+def test_repeated_portfolio_runs_do_not_share_delivery_fee_state(goal: GoalConfig) -> None:
+    panel = _partial_exit_panel(
+        [
+            "2024-01-01T04:00:00",
+            "2024-01-01T05:00:00",
+            "2024-01-01T06:00:00",
+            "2024-01-01T07:00:00",
+            "2024-01-01T08:00:00",
+        ]
+    )
+    strategy = _strategy("  - stop_loss_atr: {atr_mult: 2.0}")
+    simulator = _sim(goal)
+    signals = {"AAA": _fire_at_zero(len(panel))}
+    stops = {"AAA": np.full(len(panel), 10.0)}
+
+    first = simulator.run(
+        strategy,  # type: ignore[arg-type]
+        panel,
+        signals,
+        stops,
+        starting_equity=Decimal(100_000),
+    )
+    second = simulator.run(
+        strategy,  # type: ignore[arg-type]
+        panel,
+        signals,
+        stops,
+        starting_equity=Decimal(100_000),
+    )
+
+    assert (
+        _dp_charges(first)
+        == _dp_charges(second)
+        == [
+            Decimal("15.34"),
+            Decimal(0),
+            Decimal(0),
+        ]
+    )
+
+
 # --------------------------------------------------------------------------------------
 # take_profit_r
 # --------------------------------------------------------------------------------------
