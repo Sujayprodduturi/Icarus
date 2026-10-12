@@ -1070,6 +1070,143 @@ def test_ready_refusal_is_terminal_before_any_phase_payload(
     monkeypatch.setattr(runner, "_stage_limit", original)
 
 
+def _start_barrier_fixture(
+    runner: Any,
+) -> tuple[Any, Path, bytes, Any, Any, dict[str, Any]]:
+    session = runner._reserve_test(case_id())
+    root = runner._claim_test_phase(session, "development")
+    claim = cast(
+        bytes, runner.phase._read_bytes(root / "phase-claim.json", root, runner.io.MAX_RECORD)
+    )
+    plan, _ = runner.phase.validate_claim(root, claim, session._binding)
+    worker = runner.life.ProcessIdentity.current()
+    ready = cast(
+        dict[str, Any],
+        runner._barrier_body(
+            "READY",
+            session._owner,
+            worker,
+            session._binding,
+            root,
+            runner.phase._hash(claim),
+            "writer",
+            "primary",
+        ),
+    )
+    return session, root, claim, plan, worker, ready
+
+
+def test_delayed_duplicate_ready_is_refused_before_start_authority(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = runner_module()
+    session, root, claim, plan, worker, expected = _start_barrier_fixture(runner)
+    receives = [expected, expected]
+    starts: list[dict[str, Any]] = []
+
+    class ScheduledConnection:
+        @staticmethod
+        def poll(timeout: float) -> bool:
+            assert timeout == 0
+            return False
+
+    class ScheduledChannel:
+        connection = ScheduledConnection()
+
+    def receive(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        return receives.pop(0)
+
+    monkeypatch.setattr(runner, "_receive_owned", receive)
+    monkeypatch.setattr(runner, "_send_stage_start", lambda channel, body: starts.append(body))
+    with pytest.raises(runner.RunnerError, match="duplicate_ready"):
+        runner._start_stage(
+            session,
+            root,
+            claim,
+            plan,
+            "writer",
+            "primary",
+            object(),
+            ScheduledChannel(),
+            worker,
+            runner.time.perf_counter(),
+        )
+    assert receives == []
+    assert starts == []
+
+
+def test_ready_seal_is_consumed_before_start_authority(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = runner_module()
+    session, root, claim, plan, worker, ready = _start_barrier_fixture(runner)
+    receives = [ready, {**ready, "state": "READY_SEALED"}]
+    starts: list[dict[str, Any]] = []
+
+    def receive(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        return receives.pop(0)
+
+    def start(channel: Any, body: dict[str, Any]) -> None:
+        assert receives == []
+        starts.append(body)
+
+    monkeypatch.setattr(runner, "_receive_owned", receive)
+    monkeypatch.setattr(runner, "_send_stage_start", start)
+    observation = runner._start_stage(
+        session,
+        root,
+        claim,
+        plan,
+        "writer",
+        "primary",
+        object(),
+        object(),
+        worker,
+        runner.time.perf_counter(),
+    )
+    assert observation.start_monotonic >= observation.ready_monotonic
+    assert starts == [{**ready, "state": "START"}]
+
+
+@pytest.mark.parametrize("mutation", ["state", "identity", "counts"])
+def test_bad_ready_seal_is_refused_before_start_authority(
+    monkeypatch: pytest.MonkeyPatch,
+    mutation: str,
+) -> None:
+    runner = runner_module()
+    session, root, claim, plan, worker, ready = _start_barrier_fixture(runner)
+    sealed = {**ready, "state": "READY_SEALED"}
+    if mutation == "state":
+        sealed["state"] = "READY_AGAIN"
+    elif mutation == "identity":
+        sealed["worker"] = {"pid": 1, "creation_time_ns": 1}
+    else:
+        sealed["counts"] = {}
+    receives: list[dict[str, Any]] = [ready, sealed]
+    starts: list[dict[str, Any]] = []
+
+    def receive(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        return receives.pop(0)
+
+    monkeypatch.setattr(runner, "_receive_owned", receive)
+    monkeypatch.setattr(runner, "_send_stage_start", lambda channel, body: starts.append(body))
+    with pytest.raises(runner.RunnerError, match="ready_barrier"):
+        runner._start_stage(
+            session,
+            root,
+            claim,
+            plan,
+            "writer",
+            "primary",
+            object(),
+            object(),
+            worker,
+            runner.time.perf_counter(),
+        )
+    assert receives == []
+    assert starts == []
+
+
 def test_parent_start_refusal_preserves_error_and_never_starts_data_work(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -3873,6 +3873,7 @@ def _wait_for_stage_start(
     channel.send(ready)
     if fault == "duplicate-ready":
         channel.send(ready)
+    channel.send({**ready, "state": "READY_SEALED"})
     expected = {**ready, "state": "START", "counts": asdict(phase.Progress(0, 0, 0, 0, 0))}
     received = channel.receive()
     if io.canonical_json(received) != io.canonical_json(expected):
@@ -3943,8 +3944,16 @@ def _start_stage(
     )
     if io.canonical_json(body) != io.canonical_json(expected):
         raise RunnerError("ready_barrier")
-    if channel.connection.poll(0):
+    remaining = _stage_limit(plan, kind) - (time.perf_counter() - entry)
+    if remaining <= 0:
+        raise RunnerError("ready_deadline")
+    sealed = _receive_owned(
+        channel, process, min(CONTROL_ALLOWANCE, remaining), session._binding, _guard=session._check
+    )
+    if io.canonical_json(sealed) == io.canonical_json(expected):
         raise RunnerError("duplicate_ready")
+    if io.canonical_json(sealed) != io.canonical_json({**expected, "state": "READY_SEALED"}):
+        raise RunnerError("ready_barrier")
     session._check()
     if time.perf_counter() - entry > _stage_limit(plan, kind):
         raise RunnerError("ready_deadline")
