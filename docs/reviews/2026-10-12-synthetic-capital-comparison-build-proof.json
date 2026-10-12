@@ -1,0 +1,141 @@
+{
+  "status": "SCOPED_PASS",
+  "verdict": "SCOPED_PASS_ARTIFICIAL_MECHANICS_ONLY",
+  "source_commit": "b871b16c8720a6185ff767c3147bddc9db6b6c24",
+  "scope": "continuous-history artificial capital-sensitivity mechanics only",
+  "contract": {
+    "path": "docs/plans/2026-10-12-synthetic-capital-comparison.md",
+    "sha256": "d4d362c79a369c4b8b70cbbc305fe730f23166d5b5545cf18552b118193663c9"
+  },
+  "source_freeze": {
+    "manifest_sha256": "32e7ff0b64bffe41ac094ab5df8b886b2d6efd81608dfde9d1708a43da9a5703",
+    "source_freeze_sha256": "d8fa102f8a140d099a323655c8e20540cba3ed93cc7aedd32eec6b8ec2a1360c",
+    "demo_sha256": "aad13b32e48f935cea9d54de6cd4d9e0bc42ac807669e1e41403ec37cf79988e",
+    "test_sha256": "cda8af0691c5bd3dc09b8b1deec44d4d96848d4f2d13672303b9ddee6a8a35ec",
+    "fixture_sha256": "820d7ddd24b3568100d28cff96edf4e7832f61b7136feeac8dcb5320c0e69634",
+    "fixture_function_sha256": "321c2ce0b1578bb7daf882e63c86feedff33188226f7918d3214dcf688883502",
+    "fixture_function_byte_identical": true,
+    "protected_files": 13,
+    "protected_hashes_match": true
+  },
+  "synthetic_run": {
+    "status": "SUCCESS",
+    "output_root": "var/synthetic-strategy-demo/capital-comparison-20261012-root",
+    "seconds": 5.266,
+    "artifact_summary_sha256": "84ec103e1ca751ce37b48e88a1efa0cfbf44a9ab3d7153a779d9320a3de58b17",
+    "cards": 7,
+    "declared_evaluations": 21,
+    "completed_public_evaluations": 21,
+    "evaluations_declared_before_calls": true,
+    "signal_notional_inr": 100000,
+    "portfolio_capitals_inr": [
+      100000,
+      1000000
+    ],
+    "source_indices": "260..599",
+    "fixture_symbols": 24,
+    "fixture_sessions": 600,
+    "actual_trial_ledger_used": false
+  },
+  "independent_numeric_probe": {
+    "passed": true,
+    "receipt_sha256": "fd1b0aa07dc7fd539c61cd048c3d9ff2c43a9d8e00ed3ceae150cc9febafd16c",
+    "seed": {
+      "quantities": [
+        7,
+        6,
+        4,
+        5
+      ],
+      "gross_pnl": "858.15",
+      "charges": "70.53433744090",
+      "net_pnl_after_charges_before_tax": "787.61566255910",
+      "final_equity": "100787.61566255910"
+    },
+    "edge": {
+      "quantities": [
+        71,
+        61,
+        47,
+        53
+      ],
+      "gross_pnl": "9132.45",
+      "charges": "158.87965843750",
+      "net_pnl_after_charges_before_tax": "8973.57034156250",
+      "final_equity": "1008973.57034156250"
+    },
+    "setup_correction": "computed net_pnl was not serialized and charges were itemized; corrected the probe only"
+  },
+  "builder_verification": {
+    "focused": "10 passed in 13.66s",
+    "affected": "69 passed in 15.59s",
+    "tdd_red": "1 failed and 1 passed on missing paired rows; 1 failed and 9 passed on missing full-record capital metadata",
+    "mypy": "199 source files PASS",
+    "ruff_lint": "PASS",
+    "ruff_format": "384 files PASS",
+    "diff_check": "PASS",
+    "build_report_sha256": "b60567d9bcde77b7a5a5594b95e64f35ec41a90d3988877c0f5f32d0b1a379dd"
+  },
+  "root_verification": {
+    "manual_run": "21 actual synthetic evaluations in 5.266s",
+    "mypy": "199 source files PASS",
+    "ruff_lint": "global no-cache PASS",
+    "ruff_format": "384 files PASS",
+    "golden": "1 passed in 0.55s",
+    "diff_check": "PASS",
+    "final_proof_sha256": "d04bcb56d71e5b72124ef1340f9d06c972c680b5cf98edfdaa92f90264fe32c2",
+    "golden_setup_correction": "fixture-only tests/golden collected no tests; corrected to test_portfolio_characterization.py"
+  },
+  "independent_review": {
+    "verdict": "GO",
+    "selected_tests": "3 passed in 12.30s",
+    "selected_probe_sha256": "2bd88d70ae509c3e001584fb2522e5a69ab42dfcc0362ad404de3993b79adf6a",
+    "source_review_sha256": "8a2acdff7aaf764df3610fc80529590a8d8d274aabcb8a5be580c1a25337a7c3",
+    "setup_correction": "missing reviewer basetemp parent caused three errors; directory creation and unchanged-source rerun passed"
+  },
+  "postcommit_mutations": {
+    "passed": true,
+    "commit": "b871b16c8720a6185ff767c3147bddc9db6b6c24",
+    "count": 4,
+    "labels": [
+      "capital-edge-is-seed",
+      "capital-missing-declaration",
+      "capital-fabricated-confidence",
+      "capital-missing-pit-hash"
+    ],
+    "all_behavioral_assertion_failures": true,
+    "receipt_sha256": "fed6e7839ad07fd5029b742e1ce544fd878d36ab9c384f835ecd95526b353179",
+    "restored_demo_sha256": "aad13b32e48f935cea9d54de6cd4d9e0bc42ac807669e1e41403ec37cf79988e",
+    "restored_test_sha256": "cda8af0691c5bd3dc09b8b1deec44d4d96848d4f2d13672303b9ddee6a8a35ec",
+    "restored_regression": "10 passed in 14.18s",
+    "restored_log_sha256": "90ef666a9e8f0c4867c7d5b717e284cd64cf11038098ecb859f8e35faa33f31d",
+    "restored_to_exact_committed_bytes": true
+  },
+  "unavailable_metrics": {
+    "benchmark_excess": "source/time-resolved execution and certified benchmark legs unresolved",
+    "confidence": "inference disabled and no adopted market-applicable method",
+    "account_tax": "direct simulator demonstration does not calculate account taxation",
+    "promotion": "no walk-forward promotion evaluation"
+  },
+  "prior_prerequisite": {
+    "source_commit": "6b3303d6dfe975ed28925454e3749d117056f7f7",
+    "ci_id": 38216162648,
+    "ci_result": "2984 passed, 4 skipped in 1061.11s",
+    "resource_id": 38216162627,
+    "resource_result": "SUCCESS",
+    "applies_to_new_change": false
+  },
+  "hosted_new_source_ci": "PENDING_VERIFICATION_NOT_CLAIMED_PASS",
+  "holds": [
+    "product Step 8",
+    "fold-matched comparison",
+    "D41 real-data authorization",
+    "M4 and applicability",
+    "source/time benchmark matching",
+    "actual trial-ledger activation",
+    "inference",
+    "account tax and promotion",
+    "lockbox",
+    "broker/live"
+  ]
+}
