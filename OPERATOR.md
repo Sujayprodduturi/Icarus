@@ -426,6 +426,12 @@ Dated decisions that are not code and not in `goal.yaml`, so they have nowhere e
 |---|---|---|
 | D47 | **Fix delivery-fee accounting, then build the missing breakout exit and low-volatility rebalance features before comparing performance. Continue autonomously; stop only at major milestones or doubts, explain in plain English, and use sub-agents and skills.** Authorizes reviewed implementation and artificial behavior/regression checks for these prerequisites, without another routine approval pause. Existing risk limits and gates remain fixed. D41 still stops before real-market data; no broker/live, lockbox, inference enablement or actual-ledger activation is implied. | operator, direct instruction on2026-10-12 |
 
+### 2026-10-12 - continue after the mechanics milestone
+
+| id | decision | owner |
+|---|---|---|
+| D48 | **Proceed with the next comparison-readiness task after the fee/exit/rebalance milestone.** The bounded reviewed implementation extends the existing fixed synthetic demo to one signal and two independent portfolio capital rows per card under D8. It reports descriptive mechanics and unavailable-measure reasons; it does not schedule product Step8, adopt a method, activate the actual ledger or authorize real data. D41 and all live/lockbox/inference holds remain. [Concrete contract](docs/plans/2026-10-12-synthetic-capital-comparison.md). | operator, direct "Okay, go ahead" on2026-10-12; implementation scope bounded by agent and independent review |
+
 ## 7c. Deferred by decision — not forgotten
 
 Things consciously postponed. **Each names the condition that reopens it.** A deferral without a
