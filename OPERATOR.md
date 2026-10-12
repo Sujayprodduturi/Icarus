@@ -438,6 +438,8 @@ Dated decisions that are not code and not in `goal.yaml`, so they have nowhere e
 |---|---|---|
 | D49 | **Continue with the next timing/benchmark prerequisite.** Authorizes the bounded independently reviewed synthetic exact-time records and pure benchmark-return matcher with invented deterministic tests. The fixed zero-age fixture policy does not choose a real vendor sampling rule or certify sources. No simulator/metrics integration, stock alpha, M15 lane, method adoption, actual-ledger activation or real-data evaluation is scheduled. D22 product holds and D41 remain. [Concrete contract](docs/plans/2026-10-12-synthetic-benchmark-matching.md). | operator, direct "Continue with the next step" on2026-10-12; implementation scope bounded by agent and independent review |
 
+| D50 | **Build the finer-grained stock-execution replay, then connect it to benchmark matching.** Authorizes independently reviewed isolated synthetic single-position fixed-size M15 execution and actual pure-matcher adapter, with deterministic invented-data tests. Daily engines/goal/cards and matcher policy stay unchanged; full strategy/portfolio M15 integration and authoritative market-source matching are separate. Also repair the reproduced duplicate-READY startup race before publication without a new study, retry or budget change. D41, actual-ledger, lockbox, inference and broker/live holds remain. [Contract](docs/plans/2026-10-12-synthetic-stock-replay.md). | operator, direct request on2026-10-12; implementation bounded by review |
+
 ## 7c. Deferred by decision — not forgotten
 
 Things consciously postponed. **Each names the condition that reopens it.** A deferral without a

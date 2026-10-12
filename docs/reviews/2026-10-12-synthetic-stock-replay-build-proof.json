@@ -1,0 +1,115 @@
+{
+  "status": "SCOPED_PASS",
+  "verdict": "SCOPED_PASS_SYNTHETIC_PRESET_TRADE_MECHANICS_ONLY",
+  "source_commit": "899f308df48a98ae8de1b984306b142b228cac7b",
+  "scope": "one invented caller-sized stock trade and bounded READY_SEALED startup repair",
+  "contract": {
+    "path": "docs/plans/2026-10-12-synthetic-stock-replay.md",
+    "sha256": "95b77303a30fce442593ace5843e5b58c92183f62ce9c8bb91a30705c0976616"
+  },
+  "source_freeze": {
+    "replay_sha256": "c4e7b5312852f3f7b9f217d2e5845eab7d3218cfb1febb68b69b28848bf0a513",
+    "replay_test_sha256": "ab9155787e0aec30338dbad2d1be2d5014354913b9c5acbabe4a5f21b3394c90",
+    "runner_sha256": "a9db599acbb422a9cecbec2831ca228fee5ffd3f5b5aeb85dbfbaba4a5875bf1",
+    "runner_test_sha256": "36d2d18a7092010c486f8cd05c152d262339dc05130de40df8945231d8eb8d99",
+    "builder_source_freeze_sha256": "c4348d6b73e0482b18dc7ea5d2949e1ca3a2235cb7ce97aab07f4301732a9ac7",
+    "root_source_freeze_sha256": "b43d485c653928528727eaf39385d380e4acd7f52e82b8260e21f456331e1482",
+    "protected_files": 20,
+    "protected_hashes_match": true
+  },
+  "mechanics": {
+    "preset_trade_only": true,
+    "full_strategy_portfolio_m15_integration": false,
+    "entry_session": "immediately next declared session at its first eligible open; no later-session rollover",
+    "opening_liquidity": "declared already-available MODEL_OPEN_EVENT proxy",
+    "realized_volume": "post-observation reconciliation, never opening sizing information",
+    "accepted_fill_limit": "one structurally accepted fill per bar shared allowance",
+    "unsupported_candidate": "typed retained context; no executed leg and no charge",
+    "intrabar_precision": "BAR_RESOLVED with no exact event timestamp",
+    "terminal_residual": "remains open; matcher returns None on quantity mismatch",
+    "delivery_fee": "fresh trace context; actual sale DP once per symbol and IST day"
+  },
+  "builder_verification": {
+    "tdd_red": [
+      "40 missing-module errors",
+      "liquidity: 2 failed and 41 passed",
+      "next-session clock: 3 failed and 41 passed",
+      "rejection context: 2 failed and 54 passed"
+    ],
+    "focused": "56 passed in 1.54s",
+    "build_report_sha256": "a86687d64b3d4dfc779114ef1e775a7b175b00f460493325db49bb591e50b406"
+  },
+  "root_verification": {
+    "related_initial": "244 passed and 3 sandbox temporary-directory setup errors",
+    "setup_correction": "reran unchanged source with a fresh workspace basetemp",
+    "related_final": "247 passed in 3.64s",
+    "startup": "11 passed in 9.88s",
+    "mypy": "203 source files PASS",
+    "ruff_lint": "global PASS",
+    "ruff_format": "391 files PASS",
+    "diff_check": "PASS"
+  },
+  "independent_numeric_probe": {
+    "receipt_sha256": "af3601666e92dedd20ba811e79b1444e5b9fbe50844ac3c44231439cde7201e6",
+    "cases": 9,
+    "original_quantity": 7,
+    "exit_fragments": [2, 5],
+    "benchmark_fraction": "4/35",
+    "modeled_charges": "16.88497202800",
+    "missing_majority": null,
+    "intrabar_benchmark": null,
+    "unsupported_liquidity": "refused"
+  },
+  "independent_review": {
+    "verdict": "GO",
+    "selected_tests": "7 passed in 0.68s",
+    "q11_exit_fragments": [3, 8],
+    "benchmark_levels": [100, 110, 80],
+    "benchmark_fraction": "-13/110",
+    "missing_second_quote": null,
+    "delivery_dp_once": true,
+    "independent_result_sha256": "62272b1a663fad3dd35c05e83d7cd3beb5441f041b8241d04c87e2ee073780dd",
+    "source_review_sha256": "ac10522361a3ec62a7d0a4e8a725b5b68d213543bac15a8d67356fc884e4c720"
+  },
+  "ready_sealed_repair": {
+    "prior_ci": "38243997659 FAIL after 3039 passed and 4 skipped",
+    "prior_resource": "38243997667 SUCCESS",
+    "cause": "zero-time poll could authorize START before delayed duplicate READY",
+    "repair": "authenticated ordered READY_SEALED received before START under the existing finite deadline",
+    "statistical_protocol_changed": false,
+    "budget_changed": false,
+    "retry_added": false
+  },
+  "postcommit_mutations": {
+    "passed": true,
+    "commit": "899f308df48a98ae8de1b984306b142b228cac7b",
+    "count": 5,
+    "labels": [
+      "ready-seal-bypass",
+      "replay-stop-latch",
+      "replay-intrabar-point",
+      "replay-future-volume",
+      "replay-dp-reset"
+    ],
+    "all_caught_by_intended_behavioral_assertions": true,
+    "receipt_sha256": "b1afcdb08cf79ce6b9332faae2a8441e1a59b5448d8d78f4a076fe03867f2e97",
+    "restored_to_exact_committed_bytes": true,
+    "restored_regression": "58 passed in 2.15s",
+    "restored_log_sha256": "5f0563c50ab382841f9e1a14ffc869afa014e6e4578d84571beadc4bb60675ee",
+    "independent_postcommit_review": "GO",
+    "independent_postcommit_review_sha256": "1a0e5dc2b3762cc67a5fc1b092a2cb217eaaa00db3e43c31b16fb30984288324"
+  },
+  "hosted_new_source_ci": "PENDING_VERIFICATION_NOT_CLAIMED_PASS",
+  "next_reviewed_task": "shared strategy/portfolio timing integration plus authoritative benchmark-source and calendar matching",
+  "holds": [
+    "real market data and performance evidence",
+    "full strategy/portfolio M15 integration",
+    "authoritative benchmark source and calendar matching",
+    "actual study and actual trial-ledger activation",
+    "inference and statistical adoption",
+    "tax, confidence and promotion",
+    "cleanup",
+    "lockbox",
+    "broker/live"
+  ]
+}
