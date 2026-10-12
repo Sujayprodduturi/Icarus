@@ -1,0 +1,121 @@
+{
+  "source_commit": "e64133e51279ee7cadac7ce5736d5e0168a703bc",
+  "scope": "F48 simulator accounting corrected; configured rates unchanged; no real-data claim",
+  "parent_focused": {
+    "passed": 206,
+    "seconds": 3.0
+  },
+  "restored_focused": {
+    "passed": 206,
+    "seconds": 3.43
+  },
+  "static": {
+    "mypy_sources": 198,
+    "ruff_lint": "PASS",
+    "ruff_format_files": 379,
+    "diff_check": "PASS"
+  },
+  "independent_probe": {
+    "passed": true,
+    "command": ".venv/Scripts/python.exe -B var/verification/2026-10-12/review/fee_signal_integration.py",
+    "exit_code": 0,
+    "partial": {
+      "trades": 1,
+      "fees": [
+        "15.34"
+      ],
+      "fragment_fees": [
+        [
+          "15.34",
+          "0"
+        ]
+      ],
+      "rerun_equal": true
+    },
+    "serial": {
+      "trades": 2,
+      "fees": [
+        "15.34",
+        "15.34"
+      ],
+      "fragment_fees": [
+        [
+          "15.34"
+        ],
+        [
+          "15.34"
+        ]
+      ],
+      "rerun_equal": true
+    },
+    "scope": "public synthetic SignalSimulator integration; no runtime mutation"
+  },
+  "postcommit_mutations": {
+    "passed": true,
+    "commit": "e64133e51279ee7cadac7ce5736d5e0168a703bc",
+    "mutants": [
+      {
+        "label": "fee-dedup-removed",
+        "caught": true,
+        "returncode": 1,
+        "original_sha256": "403ca794b75f2029f00d20657d74923938433055eed307dda18a4b6554be1053",
+        "mutated_sha256": "a0765695acd8f5268e8620608937211c1685bed3d3df9a06a43e04b07bb2c6ab"
+      },
+      {
+        "label": "fee-utc-date",
+        "caught": true,
+        "returncode": 1,
+        "original_sha256": "403ca794b75f2029f00d20657d74923938433055eed307dda18a4b6554be1053",
+        "mutated_sha256": "03c392f9c98b253cc9419b3190e047a41fd43c33d8f69e65c981e6b59d779136"
+      },
+      {
+        "label": "fee-stale-full",
+        "caught": true,
+        "returncode": 1,
+        "original_sha256": "403ca794b75f2029f00d20657d74923938433055eed307dda18a4b6554be1053",
+        "mutated_sha256": "d069a2d9b1aed4b1986636c98af507e1bdabb6d40e75308cb061e635af5b387c"
+      },
+      {
+        "label": "fee-signal-shared-book",
+        "caught": true,
+        "returncode": 1,
+        "original_sha256": "0aedca07d5bc1293cb90c5ae932a8ad1b8d3acde37142578959f79e5a6670a4a",
+        "mutated_sha256": "be1e59afc8f61ff4f01ba58a36b9b520b55d65007a11ab29e8dc2ee6ae3c5d92"
+      }
+    ],
+    "restored_sha256": {
+      "icarus/engine/costmodel.py": "403ca794b75f2029f00d20657d74923938433055eed307dda18a4b6554be1053",
+      "icarus/engine/signaltest.py": "0aedca07d5bc1293cb90c5ae932a8ad1b8d3acde37142578959f79e5a6670a4a",
+      "icarus/engine/portfolio.py": "01b5a2497b735a0efccaee721638a1321b93714ac8da6384b522249604b90c81",
+      "tests/unit/test_costmodel.py": "d77b34cb3c5286197a89a0c24405ce1ba431dc09f3395066afe4d487d4a8cbdb",
+      "tests/unit/test_signal_simulator.py": "7d27237ce21de979310d622179343ab7013be213f060a94757d9d3923d5092e0",
+      "tests/unit/test_signaltest.py": "4342cd56757e98056d3f34592f44c7803c4d2c001e8d6ebbecbf0d58e7fb4f46",
+      "tests/unit/test_portfolio_exits.py": "427c5c9542effe7d3b1264760587671ccbd5eb7df6b6ee71b8cc639adef19489",
+      "tests/unit/test_portfolio_dark.py": "0c5aebaf0b867a95dc5acd03a0e11d9285680ebf2c794743a42f9709f145466a"
+    },
+    "restored_regression_exit": 0
+  },
+  "root_IST_probe": {
+    "UTC_times": [
+      "2020-10-01T19:00Z",
+      "2020-10-02T02:00Z",
+      "2020-10-02T19:00Z"
+    ],
+    "DP": [
+      "15.34",
+      "0",
+      "15.34"
+    ],
+    "stale_DP": "0",
+    "scope": "pure synthetic configured-model arithmetic only"
+  },
+  "protocol_deviation": "Builder temporarily tested wrong signal scope before commit, contrary to OPERATOR postcommit-only mutation rule. Exact frozen runtime bytes were restored and independently verified; all four prescribed mutations were then repeated correctly after e64133e and restored. No unresolved state remains.",
+  "holds": [
+    "real-market evaluation",
+    "actual ledger activation",
+    "lockbox",
+    "broker/live",
+    "inference"
+  ],
+  "next": "Implement reviewed opposite exit and scheduled low-vol membership consumer."
+}

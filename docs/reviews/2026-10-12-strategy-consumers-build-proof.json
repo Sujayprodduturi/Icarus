@@ -1,0 +1,99 @@
+{
+  "source_commit": "26bcfbf3c84c72002cedb859ebe8fcbbb0d88f60",
+  "scope": "artificial strategy-consumer mechanics only; no profitability or real-data claim",
+  "plan_sha256": "1aca312d5cb2f7d23ddf98ef3b49aac6a23006d61a08704e314465a7a09e21ae",
+  "runtime_manifest": {
+    "file_count": 16,
+    "sha256": "568628e0f31a67d29c06c659eb03d720ab636efaa164ed24cad980884240d70d",
+    "source_freeze_sha256": "ba6bd494b42627b8dc732571dfd11008ecef471dac34e8873023f24c32304e41",
+    "writes_frozen": true
+  },
+  "test_only_contract_update": {
+    "path": "tests/unit/test_signal_simulator.py",
+    "sha256": "62acbc4a97bca0cf19a96617f2ecdee1ec5f43bba391cfcf41babab1ec331eca",
+    "change": "immutable-result field assertion includes management_exit_events and rebalance_events"
+  },
+  "mechanics": {
+    "opposite_exit": "close event latched only for a currently held position; first attempt on the next source bar",
+    "exit_priority": "protective/time/final intent owns the symbol/bar attempt; pending management exit waits",
+    "rebalance": "source-zero 252+63k grid, exact source identity, retained incumbents, decision-time unheld admissions",
+    "opening_capacity": "EXECUTION_ORDER_UNAVAILABLE refuses capacity depending on intrabar, missing, trailing or stale-release information",
+    "low_vol_candidate_count": 30,
+    "portfolio_holding_cap": 4,
+    "resizing": false,
+    "inverse_volatility_replica": false
+  },
+  "catalogue": {
+    "yaml_files": 7,
+    "control_files": 1,
+    "strategy_specifications": 6,
+    "families": 5,
+    "added": [
+      "strategies/donchian_55_20.yaml",
+      "strategies/defensive_low_vol_252_q63.yaml"
+    ]
+  },
+  "builder": {
+    "focused": "60 passed in 6.01s",
+    "affected": "883 passed in 30.00s",
+    "build_report_sha256": "e07b1fb822e04c2352b535d9bbf7b1f90e2821e7d68d0154bfc5d753c3768f85"
+  },
+  "parent_verification": {
+    "initial_tests": "217 passed; one obsolete exact-result-field assertion failed",
+    "test_amendment": "added only management_exit_events and rebalance_events; independent reviewer GO",
+    "tests": "218 passed in 10.49s",
+    "mypy": "199 source files PASS",
+    "ruff_lint_no_cache": "PASS",
+    "ruff_format_no_cache": "381 files PASS",
+    "diff_check": "PASS",
+    "root_final_proof_sha256": "f22f4f0037a472c6f6febbaa40e88dfaf956edfe47d33da8000f385f7a028d20",
+    "cached_format_note": "cached formatter crashed; no-cache recovery passed without a source change"
+  },
+  "independent_review": {
+    "verdict": "GO",
+    "source_review_sha256": "d6288a87dbf068dbcbe7555d7f8eacfc5a8f4a0f1dc60d594cef2b1e39774771",
+    "selected_public_cases": 6,
+    "selected_result": "6 passed in 1.05s",
+    "probe_sha256": "009ba185b7f6018e6bf6fe9684b7013adb1b60ddaa9de6a8e2dedbd4693810ed"
+  },
+  "postcommit_mutations": {
+    "passed": true,
+    "count": 6,
+    "labels": [
+      "consumer-future-entry-latch",
+      "consumer-local-grid",
+      "consumer-invalid-liquidation",
+      "consumer-drop-pending",
+      "consumer-retained-readmission",
+      "consumer-intrabar-open-capacity"
+    ],
+    "receipt_sha256": "e7c4a239cfa880f6096928940a80077237f1ad07f0f4afc23bc4c5298878145c",
+    "restored_regressions": "58 passed in 3.12s",
+    "restored_log_sha256": "c8d016ff1588d74713f28c18ba1b42a4c5c37a76b0e52e9b5837dfb6d142dd2f",
+    "retained_readmission_note": "caught by exact one-outcome ValueError after the harness was corrected to recognize the fail-safe; this is not by itself an actual-repurchase witness",
+    "restored_to_committed_bytes": true
+  },
+  "unchanged_protected_inputs": {
+    "goal_yaml_sha256": "c886aca6b198257486d0daefc484f818458e60fa32a5aa861b95d1413282fa0c",
+    "costmodel_sha256": "403ca794b75f2029f00d20657d74923938433055eed307dda18a4b6554be1053",
+    "original_cards_match_source_freeze": true
+  },
+  "mechanics_status": {
+    "delivery_fee_accounting": "SCOPED_PASS",
+    "opposite_event_exit": "SCOPED_PASS",
+    "scheduled_low_vol_rebalance": "SCOPED_PASS",
+    "profitability": "UNKNOWN"
+  },
+  "hosted_ci": "PENDING_FINAL_SINGLE_PUSH",
+  "holds": [
+    "D41 real-data authorization",
+    "source/time-resolved benchmark matching",
+    "applicability policy",
+    "actual trial-ledger activation",
+    "dual-capital comparison",
+    "inference",
+    "lockbox",
+    "broker/live"
+  ],
+  "next": "separately reviewed pre-data comparison-readiness decision"
+}
