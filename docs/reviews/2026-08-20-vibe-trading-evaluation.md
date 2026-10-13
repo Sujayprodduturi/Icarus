@@ -444,9 +444,30 @@ strategy decision — and that is worth more than the code itself.
 *Added 2026-08-20 on operator instruction: "we need to keep a track of this repo and the
 enhancements in it that can add value to us."* A monthly scheduled check runs against this list.
 
-**Pin:** `HKUDS/Vibe-Trading` @ `1907e47`, version 0.1.14, **2026-08-21**. Everything below is a
-delta against that commit. *(Originally pinned at `7329cb0`, 2026-08-20; moved after the first
-watch run.)*
+**Pin:** `HKUDS/Vibe-Trading` @ `18027a0`, version 0.1.16, **2026-10-01**. Everything below is a
+delta against that commit. *(Originally pinned at `7329cb0`, 2026-08-20; moved to `1907e47` after the
+first watch run 2026-08-21; moved to `18027a0` after the second watch run 2026-10-01.)*
+
+### Second watch run — 2026-10-01
+
+**No re-evaluation warranted; "keep building Icarus" stands.** 999 commits since the `1907e47` pin;
+version 0.1.14 → 0.1.16. Full write-up in `docs/reviews/2026-10-01-vibe-trading-delta.md`. In short:
+Trigger 1 (limit-order fill model) and Trigger 2 (capital-gains tax) are both still **absent** —
+Blockers 1 and 2 stand. Trigger 3 fired on its *letter* only: a **Zerodha connector was added**
+(their `bf3f3868`), but it is read-path plus structurally paper-only — same `if not cfg.is_paper:
+refuse` guard as Dhan/Shoonya, no live order path — so the "no Indian execution to replace" position
+is intact and the hybrid question does not reopen. `multipletesting.py` (our DSR oracle) is
+byte-identical to the pin.
+
+Two deltas worth carrying into already-scheduled work, neither urgent: (1) they closed the
+**dividend-adjustment** half of Blocker 3 — `yahoo_client.py` now applies `adjclose/close` and
+`yfinance_loader.py` uses `auto_adjust=True` (their `1fcab81d`) — which this evaluation predicted and
+on which we are already ahead, since they still lack the survivorship / point-in-time-universe half;
+(2) `ledger.py` gained a **Windows** file-locking fix (their `5c28d493`: a `b"\0"` bootstrap sentinel
+was corrupting the first hash-chain record) — relevant to mirror when we build our audit-log hash
+chain, now that decisions D24/D30 put us on a Windows host. `crossvalidation.py` (the F12
+purge/embargo oracle) improved with a per-segment purge fix; the 2026-08-21 `group_purged_kfold`
+`purged=0` caveat below is still open.
 
 ### First watch run — 2026-08-21
 
