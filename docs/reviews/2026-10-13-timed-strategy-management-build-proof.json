@@ -1,0 +1,152 @@
+{
+  "status": "SCOPED_PASS",
+  "verdict": "SCOPED_PASS_SYNTHETIC_TIMED_SEVEN_CARD_MANAGEMENT_MECHANICS_ONLY",
+  "source_commit": "4369f4da212cacebe93f3968a7298f5d44d52dd0",
+  "scope": "synthetic timed Donchian opposite exits and low-volatility scheduled rebalancing in both simulators",
+  "contract": {
+    "path": "docs/plans/2026-10-13-timed-strategy-management.md",
+    "sha256": "478552574c9f15b43c47cf04ea4a91cd4d72ef3a299086e4d4d14700a87b105f",
+    "operator_decision": "D52",
+    "independent_plan_review": "GO"
+  },
+  "source_freeze": {
+    "manifest_path": "var/verification/2026-10-13/timed-management/root/source-verification.json",
+    "manifest_sha256": "d9c830c0051e15bb89e25b045e71dedb1b1084b256ed89b71e36174909e9089a",
+    "tracked": 505,
+    "unchanged": 495,
+    "approved_changes": 10,
+    "sources": {
+      "icarus/engine/portfolio.py": "60989e297a6e6a33429600973c35f25270920c685016360ec074ccb3594dc039",
+      "icarus/engine/signaltest.py": "86806a1b4041005d8ab58744d6c9058fe0f14fbf81dfbc642a46da4728ce8576",
+      "icarus/engine/timed_execution.py": "4b0e35c75b9bd850e3cceee994ec43b3f6cf06a8fef4ddeb6c438078b3561d52",
+      "icarus/engine/timed_simulation.py": "78654dc474a7bd4c7d5d4f3797bd487a8d72ede3cc6fde2aa7d664afdd42d746",
+      "tests/unit/test_shared_timing_integration.py": "dc9991224d1d9ddf813cac1bf41d87a1db9b290fcc01194356e460fb170252df",
+      "tests/unit/test_timed_strategy_management.py": "4f4b3af9071b20eeb37218a944057a596082772bf62efffedd00df46b404a355"
+    }
+  },
+  "mechanics": {
+    "timed_catalogue_cards_supported": 7,
+    "donchian": "declared opposite close decision; next-session execution; partial-fill residual and origin preserved",
+    "low_volatility": "63-source-session decisions; 30 finite eligible candidates; retained holdings are not resized",
+    "portfolio": "opening exits precede admissions; unrelated free slot can admit; holdings never exceed four in the probe",
+    "fee_accounting": "one symbol/IST-day DP charge over Q2 and Q7 sale fragments",
+    "still_unsupported": [
+      "trailing stops",
+      "non-equity segments",
+      "non-daily strategies"
+    ]
+  },
+  "builder_verification": {
+    "receipt_path": "var/verification/2026-10-13/timed-management/builder/receipt.md",
+    "receipt_sha256": "41613bd4a3db879359249ca5ccc13540485fc6a95c4832a55f323b2d89d6b0e9",
+    "tdd_red": "7 expected failures because both public timed methods lacked exit_signals",
+    "initial_green": "7 passed in 0.70s",
+    "focused_final": "87 passed in 8.01s",
+    "focused_breakdown": {
+      "new_management": 34,
+      "existing_shared_timing": 53
+    },
+    "mypy": "212 Python files PASS",
+    "ruff_lint": "global PASS",
+    "ruff_format": "402 files already formatted"
+  },
+  "root_verification": {
+    "related_golden": "418 passed in 15.71s",
+    "junit_path": "var/verification/2026-10-13/timed-management/root/final-related.xml",
+    "junit_sha256": "8afae0af5467f447188dd557b8b99dc856fdd728386f538c3d864cf65ea6c4ee",
+    "mypy": "explicit 210-file command PASS",
+    "ruff_lint": "global PASS",
+    "ruff_format": "402-file no-cache check PASS",
+    "line_endings": "ordinary and --ignore-cr-at-eol final diffs agree"
+  },
+  "independent_probe": {
+    "status": "STABLE_GO",
+    "receipt_sha256": "c8e0a355bfe63d5999789e27c2996a5be70943eb9e191c331688c9ab0d112ec8",
+    "script_sha256": "9f774b00239623b2918d215edcb396acd2f69811ce0bb7398d07c4a9fbb0bab7",
+    "json_sha256": "0b85e50583a5f438c06ab8bb80921bc9e24584fd5929b93d5988eb1ef60e1b62",
+    "markdown_sha256": "00916810b638714d54142c956ac05b15653177d8150015f9126c2d8cd9a03016",
+    "opposite": {
+      "entry_quantity": 9,
+      "attempt_fills": [0, 2, 0, 0],
+      "residual_quantity": 7,
+      "benchmark_fraction": "17/450",
+      "missing_executed_leg_quote": null
+    },
+    "low_volatility": {
+      "decision_source_rows": [252, 315],
+      "candidates": 30,
+      "universe": 31,
+      "drop_exit_quantities": [2, 7],
+      "drop_dp_total_inr": "15.34",
+      "added": "S30",
+      "portfolio_max_holdings": 4,
+      "portfolio_cash_inr": "7277.20000250190"
+    },
+    "unstable_first_pass_rejected": true,
+    "fixture_corrections_before_final": 3
+  },
+  "independent_review": {
+    "verdict": "GO",
+    "ordered": ["ponytail-review", "engineering:code-review"],
+    "selected_tests": "8 passed, 26 deselected in 2.45s",
+    "review_sha256": "2838761a3e54588412d7eb8e55fd34bf0bda5779c8f71d8f3c413301081df9b3",
+    "positive_xml_sha256": "20bcb4563c6e6bf7a5e197b850d0a9755b138c558e66ccb448dedc61f29750e6",
+    "found_and_fixed": [
+      "undeclared exit columns",
+      "undeclared rebalance pulses",
+      "fixed-card rank infinity policy regression",
+      "rebalance snapshot timing and drift",
+      "held-symbol NaN close refusal failed to halt the next session"
+    ],
+    "last_fix_witness": "two-mode RED then two-mode GREEN"
+  },
+  "postcommit_fault_proof": {
+    "status": "PASS",
+    "receipt_path": "var/verification/2026-10-13/timed-management/reviewer/postcommit-receipt.json",
+    "receipt_sha256": "a290752876495b98bfc280a5cce4cc7aab37c6b5afa329262bfa4efc48cfe43b",
+    "root_verification_sha256": "0fd6808cb9dc6546f67562dcb03a821ebd7fae05d2032974c923b43dab74adce",
+    "independent_review_sha256": "4eab5b9c2d4ca133c1ef318feb975805e2861da76465a13921d359b18857cdf6",
+    "cases": 7,
+    "labels": [
+      "undeclared_exit",
+      "undeclared_pulse",
+      "rank_policy",
+      "rebalance_snapshot",
+      "management_latency",
+      "close_refusal_halt",
+      "sticky_origin"
+    ],
+    "failure_counts": [2, 1, 1, 2, 2, 2, 2],
+    "errors": 0,
+    "found_close_refusal_variant_sha256": "8346de61a6d2431fe650309ac2df9684874f22f1c736c6a8e08efa6639cffc06",
+    "restored_files": 6,
+    "exact_committed_bytes_restored": true,
+    "restored_positive": "34 passed in 7.78s",
+    "independent_postcommit_review": "GO"
+  },
+  "root_numeric_reproduction": {
+    "receipt_sha256": "607eaaec38919a1997dcbbd65b7a4a6474d5f3db30ae1386d128931c160a66f8",
+    "portfolio_cash_inr": "7277.20000250190",
+    "acquisition_outlays_inr": "3606.07679893080",
+    "sale_proceeds_inr": "883.27680143270",
+    "benchmark_fraction": "17/450",
+    "matches_independent_probe": true
+  },
+  "published_prerequisite": {
+    "commit": "186bf64542c27b49a21c1da3ef71cfbb3541ca63",
+    "ci": "38278092791 SUCCESS: 3156 passed, 4 skipped in 1606.73s",
+    "native_resource": "38278092744 SUCCESS",
+    "receipt_sha256": "74d8ae50603c980edd0719784814e43b191cf737b4b9280bb409c3607f60b1cc",
+    "covers_new_source": false
+  },
+  "hosted_new_source_ci": "NOT_CLAIMED",
+  "holds": [
+    "authoritative source/calendar and benchmark matching",
+    "real market data and performance evidence",
+    "actual study and actual trial-ledger activation",
+    "inference and statistical adoption",
+    "profitability or promotion",
+    "lockbox",
+    "broker/live"
+  ]
+}

@@ -442,6 +442,8 @@ Dated decisions that are not code and not in `goal.yaml`, so they have nowhere e
 
 | D51 | **Proceed to connect the finer replay to the strategy and portfolio simulators.** Authorizes independently reviewed synthetic-only explicit timed methods with a shared incremental execution clock, genuine inventory/cash/risk accounting and a derived benchmark adapter. First timed subset is fixed stops/targets/session timers (five cards); trailing/opposite/rebalance refuse explicitly until a subsequent increment. Daily default, goal/cards and risk thresholds stay unchanged. No real data, actual ledger/study, inference, lockbox, broker/live or source procurement is implied. [Contract](docs/plans/2026-10-12-shared-timing-integration.md). | operator, direct Go ahead after the replay milestone on2026-10-12; bounded implementation by review |
 
+| D52 | **Add the remaining Donchian opposite exits and low-volatility scheduled rebalancing to both timed simulators.** Approved after the plain-English next-step explanation; retain next-session close availability, partial-fill cash/fee accounting, existing risk/card/grid policy and synthetic-only scope. Independent plan and code review required; no real data, study/ledger activation, inference, lockbox or broker/live authorization. [Contract](docs/plans/2026-10-13-timed-strategy-management.md). | operator, direct Go ahead on2026-10-13; D47 autonomous cadence |
+
 ## 7c. Deferred by decision — not forgotten
 
 Things consciously postponed. **Each names the condition that reopens it.** A deferral without a
