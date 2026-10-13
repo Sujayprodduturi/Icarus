@@ -437,7 +437,9 @@ class SignalSimulator:
         *,
         fixture: TimedFixture,
         source_indices: Sequence[int],
+        exit_signals: Mapping[str, Column] | None = None,
         ranks: Mapping[str, Column] | None = None,
+        rebalance_pulses: npt.NDArray[np.bool_] | None = None,
     ) -> TimedRun:
         from icarus.engine.timed_simulation import run_timed
 
@@ -450,7 +452,9 @@ class SignalSimulator:
             stops,
             fixture=fixture,
             source_indices=source_indices,
+            exit_signals=exit_signals,
             ranks=ranks,
+            rebalance_pulses=rebalance_pulses,
             fills=self._fills,
             costs=self._costs,
             notional=self._notional,

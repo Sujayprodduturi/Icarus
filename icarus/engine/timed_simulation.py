@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field, fields, replace
 from datetime import datetime, timedelta
 from decimal import Decimal
 from enum import StrEnum
@@ -25,7 +25,17 @@ from icarus.engine.entry_accounting import (
     whole_shares,
 )
 from icarus.engine.fills import FillModel, FillResult, Intent, OrderKind
-from icarus.engine.simcore import ExitPlan, SignalId, _ts_at
+from icarus.engine.simcore import (
+    ExitPlan,
+    ExitReason,
+    ManagementExitEvent,
+    RebalanceEvent,
+    RebalanceStatus,
+    SignalId,
+    _ts_at,
+    rebalance_decision,
+    validate_consumer_columns,
+)
 from icarus.engine.timed_execution import (
     ExitCause,
     ReplayRefusal,
@@ -78,6 +88,7 @@ class TimedRefusal(StrEnum):
     PATH_ORDER_UNAVAILABLE = "protective_activation_path_order_unavailable"
     ORDER_UNAVAILABLE = "stop_target_order_unavailable"
     UNAVAILABLE_SIGNAL = "missing_daily_decision"
+    MISSING_MANAGEMENT_DECISION = "missing_management_decision"
     UNSUPPORTED_CLOCK = "unsupported_intraday_strategy_clock"
     UNSUPPORTED_UNIVERSE = "unsupported_non_equity_universe"
 
@@ -278,6 +289,8 @@ class TimedRun:
     daily_equity: tuple[tuple[int, datetime, Decimal], ...]
     provisional_cash: Decimal | None
     prior_cash: Decimal | None
+    management_exit_events: tuple[ManagementExitEvent, ...]
+    rebalance_events: tuple[RebalanceEvent, ...]
     scope: str = field(default=SCOPE, init=False)
 
     def __post_init__(self) -> None:
@@ -314,6 +327,7 @@ class _Holding:
     timer: int | None
     activated: datetime
     latched: bool = False
+    pending_exit: ManagementExitEvent | None = None
     exits: list[TimedLeg] = field(default_factory=list)
 
     def snapshot(self) -> TimedTrade:
@@ -338,6 +352,8 @@ def _preflight(
     fixture: TimedFixture,
     source: tuple[int, ...],
     risk: Risk | None,
+    exit_signals: Mapping[str, Column] | None,
+    rebalance_pulses: npt.NDArray[np.bool_] | None,
 ) -> RunRefusal | None:
     def refuse(reason: TimedRefusal, symbols: tuple[str, ...] = panel.symbols) -> RunRefusal:
         return RunRefusal(reason, symbols, source)
@@ -346,10 +362,6 @@ def _preflight(
         return refuse(TimedRefusal.UNSUPPORTED_CLOCK)
     if strategy.universe != "nse_liquid":
         return refuse(TimedRefusal.UNSUPPORTED_UNIVERSE)
-    if strategy.rebalance is not None:
-        return refuse(TimedRefusal.UNSUPPORTED_REBALANCE)
-    if any(r.rule == "opposite_signal" for r in strategy.exits):
-        return refuse(TimedRefusal.UNSUPPORTED_MANAGEMENT)
     if any(r.rule == "trailing_stop_atr" for r in strategy.exits):
         return refuse(TimedRefusal.UNSUPPORTED_TRAILING)
     if strategy.sizing.weighting != "equal_weight" or strategy.sizing.vol_target_pct is not None:
@@ -357,6 +369,7 @@ def _preflight(
     if risk is not None and strategy.sizing.risk_r > risk.per_trade_risk_r:
         return refuse(TimedRefusal.EXCESS_RISK)
     ExitPlan.of(strategy.exits)
+    validate_consumer_columns(strategy, panel, exit_signals, rebalance_pulses, source)
     if (
         len(source) != len(panel)
         or any(type(i) is not int or i < 0 for i in source)
@@ -378,10 +391,19 @@ def _preflight(
             if column.shape != (len(panel),):
                 raise ValueError("daily column shape mismatch")
         missing = tuple(source[i] for i, x in enumerate(signals[symbol]) if np.isnan(x))
-        if missing:
+        if missing and strategy.rebalance is None:
             return RunRefusal(TimedRefusal.UNAVAILABLE_SIGNAL, (symbol,), missing)
-        if any(not np.isfinite(x) or x not in (0, 1) for x in signals[symbol]):
+        if any(
+            (not np.isnan(x) and not np.isfinite(x)) or (np.isfinite(x) and x not in (0, 1))
+            for x in signals[symbol]
+        ):
             raise ValueError("entry columns must be finite binary daily decisions")
+        if (
+            strategy.rebalance is not None
+            and ranks is not None
+            and any(np.isinf(x) for x in ranks[symbol])
+        ):
+            raise ValueError("rank columns cannot contain infinity")
     sessions = fixture.sessions
     if (
         len(sessions) != len(source)
@@ -447,7 +469,9 @@ def run_timed(
     notional: Decimal | None = None,
     risk: Risk | None = None,
     starting_equity: Decimal | None = None,
+    exit_signals: Mapping[str, Column] | None = None,
     ranks: Mapping[str, Column] | None = None,
+    rebalance_pulses: npt.NDArray[np.bool_] | None = None,
 ) -> TimedRun:
     """Serialize one common event loop; mode changes sizing/accounting, never execution."""
     mode = "portfolio" if risk is not None else "signal"
@@ -460,24 +484,43 @@ def run_timed(
     else:
         _money(notional)
     source = tuple(source_indices)
-    refusal = _preflight(strategy, panel, signals, stops, ranks, fixture, source, risk)
+    refusal = _preflight(
+        strategy,
+        panel,
+        signals,
+        stops,
+        ranks,
+        fixture,
+        source,
+        risk,
+        exit_signals,
+        rebalance_pulses,
+    )
     plan = ExitPlan.of(strategy.exits)
+    has_opposite = any(rule.rule == "opposite_signal" for rule in strategy.exits)
     config = fills.execution_config
     latency = timedelta(milliseconds=config.latency_ms)
     positions: dict[str, _Holding] = {}
     history: list[_Holding] = []
     attempts: list[TimedAttempt] = []
-    decisions: dict[SignalId, Disposition | None] = {
-        SignalId(strategy.name, strategy.version, s, _ts_at(panel, i), source[i]): None
-        for i in range(len(panel))
-        for s in panel.symbols
-        if signals[s][i] == 1
-    }
+    decisions: dict[SignalId, Disposition | None] = (
+        {}
+        if strategy.rebalance is not None
+        else {
+            SignalId(strategy.name, strategy.version, s, _ts_at(panel, i), source[i]): None
+            for i in range(len(panel))
+            for s in panel.symbols
+            if signals[s][i] == 1
+        }
+    )
     cash = realized = starting_equity if risk is not None else None
     prior_cash = cash
     marks: list[tuple[int, datetime, Decimal]] = []
     fees = DeliveryFeeContext()
     queued: list[tuple[SignalId, int, datetime]] = []
+    management_events: list[ManagementExitEvent] = []
+    rebalance_events: list[RebalanceEvent] = []
+    completed_rebalances: set[int] = set()
     daily_by_source = {s: i for i, s in enumerate(source)}
 
     def failed() -> bool:
@@ -500,8 +543,17 @@ def run_timed(
             fail(proxy, symbol, row)
             return
         holding.latched = holding.latched or selection.latched
+        management = selection.cause in (
+            ExitCause.OPPOSITE_SIGNAL,
+            ExitCause.REBALANCE,
+        )
+        available = (
+            holding.pending_exit.decision_ts
+            if management and holding.pending_exit is not None
+            else holding.available
+        )
         intent = Intent(
-            OrderSide.SELL, selection.kind, holding.quantity, holding.available, selection.limit
+            OrderSide.SELL, selection.kind, holding.quantity, available, selection.limit
         )
         fill = _fill(intent, row, fills, config, opening=opening, used=used[symbol])
         attempts.append(
@@ -580,6 +632,13 @@ def run_timed(
                 selected = select_open(
                     row, h.stop, latched=h.latched, activated=h.activated, timer_due=timer
                 )
+                if (
+                    selected.cause is None
+                    and h.pending_exit is not None
+                    and session.index >= h.pending_exit.first_execution_index
+                    and row.bar.ts >= h.pending_exit.decision_ts + latency
+                ):
+                    selected = Selection(ExitCause(h.pending_exit.reason.value))
                 if selected.cause is not None:
                     exited.add(h.signal_id)
                     record_exit(symbol, row, selected, opening=True, used=used)
@@ -738,6 +797,37 @@ def run_timed(
                     break
             if failed():
                 break
+            for event_at, event in enumerate(rebalance_events):
+                if (
+                    event.decision_index in completed_rebalances
+                    or event.first_execution_index != session.index
+                ):
+                    continue
+                if event.pending_admissions and not all(
+                    any(
+                        identity.symbol == symbol
+                        and identity.decision_index == event.decision_index
+                        and outcome is not None
+                        for identity, outcome in decisions.items()
+                    )
+                    for symbol in event.pending_admissions
+                ):
+                    continue
+                rebalance_events[event_at] = replace(
+                    event,
+                    holdings_after=tuple(sorted(positions)),
+                    pending_admissions=tuple(
+                        symbol
+                        for symbol in event.pending_admissions
+                        if not any(
+                            identity.symbol == symbol
+                            and identity.decision_index == event.decision_index
+                            and outcome is Disposition.ACCEPTED
+                            for identity, outcome in decisions.items()
+                        )
+                    ),
+                )
+                completed_rebalances.add(event.decision_index)
             for symbol in tuple(sorted(positions)):
                 h = positions[symbol]
                 if h.signal_id in exited:
@@ -763,12 +853,80 @@ def run_timed(
                 Decimal(0),
             )
             marks.append((session.index, session.close_ts, equity))
-        for signal in decisions:
-            if signal.decision_index == session.index:
-                if local + 1 == len(source):
-                    decisions[signal] = Disposition.NO_NEXT_SESSION
-                else:
-                    queued.append((signal, daily_by_source[session.index], session.close_ts))
+        if strategy.rebalance is None:
+            for signal in decisions:
+                if signal.decision_index == session.index:
+                    if local + 1 == len(source):
+                        decisions[signal] = Disposition.NO_NEXT_SESSION
+                    else:
+                        queued.append((signal, daily_by_source[session.index], session.close_ts))
+        if has_opposite and exit_signals is not None:
+            for symbol, holding in tuple(positions.items()):
+                value = exit_signals[symbol][local]
+                if np.isnan(value):
+                    refusal = RunRefusal(
+                        TimedRefusal.MISSING_MANAGEMENT_DECISION,
+                        (symbol,),
+                        (session.index,),
+                        session.close_ts,
+                    )
+                    break
+                if value == 1 and holding.pending_exit is None:
+                    pending = ManagementExitEvent(
+                        symbol,
+                        session.close_ts,
+                        session.index,
+                        session.index + 1,
+                        ExitReason.OPPOSITE_SIGNAL,
+                    )
+                    holding.pending_exit = pending
+                    management_events.append(pending)
+        if failed():
+            break
+        if (
+            refusal is None
+            and strategy.rebalance is not None
+            and rebalance_pulses is not None
+            and rebalance_pulses[local]
+        ):
+            event = rebalance_decision(
+                strategy,
+                panel,
+                signals,
+                ranks,
+                local,
+                session.index,
+                tuple(positions),
+                tuple(symbol for symbol, h in positions.items() if h.pending_exit is not None),
+            )
+            event = replace(event, decision_ts=session.close_ts)
+            rebalance_events.append(event)
+            if event.status is RebalanceStatus.VALID:
+                for symbol, holding in positions.items():
+                    if symbol not in event.candidates and holding.pending_exit is None:
+                        pending = ManagementExitEvent(
+                            symbol,
+                            session.close_ts,
+                            session.index,
+                            session.index + 1,
+                            ExitReason.REBALANCE,
+                        )
+                        holding.pending_exit = pending
+                        management_events.append(pending)
+                for symbol in event.retained:
+                    identity = SignalId(
+                        strategy.name, strategy.version, symbol, session.open_ts, session.index
+                    )
+                    decisions[identity] = Disposition.ALREADY_HELD
+                for symbol in event.pending_admissions:
+                    identity = SignalId(
+                        strategy.name, strategy.version, symbol, session.open_ts, session.index
+                    )
+                    decisions[identity] = None
+                    if local + 1 == len(source):
+                        decisions[identity] = Disposition.NO_NEXT_SESSION
+                    else:
+                        queued.append((identity, local, session.close_ts))
         for q in tuple(queued):
             if q[0].decision_index + 1 <= session.index:
                 decisions[q[0]] = Disposition.NO_NEXT_SESSION
@@ -791,4 +949,6 @@ def run_timed(
         tuple(marks),
         cash if refusal is not None else None,
         prior_cash,
+        tuple(management_events),
+        tuple(rebalance_events),
     )

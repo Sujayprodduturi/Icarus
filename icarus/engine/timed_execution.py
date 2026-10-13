@@ -74,6 +74,8 @@ class ExitCause(StrEnum):
     STOP = "stop"
     TARGET = "target"
     TIME_STOP = "time_stop"
+    OPPOSITE_SIGNAL = "opposite_signal"
+    REBALANCE = "rebalance"
 
 
 def _proxy_refusal(row: ReplayBar) -> ReplayRefusal | None:

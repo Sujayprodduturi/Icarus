@@ -192,20 +192,22 @@ def test_future_volume_invalidates_whole_run_without_resizing_open_batch(
 
 
 @pytest.mark.parametrize("mode", ["signal", "portfolio"])
-@pytest.mark.parametrize("card", ["donchian_55_20", "defensive_low_vol_252_q63"])
-def test_unsupported_cards_refuse_before_fills(
-    m: ModuleType, mode: str, card: str, monkeypatch: Any
+@pytest.mark.parametrize(
+    ("card", "message"),
+    [
+        ("donchian_55_20", "evaluated exit columns"),
+        ("defensive_low_vol_252_q63", "whole-source pulse columns"),
+    ],
+)
+def test_management_cards_require_declared_columns_before_fills(
+    m: ModuleType, mode: str, card: str, message: str, monkeypatch: Any
 ) -> None:
     def forbidden(*args: Any) -> Any:
         pytest.fail("unsupported timed rule reached FillModel")
 
     monkeypatch.setattr(FillModel, "execute", forbidden)
-    run = simulate(m, mode, make(m), {"S0": [1, 0, 0, 0]}, card=card)
-    assert not run.valid and not run.trades
-    assert run.refusal.reason in (
-        m.TimedRefusal.UNSUPPORTED_MANAGEMENT,
-        m.TimedRefusal.UNSUPPORTED_REBALANCE,
-    )
+    with pytest.raises(ValueError, match=message):
+        simulate(m, mode, make(m), {"S0": [1, 0, 0, 0]}, card=card)
 
 
 def test_missing_refinement_keeps_universe_and_all_signal_identities(m: ModuleType) -> None:
