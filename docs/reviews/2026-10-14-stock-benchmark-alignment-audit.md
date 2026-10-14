@@ -1,5 +1,7 @@
 # Stock/benchmark alignment audit — 2026-10-14
 
+**2026-10-14 readiness update — LOCAL SOFTWARE VERIFIED:** Candidate sources `68b5` plus `eb65474` add the reviewed immutable-bundle, causal assembly, benchmark-policy, guarded-ledger and seven-card CLI path. Outside the restricted sandbox, six repaired raw cases fail their intended guard predicates, seven controls pass, all 39 semantic mutants reconcile and the restored gate passes 119 tests/two capability skips; independent review gives scoped GO. `SOFTWARE_VERIFIED=true` for local invented mechanics, while this audit's source conclusion remains controlling: `DATA_QUALIFIED=false`, `RUN_AUTHORIZED=false`, full-history resources remain unqualified, hosted CI remains pending, and no actual-data result is claimed. [Build review](2026-10-14-real-data-simulator-build-review.md).
+
 **Verdict: daily axis structure verified; real execution-time benchmark alignment remains uncertified.** This was a read-only inspection of schemas, timestamps, manifests, source, and existing tests. No price array was read, no strategy was evaluated, no source was fetched, and no broker, ledger, inference, lockbox, or live path was used.
 
 ## What is established

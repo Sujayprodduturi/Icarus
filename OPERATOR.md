@@ -444,6 +444,8 @@ Dated decisions that are not code and not in `goal.yaml`, so they have nowhere e
 
 | D52 | **Add the remaining Donchian opposite exits and low-volatility scheduled rebalancing to both timed simulators.** Approved after the plain-English next-step explanation; retain next-session close availability, partial-fill cash/fee accounting, existing risk/card/grid policy and synthetic-only scope. Independent plan and code review required; no real data, study/ledger activation, inference, lockbox or broker/live authorization. [Contract](docs/plans/2026-10-13-timed-strategy-management.md). | operator, direct Go ahead on2026-10-13; D47 autonomous cadence |
 
+| D53 | **Keep fixing until the simulator is ready to accept real data; check whether required data is available.** Authorizes autonomous reviewed local input certification, causal replay integration, guarded timed-runner software and public provider research with invented-file tests. Software proof, qualified external data and actual run authority stay separate. No subscription/purchase/vendor contact, broker access, actual-ledger activation, real-price strategy evaluation, lockbox or statistical adoption is implied. [Contract](docs/plans/2026-10-14-real-data-simulator-readiness.md). | operator, direct instruction and data-availability reply on2026-10-14 |
+
 ## 7c. Deferred by decision — not forgotten
 
 Things consciously postponed. **Each names the condition that reopens it.** A deferral without a
