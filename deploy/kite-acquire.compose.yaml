@@ -1,0 +1,54 @@
+services:
+  kite-proxy:
+    build:
+      context: ..
+      dockerfile: deploy/kite-acquire.Dockerfile
+    entrypoint: ["python", "-m", "tools.kite_acquire.proxy"]
+    networks:
+      - acquire-internal
+      - proxy-egress
+    read_only: true
+    user: "10001:10001"
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=16m"]
+    mem_limit: 128m
+    cpus: 0.25
+    pids_limit: 64
+    logging:
+      driver: "none"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1',8080),2).close()"]
+      interval: 2s
+      timeout: 3s
+      retries: 10
+
+  kite-acquirer:
+    build:
+      context: ..
+      dockerfile: deploy/kite-acquire.Dockerfile
+    networks: ["acquire-internal"]
+    read_only: true
+    user: "10001:10001"
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=16m"]
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 64
+    logging:
+      driver: "none"
+    stdin_open: true
+    tty: true
+    volumes:
+      - type: bind
+        source: ${KITE_EXPORT_DIR:?set KITE_EXPORT_DIR}
+        target: /export
+    depends_on:
+      kite-proxy:
+        condition: service_healthy
+
+networks:
+  acquire-internal:
+    internal: true
+  proxy-egress: {}

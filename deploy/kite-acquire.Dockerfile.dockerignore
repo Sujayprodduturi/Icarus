@@ -1,0 +1,7 @@
+**
+!tools/
+!tools/kite_acquire/
+!tools/kite_acquire/**
+!deploy/kite-acquire.Dockerfile
+tools/kite_acquire/__pycache__/
+**/*.pyc

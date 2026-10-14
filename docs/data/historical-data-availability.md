@@ -1,5 +1,14 @@
 # Historical market-data availability — public evidence
 
+**2026-10-14 acquisition update:** The operator now reports creating a paid Kite
+app and explicitly authorizes historical acquisition (D54). The independently
+reviewed isolated downloader is ready and its local credential prompt is open.
+Authenticated entitlement, coverage and source qualification remain unverified
+until actual responses are obtained. This supersedes the earlier acquisition
+authorization hold below, not its unresolved source-evidence requirements.
+See [operator guide](kite-acquisition.md) and
+[build review](../reviews/2026-10-14-kite-acquisition-build-review.md).
+
 **As of:** 2026-10-14
 
 **Scope:** public, first-party pages only. No vendor contact, account, subscription, payment, sample or raw-data download, broker call, price inspection, strategy evaluation, trial-ledger use, or lockbox access occurred.

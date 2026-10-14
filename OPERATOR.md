@@ -446,6 +446,12 @@ Dated decisions that are not code and not in `goal.yaml`, so they have nowhere e
 
 | D53 | **Keep fixing until the simulator is ready to accept real data; check whether required data is available.** Authorizes autonomous reviewed local input certification, causal replay integration, guarded timed-runner software and public provider research with invented-file tests. Software proof, qualified external data and actual run authority stay separate. No subscription/purchase/vendor contact, broker access, actual-ledger activation, real-price strategy evaluation, lockbox or statistical adoption is implied. [Contract](docs/plans/2026-10-14-real-data-simulator-readiness.md). | operator, direct instruction and data-availability reply on2026-10-14 |
 
+### 2026-10-14 — paid Kite historical acquisition
+
+| # | decision | who |
+|---|---|---|
+| D54 | **Connect the newly created, paid Kite app and obtain historical data.** The operator reports creating the app and paying, and explicitly authorizes authenticated historical acquisition. Use an independently reviewed operator-side acquisition container, ephemeral hidden credential entry and separate broker egress; export inert records for later credential-free offline research. Start with a coverage probe, then checkpoint the agreed daily 2011–2022 and M15 2015–2022 history for the existing requested symbols plus Nifty 50. This supersedes D53's no-broker-access hold only for acquisition. It does not authorize order placement, actual-ledger activation, strategy evaluation, source certification by assumption, lockbox use, inference or relaxing numeric gates. Subscription entitlement remains operator-reported until tested. [Acquisition plan](docs/plans/2026-10-14-kite-acquisition.md). | operator, direct instruction on 2026-10-14 |
+
 ## 7c. Deferred by decision — not forgotten
 
 Things consciously postponed. **Each names the condition that reopens it.** A deferral without a
