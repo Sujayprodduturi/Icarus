@@ -11,6 +11,7 @@ from enum import StrEnum
 from fractions import Fraction
 from hashlib import sha256
 from itertools import pairwise
+from types import MappingProxyType
 
 import numpy as np
 import numpy.typing as npt
@@ -125,6 +126,7 @@ class TimedFixture:
     sessions: tuple[Session, ...]
     refinements: tuple[Refinement, ...]
     source: SourceDeclaration
+    inactive: frozenset[tuple[str, int]] = frozenset()
 
     def __post_init__(self) -> None:
         if type(self.sessions) is not tuple or any(
@@ -137,10 +139,63 @@ class TimedFixture:
             raise TypeError("fixture refinements must be immutable typed records")
         if not isinstance(self.source, SourceDeclaration):
             raise TypeError("fixture needs a source declaration")
+        if type(self.inactive) is not frozenset or any(
+            type(symbol) is not str or type(index) is not int for symbol, index in self.inactive
+        ):
+            raise TypeError("fixture inactive cells must be an immutable symbol/index set")
 
 
-def timed_fixture_digest(sessions: tuple[Session, ...], refinements: tuple[Refinement, ...]) -> str:
-    payload = [(r.symbol, fixture_digest(sessions, r.bars)) for r in refinements]
+@dataclass(frozen=True, slots=True)
+class TimedFixtureIndex:
+    """One linear index over bars; indexed tuples retain the original row objects."""
+
+    by_symbol_session: Mapping[str, Mapping[int, tuple[ReplayBar, ...]]]
+    visited_bars: int
+
+    def rows(self, symbol: str, session_index: int) -> tuple[ReplayBar, ...]:
+        return self.by_symbol_session[symbol][session_index]
+
+
+def index_timed_fixture(fixture: TimedFixture) -> TimedFixtureIndex:
+    """Validate ordering/identity once and index each original bar by symbol and session."""
+    if not isinstance(fixture, TimedFixture):
+        raise TypeError("fixture must be TimedFixture")
+    indexed: dict[str, dict[int, list[ReplayBar]]] = {}
+    visited = 0
+    for refinement in fixture.refinements:
+        if refinement.symbol in indexed:
+            raise ValueError("duplicate refinement symbol")
+        sessions: dict[int, list[ReplayBar]] = {}
+        previous: tuple[int, datetime] | None = None
+        for row in refinement.bars:
+            key = (row.session_index, row.bar.ts)
+            if previous is not None and key <= previous:
+                raise ValueError("refinement bars must be strictly ordered and unique")
+            previous = key
+            sessions.setdefault(row.session_index, []).append(row)
+            visited += 1
+        indexed[refinement.symbol] = sessions
+    return TimedFixtureIndex(
+        MappingProxyType(
+            {
+                symbol: MappingProxyType(
+                    {session: tuple(rows) for session, rows in sessions.items()}
+                )
+                for symbol, sessions in indexed.items()
+            }
+        ),
+        visited,
+    )
+
+
+def timed_fixture_digest(
+    sessions: tuple[Session, ...],
+    refinements: tuple[Refinement, ...],
+    inactive: frozenset[tuple[str, int]] = frozenset(),
+) -> str:
+    payload: list[object] = [(r.symbol, fixture_digest(sessions, r.bars)) for r in refinements]
+    if inactive:
+        payload.append(("__inactive__", sorted(inactive)))
     return sha256(json.dumps(payload, separators=(",", ":")).encode()).hexdigest()
 
 
@@ -354,6 +409,7 @@ def _preflight(
     risk: Risk | None,
     exit_signals: Mapping[str, Column] | None,
     rebalance_pulses: npt.NDArray[np.bool_] | None,
+    fixture_index: TimedFixtureIndex,
 ) -> RunRefusal | None:
     def refuse(reason: TimedRefusal, symbols: tuple[str, ...] = panel.symbols) -> RunRefusal:
         return RunRefusal(reason, symbols, source)
@@ -382,6 +438,24 @@ def _preflight(
         or (ranks is not None and set(ranks) != set(panel.symbols))
     ):
         raise ValueError("columns must preserve the exact panel universe")
+    local_by_source = {index: local for local, index in enumerate(source)}
+    for symbol, source_index in fixture.inactive:
+        local = local_by_source.get(source_index)
+        if symbol not in panel.symbols or local is None:
+            return refuse(TimedRefusal.MISSING_REFINEMENT, (symbol,))
+        symbol_local = panel.index_of(symbol)
+        daily = panel.bars[symbol_local]
+        if (
+            panel.tradable[symbol_local, local]
+            or not all(
+                np.isnan(getattr(daily, name)[local])
+                for name in ("open", "high", "low", "close", "volume")
+            )
+            or not np.isnan(signals[symbol][local])
+            or not np.isnan(stops[symbol][local])
+            or (ranks is not None and not np.isnan(ranks[symbol][local]))
+        ):
+            return refuse(TimedRefusal.MISSING_REFINEMENT, (symbol,))
     for symbol in panel.symbols:
         for column in (
             signals[symbol],
@@ -390,7 +464,11 @@ def _preflight(
         ):
             if column.shape != (len(panel),):
                 raise ValueError("daily column shape mismatch")
-        missing = tuple(source[i] for i, x in enumerate(signals[symbol]) if np.isnan(x))
+        missing = tuple(
+            source[i]
+            for i, x in enumerate(signals[symbol])
+            if np.isnan(x) and (symbol, source[i]) not in fixture.inactive
+        )
         if missing and strategy.rebalance is None:
             return RunRefusal(TimedRefusal.UNAVAILABLE_SIGNAL, (symbol,), missing)
         if any(
@@ -414,20 +492,30 @@ def _preflight(
         return refuse(TimedRefusal.MISSING_REFINEMENT)
     if tuple(r.symbol for r in fixture.refinements) != panel.symbols:
         return refuse(TimedRefusal.MISSING_REFINEMENT)
-    expected = tuple(
-        (
-            s.index,
-            s.open_ts + k * timedelta(minutes=15),
-            s.open_ts + (k + 1) * timedelta(minutes=15),
-        )
-        for s in sessions
-        for k in range((s.close_ts - s.open_ts) // timedelta(minutes=15))
-    )
     for i, r in enumerate(fixture.refinements):
-        if tuple((b.session_index, b.bar.ts, b.end_ts) for b in r.bars) != expected:
+        expected = tuple(
+            (
+                s.index,
+                s.open_ts + k * timedelta(minutes=15),
+                s.open_ts + (k + 1) * timedelta(minutes=15),
+            )
+            for s in sessions
+            if (r.symbol, s.index) not in fixture.inactive
+            for k in range((s.close_ts - s.open_ts) // timedelta(minutes=15))
+        )
+        if (
+            tuple(
+                (b.session_index, b.bar.ts, b.end_ts)
+                for session in sessions
+                for b in fixture_index.by_symbol_session[r.symbol].get(session.index, ())
+            )
+            != expected
+        ):
             return refuse(TimedRefusal.MISSING_REFINEMENT, (r.symbol,))
         for local, session in enumerate(sessions):
-            rows = tuple(b for b in r.bars if b.session_index == session.index)
+            rows = fixture_index.by_symbol_session[r.symbol].get(session.index, ())
+            if (r.symbol, session.index) in fixture.inactive:
+                continue
             actual = (
                 rows[0].bar.open,
                 max(b.bar.high for b in rows),
@@ -450,7 +538,10 @@ def _preflight(
             for r in fixture.refinements
             for b in r.bars
         )
-        or (timed_fixture_digest(sessions, fixture.refinements) != fixture.source.sha256)
+        or (
+            timed_fixture_digest(sessions, fixture.refinements, fixture.inactive)
+            != fixture.source.sha256
+        )
     ):
         return refuse(TimedRefusal.SOURCE_MISMATCH)
     return None
@@ -484,6 +575,7 @@ def run_timed(
     else:
         _money(notional)
     source = tuple(source_indices)
+    fixture_index = index_timed_fixture(fixture)
     refusal = _preflight(
         strategy,
         panel,
@@ -495,6 +587,7 @@ def run_timed(
         risk,
         exit_signals,
         rebalance_pulses,
+        fixture_index,
     )
     plan = ExitPlan.of(strategy.exits)
     has_opposite = any(rule.rule == "opposite_signal" for rule in strategy.exits)
@@ -617,11 +710,29 @@ def run_timed(
 
     for local, session in enumerate(fixture.sessions if refusal is None else ()):
         rows = {
-            r.symbol: tuple(b for b in r.bars if b.session_index == session.index)
+            r.symbol: fixture_index.by_symbol_session[r.symbol].get(session.index, ())
             for r in fixture.refinements
         }
-        for bar_local in range(len(rows[panel.symbols[0]])):
-            at = {s: rows[s][bar_local] for s in panel.symbols}
+        missing_symbols = tuple(symbol for symbol, values in rows.items() if not values)
+        required_missing = tuple(
+            symbol
+            for symbol in missing_symbols
+            if symbol in positions
+            or any(
+                q[0].symbol == symbol and source[local] == q[0].decision_index + 1 for q in queued
+            )
+        )
+        if required_missing:
+            refusal = RunRefusal(
+                TimedRefusal.MISSING_REFINEMENT,
+                required_missing,
+                (session.index,),
+                session.open_ts,
+            )
+            break
+        bar_count = max((len(values) for values in rows.values()), default=0)
+        for bar_local in range(bar_count):
+            at = {s: values[bar_local] for s, values in rows.items() if values}
             used = {s: 0 for s in panel.symbols}
             exited: set[SignalId] = set()
             prior_cash = cash
@@ -791,9 +902,9 @@ def run_timed(
             if failed():
                 break
             # Reconcile the complete opening batch only after every causal admission decision.
-            for symbol in panel.symbols:
-                if used[symbol] > _cap(at[symbol].bar.volume, config):
-                    fail(TimedRefusal.LIQUIDITY_UNAVAILABLE, symbol, at[symbol])
+            for symbol, observed_row in at.items():
+                if used[symbol] > _cap(observed_row.bar.volume, config):
+                    fail(TimedRefusal.LIQUIDITY_UNAVAILABLE, symbol, observed_row)
                     break
             if failed():
                 break
