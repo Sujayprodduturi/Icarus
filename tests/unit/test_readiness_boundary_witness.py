@@ -40,8 +40,7 @@ def test_calendar_metadata_cannot_extend_one_closed_day_before_payload(
     invalid = replace(
         preflight,
         artifacts=tuple(
-            extended if item.role == "session_calendar" else item
-            for item in preflight.artifacts
+            extended if item.role == "session_calendar" else item for item in preflight.artifacts
         ),
     )
 
