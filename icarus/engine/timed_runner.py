@@ -934,6 +934,7 @@ def parse_calendar_jsonl(raw: bytes) -> tuple[CalendarRecord, ...]:
             raise InputUnavailable("CALENDAR_HOURS")
         if opened is not None and (
             opened.astimezone(IST).date() != session_date
+            or opened.date() != session_date
             or closed is None
             or closed.astimezone(IST).date() != session_date
         ):
