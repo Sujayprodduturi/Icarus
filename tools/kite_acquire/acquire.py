@@ -21,7 +21,6 @@ from typing import Any, Final, cast
 from zoneinfo import ZoneInfo
 
 API_ROOT: Final = "https://api.kite.trade"
-LOCKBOX_START: Final = datetime(2023, 1, 1, tzinfo=UTC)
 IST: Final = ZoneInfo("Asia/Kolkata")
 MAX_RESPONSE_BYTES: Final = 128 * 1024 * 1024
 TOKEN_PATTERN: Final = re.compile(r"^[A-Za-z0-9_-]{3,256}$")
@@ -40,6 +39,40 @@ class AuthFailure(RuntimeError):
 
 class SchemaFailure(RuntimeError):
     pass
+
+
+class CandleQualityFailure(SchemaFailure):
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+        super().__init__(reason)
+
+
+class StructuralFailure(SchemaFailure):
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+        super().__init__(reason)
+
+
+class LockboxFailure(SchemaFailure):
+    pass
+
+
+QUALITY_REASONS: Final = {
+    "TIMESTAMP_OUT_OF_RANGE",
+    "TIMESTAMPS_NOT_STRICTLY_INCREASING",
+    "NON_POSITIVE_OHLC",
+    "INVALID_OHLC_ENVELOPE",
+    "INVALID_VOLUME",
+    "INVALID_OI",
+}
+STRUCTURAL_REASONS: Final = {
+    "MALFORMED_JSON_OR_ENVELOPE",
+    "PROVIDER_STATUS_FAILURE",
+    "INVALID_CANDLE_SHAPE",
+    "INVALID_TIMESTAMP_SYNTAX",
+    "INVALID_NUMERIC_TYPE",
+    "NONFINITE_NUMERIC",
+}
 
 
 @dataclass(frozen=True)
@@ -160,9 +193,33 @@ def archive_response(
     result: str,
     *,
     coverage: Mapping[str, object] | None = None,
+    validation_reason: str | None = None,
+    validation_class: str | None = None,
 ) -> Archive:
     if len(payload) > MAX_RESPONSE_BYTES:
         raise ValueError("provider response exceeds size bound")
+    if result not in {"success", "empty", "rejected"}:
+        raise ValueError("unknown archive result")
+    if (validation_reason is None) != (validation_class is None):
+        raise ValueError("validation class and reason must be supplied together")
+    if validation_reason is not None:
+        if validation_class not in {"quality", "structural"}:
+            raise ValueError("unknown validation class")
+        allowed = QUALITY_REASONS if validation_class == "quality" else STRUCTURAL_REASONS
+        if validation_reason not in allowed:
+            raise ValueError("unknown validation reason")
+    if result == "rejected":
+        if coverage is not None or validation_reason is None:
+            raise ValueError("invalid rejected archive state")
+    elif validation_reason is not None:
+        raise ValueError("non-rejected archive carries rejection metadata")
+    if request.get("kind") == "historical" and result != "rejected":
+        if not isinstance(coverage, Mapping) or set(coverage) != {
+            "count",
+            "first_timestamp",
+            "last_timestamp",
+        }:
+            raise ValueError("historical archive requires coverage")
     identity = hashlib.sha256(_canonical(request)).hexdigest()
     paths = _archive_paths(root, request)
     paths.raw_path.parent.mkdir(parents=True, exist_ok=True)
@@ -188,6 +245,9 @@ def archive_response(
     }
     if coverage is not None:
         manifest["coverage"] = dict(coverage)
+    if validation_reason is not None:
+        manifest["validation_reason"] = validation_reason
+        manifest["validation_class"] = validation_class
     _atomic_write(
         manifest_path,
         (json.dumps(manifest, sort_keys=True, indent=2) + "\n").encode("utf-8"),
@@ -198,12 +258,62 @@ def archive_response(
 def load_checkpoint(path: Path) -> dict[str, Any]:
     manifest: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
     raw = path.with_name("provider-response.raw")
-    if hashlib.sha256(raw.read_bytes()).hexdigest() != manifest.get("provider_bytes_sha256"):
-        raise ValueError("checkpoint provider-bytes hash mismatch")
-    if hashlib.sha256(_canonical(manifest["request"])).hexdigest() != manifest.get(
-        "request_identity_sha256"
+    raw_bytes = raw.read_bytes()
+    request = manifest.get("request")
+    provider_hash = manifest.get("provider_bytes_sha256")
+    request_hash = manifest.get("request_identity_sha256")
+    if (
+        manifest.get("archive_schema") != 1
+        or not isinstance(request, dict)
+        or not isinstance(provider_hash, str)
+        or re.fullmatch(r"[0-9a-f]{64}", provider_hash) is None
+        or not isinstance(request_hash, str)
+        or re.fullmatch(r"[0-9a-f]{64}", request_hash) is None
+        or not isinstance(manifest.get("provider_bytes_size"), int)
+        or isinstance(manifest.get("provider_bytes_size"), bool)
+        or manifest["provider_bytes_size"] != len(raw_bytes)
+        or not isinstance(manifest.get("retrieved_at_utc"), str)
     ):
+        raise ValueError("invalid checkpoint metadata")
+    if hashlib.sha256(raw_bytes).hexdigest() != provider_hash:
+        raise ValueError("checkpoint provider-bytes hash mismatch")
+    if hashlib.sha256(_canonical(request)).hexdigest() != request_hash:
         raise ValueError("checkpoint request hash mismatch")
+    result = manifest.get("result")
+    coverage = manifest.get("coverage")
+    validation_class = manifest.get("validation_class")
+    validation_reason = manifest.get("validation_reason")
+    if result not in {"success", "empty", "rejected"}:
+        raise ValueError("invalid checkpoint result")
+    if result == "rejected":
+        if "coverage" in manifest or validation_class not in {"quality", "structural"}:
+            raise ValueError("invalid rejected checkpoint state")
+        allowed = QUALITY_REASONS if validation_class == "quality" else STRUCTURAL_REASONS
+        if validation_reason not in allowed:
+            raise ValueError("invalid rejected checkpoint reason")
+    else:
+        if "validation_class" in manifest or "validation_reason" in manifest:
+            raise ValueError("non-rejected checkpoint carries rejection metadata")
+        if request.get("kind") == "historical":
+            if not isinstance(coverage, dict) or set(coverage) != {
+                "count",
+                "first_timestamp",
+                "last_timestamp",
+            }:
+                raise ValueError("invalid historical checkpoint coverage")
+            count = coverage.get("count")
+            first = coverage.get("first_timestamp")
+            last = coverage.get("last_timestamp")
+            if (
+                not isinstance(count, int)
+                or isinstance(count, bool)
+                or count < 0
+                or not (first is None or isinstance(first, str))
+                or not (last is None or isinstance(last, str))
+                or (result == "empty" and (count != 0 or first is not None or last is not None))
+                or (result == "success" and (count == 0 or first is None or last is None))
+            ):
+                raise ValueError("invalid historical checkpoint coverage")
     return manifest
 
 
@@ -326,6 +436,9 @@ class KiteClient:
         checkpoint = _archive_paths(self._root, request_record)
         existing = _existing_checkpoint(checkpoint)
         if existing is not None:
+            manifest = load_checkpoint(existing.manifest_path)
+            if manifest.get("validation_class") == "structural":
+                raise StructuralFailure(str(manifest["validation_reason"]))
             return existing
         query = urllib.parse.urlencode(
             {
@@ -342,7 +455,29 @@ class KiteClient:
                 self._headers,
             )
         )
-        candles = _validate_historical(payload, start, end)
+        try:
+            candles = _validate_historical(payload, start, end)
+        except LockboxFailure:
+            raise
+        except CandleQualityFailure as exc:
+            return archive_response(
+                self._root,
+                request_record,
+                payload,
+                "rejected",
+                validation_reason=exc.reason,
+                validation_class="quality",
+            )
+        except StructuralFailure as exc:
+            archive_response(
+                self._root,
+                request_record,
+                payload,
+                "rejected",
+                validation_reason=exc.reason,
+                validation_class="structural",
+            )
+            raise
         coverage = {
             "count": len(candles),
             "first_timestamp": str(candles[0][0]) if candles else None,
@@ -361,45 +496,58 @@ def _validate_historical(payload: bytes, start: datetime, end: datetime) -> list
     try:
         body = json.loads(payload)
         candles = body["data"]["candles"]
-    except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError) as exc:
-        raise SchemaFailure("malformed historical response") from exc
-    if body.get("status") != "success" or not isinstance(candles, list):
-        raise SchemaFailure("malformed historical response")
+    except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError):
+        raise StructuralFailure("MALFORMED_JSON_OR_ENVELOPE") from None
+    if not isinstance(candles, list):
+        raise StructuralFailure("MALFORMED_JSON_OR_ENVELOPE")
+    for candidate in candles:
+        if not isinstance(candidate, list) or not candidate:
+            continue
+        try:
+            timestamp = datetime.fromisoformat(str(candidate[0]))
+        except ValueError:
+            continue
+        if timestamp.tzinfo is None:
+            if timestamp.date() >= date(2023, 1, 1):
+                raise LockboxFailure("LOCKBOX_DATA")
+        elif timestamp.astimezone(IST).date() >= date(2023, 1, 1):
+            raise LockboxFailure("LOCKBOX_DATA")
+    if body.get("status") != "success":
+        raise StructuralFailure("PROVIDER_STATUS_FAILURE")
     previous: datetime | None = None
     for candle in candles:
         if not isinstance(candle, list) or len(candle) not in (6, 7):
-            raise SchemaFailure("malformed candle shape")
+            raise StructuralFailure("INVALID_CANDLE_SHAPE")
         try:
             timestamp = datetime.fromisoformat(str(candle[0]))
-        except ValueError as exc:
-            raise SchemaFailure("malformed candle timestamp") from exc
+        except ValueError:
+            raise StructuralFailure("INVALID_TIMESTAMP_SYNTAX") from None
         timestamp_utc = timestamp.astimezone(UTC) if timestamp.tzinfo is not None else None
-        if timestamp_utc is None or not start <= timestamp_utc <= end:
-            raise SchemaFailure("candle timestamp outside requested range")
+        if timestamp_utc is None:
+            raise StructuralFailure("INVALID_TIMESTAMP_SYNTAX")
+        if timestamp.astimezone(IST).date() >= date(2023, 1, 1):
+            raise LockboxFailure("LOCKBOX_DATA")
+        if not start <= timestamp_utc <= end:
+            raise CandleQualityFailure("TIMESTAMP_OUT_OF_RANGE")
         if previous is not None and timestamp_utc <= previous:
-            raise SchemaFailure("candle timestamps are not strictly increasing")
+            raise CandleQualityFailure("TIMESTAMPS_NOT_STRICTLY_INCREASING")
         previous = timestamp_utc
         values = candle[1:]
-        if any(
-            isinstance(value, bool)
-            or not isinstance(value, (int, float))
-            or not math.isfinite(value)
-            for value in values
-        ):
-            raise SchemaFailure("malformed candle values")
+        if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in values):
+            raise StructuralFailure("INVALID_NUMERIC_TYPE")
+        if any(not math.isfinite(value) for value in values):
+            raise StructuralFailure("NONFINITE_NUMERIC")
         if any(value <= 0 for value in values[:4]):
-            raise SchemaFailure("non-positive OHLC value")
+            raise CandleQualityFailure("NON_POSITIVE_OHLC")
         open_price, high, low, close = values[:4]
         if low > high or not low <= open_price <= high or not low <= close <= high:
-            raise SchemaFailure("invalid OHLC envelope")
+            raise CandleQualityFailure("INVALID_OHLC_ENVELOPE")
         if not isinstance(values[4], int) or isinstance(values[4], bool) or values[4] < 0:
-            raise SchemaFailure("volume must be a non-negative integer")
+            raise CandleQualityFailure("INVALID_VOLUME")
         if len(values) == 6 and (
             not isinstance(values[5], int) or isinstance(values[5], bool) or values[5] < 0
         ):
-            raise SchemaFailure("open interest must be a non-negative integer")
-    if candles and datetime.fromisoformat(str(candles[-1][0])).astimezone(UTC) >= LOCKBOX_START:
-        raise ValueError("provider returned lockbox data")
+            raise CandleQualityFailure("INVALID_OI")
     return candles
 
 
@@ -510,6 +658,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     rows = list(csv.DictReader(master))
     unresolved: list[str] = []
     coverage: list[dict[str, object]] = []
+    rejected_chunks: list[dict[str, object]] = []
+    accepted_count = 0
+    empty_count = 0
     if args.mode == "download":
         for probe_symbol in ("INFY", "NIFTY50"):
             probe_token = _resolve(rows, probe_symbol)
@@ -521,7 +672,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 datetime(2022, 12, 26, tzinfo=IST).astimezone(UTC),
                 datetime(2022, 12, 30, 23, 59, 59, tzinfo=IST).astimezone(UTC),
             )
-            if load_checkpoint(probe_archive.manifest_path)["coverage"]["count"] == 0:
+            probe_metadata = load_checkpoint(probe_archive.manifest_path)
+            if probe_metadata["result"] != "success" or probe_metadata["coverage"]["count"] == 0:
                 raise SchemaFailure(f"required 2022 probe returned empty: {probe_symbol}")
     ranges = [
         (date(2011, 1, 1), date(2022, 12, 31), "day"),
@@ -545,6 +697,33 @@ def main(argv: Sequence[str] | None = None) -> int:
             for chunk_start, chunk_end in _chunks(start, end, interval):
                 archive = client.historical(token, interval, chunk_start, chunk_end)
                 metadata = load_checkpoint(archive.manifest_path)
+                if metadata["result"] == "rejected":
+                    rejected_chunks.append(
+                        {
+                            "symbol": symbol,
+                            "interval": interval,
+                            "requested_from": chunk_start.astimezone(IST).date().isoformat(),
+                            "requested_to": chunk_end.astimezone(IST).date().isoformat(),
+                            "request_identity_sha256": metadata["request_identity_sha256"],
+                            "validation_reason": metadata["validation_reason"],
+                            "provider_bytes_sha256": metadata["provider_bytes_sha256"],
+                        }
+                    )
+                    print(
+                        json.dumps(
+                            {
+                                "symbol": symbol,
+                                "interval": interval,
+                                "result": "rejected",
+                                "reason": metadata["validation_reason"],
+                            }
+                        )
+                    )
+                    continue
+                if metadata["result"] == "success":
+                    accepted_count += 1
+                else:
+                    empty_count += 1
                 coverage.append(
                     {
                         "symbol": symbol,
@@ -571,6 +750,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         "requested_symbols": symbols,
         "unresolved_symbols": unresolved,
         "coverage": coverage,
+        "rejected_chunks": rejected_chunks,
+        "counts": {
+            "requested_symbols": len(symbols),
+            "resolved_symbols": len(symbols) - len(unresolved),
+            "unresolved_symbols": len(unresolved),
+            "accepted_chunks": accepted_count,
+            "empty_chunks": empty_count,
+            "rejected_chunks": len(rejected_chunks),
+            "requested_chunks": accepted_count + empty_count + len(rejected_chunks),
+        },
+        "staging_status": (
+            "COMPLETED_WITH_REJECTIONS" if rejected_chunks else "COMPLETED_UNQUALIFIED"
+        ),
+        "source_qualified": False,
         "request_list": (
             None
             if provenance is None
@@ -584,16 +777,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         ),
         "note": "archive acquisition only; source qualification remains separate",
     }
-    (run_root / "report.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    _atomic_write(run_root / "report.json", (json.dumps(report, indent=2) + "\n").encode())
     print(json.dumps({"mode": args.mode, "requested": len(symbols), "unresolved": len(unresolved)}))
-    return 0
+    return 3 if rejected_chunks else 0
 
 
 def entrypoint() -> int:
     try:
         return main()
     except (AuthFailure, SchemaFailure, RuntimeError, TimeoutError, ValueError) as exc:
-        print(json.dumps({"status": "failed", "error_type": type(exc).__name__}), file=sys.stderr)
+        if isinstance(exc, StructuralFailure):
+            reason = exc.reason
+        elif isinstance(exc, LockboxFailure):
+            reason = "LOCKBOX_DATA"
+        elif isinstance(exc, AuthFailure):
+            reason = "AUTH_FAILURE"
+        elif isinstance(exc, SchemaFailure):
+            reason = "SCHEMA_OR_PREFLIGHT_FAILURE"
+        else:
+            reason = "NETWORK_OR_RUNTIME_FAILURE"
+        print(json.dumps({"status": "failed", "reason_code": reason}), file=sys.stderr)
         return 2
 
 

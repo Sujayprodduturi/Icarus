@@ -57,6 +57,10 @@ try {
         $arguments += @("--symbols-file", "/export/$symbolName", "--provenance", "/export/$provenanceName")
     }
     & docker compose -p $project -f $compose @arguments
+    if ($LASTEXITCODE -eq 3) {
+        Write-Host "Acquisition completed with quarantined chunks. Review report.json before qualification."
+        exit 3
+    }
     if ($LASTEXITCODE -ne 0) { throw "Kite acquisition exited with code $LASTEXITCODE." }
 }
 finally {

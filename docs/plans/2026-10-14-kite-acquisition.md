@@ -68,6 +68,34 @@ adjustment and coverage qualification remain independent requirements.
 
 ## Verification and execution handoff
 
+### Acquisition-only rejection handling — reviewed 2026-10-14
+
+The first real full download halted on an AARTIDRUGS M15 `SchemaFailure` after
+16 history chunks were saved. The failing response was not retained, so its
+exact cause is unknown. Do not infer a vendor defect or relax a validator.
+
+Preserve bounded original historical responses with immutable request/hash
+identity and a closed, non-secret rejection reason. Isolated candle-quality
+rejections (range/order, price envelope or volume/OI validity) halt that request,
+keep it unusable, and allow independent raw collection to continue. Malformed
+JSON/envelope/status/shape/timestamp syntax, authentication, network failure and
+required preflight rejection still halt the acquisition. Any identified 2023+
+record halts and is not persisted as a price artifact.
+
+Resume reuses rejected checkpoints without refetching or reclassifying them.
+Rejected chunks never appear in accepted coverage. Final reports enumerate the
+requested denominator, unresolved names, accepted/empty/rejected request counts
+and every rejected range/reason/hash. Atomic completion reports explicitly say
+`COMPLETED_WITH_REJECTIONS` or `COMPLETED_UNQUALIFIED`; both retain
+`source_qualified=false`. A separate completion-with-rejections exit/status is
+shown clearly by the launcher rather than inviting another login loop.
+
+This is raw acquisition behavior, not simulator admission, trading through a
+fault, or source approval. Preserve the strict validator and all research holds.
+Independent reviewer gives scoped design GO to these conditions. Verify original
+rejected-byte retention, continuation across requests/symbols, cached rejection
+reuse, structural/auth/preflight halts and exclusion from accepted coverage.
+
 Before accepting real credentials, test endpoint/proxy refusal, redirects,
 lockbox guards, secret redaction, auth halt, malformed/oversized responses,
 ambiguous mappings, explicit gaps, retry bounds and checkpoint tamper detection

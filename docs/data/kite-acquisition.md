@@ -60,6 +60,16 @@ Each request has original response bytes and a hash/metadata manifest. Final
 `report.json` lists requested symbols, unresolved names and chunk coverage.
 Empty chunks indicate missing/unknown coverage; they do not prove a holiday.
 
+Some vendor chunks may contain invalid candle records. The downloader preserves
+those original bytes as **rejected**, prints a closed rejection reason, and keeps
+them out of accepted coverage while collecting independent requests. The final
+report lists every rejected range and hash. A completion-with-rejections message
+and exit code 3 mean collection finished with unusable chunks, not that the data
+passed validation. Do not restart solely because that completion code is 3.
+Malformed response structures, login/network failures or failed required sample
+checks still halt; the safe error code identifies the affected class. Recognised
+2023+ records are refused before any price-artifact persistence.
+
 Downloading is not source certification. Before the simulator consumes these
 records, separately review coverage, adjustment and timestamp semantics, licence,
 point-in-time membership, calendar, opening liquidity and benchmark policy. Kite

@@ -1,5 +1,42 @@
 # Kite acquisition build — scoped local GO
 
+## Partial acquisition stop and raw-quarantine repair
+
+The first full acquisition saved 16 historical chunks / 4,236 candle records,
+then stopped with `SchemaFailure` after AARTIDRUGS's first 2015 M15 chunk.
+The original failing response was discarded, so its exact cause remains unknown;
+no vendor-price anomaly is inferred from that generic error alone.
+
+The reviewed repair preserves byte-exact rejected historical responses with a
+closed rejection code. Isolated candle-quality rejections remain unusable and
+excluded from accepted coverage while independent requests continue. Structural
+schema, auth/network and required preflight failures still halt. Cached rejected
+records remain rejected without refetching or reclassification. Atomic final
+reports enumerate accepted/empty/rejected counts and missing names, retain
+`source_qualified=false`, and distinguish completion with rejections (exit 3).
+
+Root's initial review caught a later-lockbox-row bypass after an earlier quality
+failure; it was fixed with a complete-response timestamp prescan before any
+archive decision. Recognised 2023+ records, including early IST dates whose UTC
+date is still December 31, never become persisted price artifacts. Root and
+reviewer also caught unvalidated cached rejection enums and explicit null-field
+state bypasses; strict read/write checkpoint state guards now refuse them.
+
+The final root suite passes **103 tests**, global Ruff lint, targeted formatting
+and strict typing over five files. Independent review passes 31 focused tests
+and the full invented mixed-flow probe: four requested names / three resolved /
+one missing, 12 chunks comprising 10 accepted / one empty / one rejected, adjacent
+and next-symbol continuation, exit 3, and resume with one session call / zero
+history calls. Structural/auth/preflight halts and mixed-row lockbox no-write
+guards pass. Final scoped GO receipt:
+`var/kite-review/quarantine-final/receipt.json`, SHA-256
+`41de9791bcc6a224db258b343df278acf7e6c10dd182473a1e29f34650779f2a`.
+
+The same run ID is reopened for fresh local login. Existing data is retained;
+actual acquisition must still demonstrate the failed chunk's reason and full
+completion. No source qualification or strategy evaluation is granted by these
+software checks. Earlier checkpoints below describe the preceding revisions.
+
 ## Actual first connection and narrow compatibility repair
 
 The first submitted callback authenticated successfully and acquired the NSE
