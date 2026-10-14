@@ -65,3 +65,10 @@ an activated actual ledger.
 
 This review records software mechanics only. It provides no profitability, alpha,
 statistical-applicability, validation, promotion or live-readiness claim.
+
+## CI handover repair
+
+Prior hosted CI run `38526988627` reached 3,190 passing tests with four skips but failed three
+audit-ledger shape checks because the new alignment audit omitted its required ranked fix list.
+The audit now carries four alignment-local findings using the existing four-column ledger schema.
+This repairs the documented handover shape; no new hosted CI pass is claimed.

@@ -26,3 +26,12 @@ The legacy builder obtains daily Nifty 50 `^NSEI` data from Yahoo, maps it onto 
 Evidence: `var/verification/2026-10-14/alignment/root/verification.json` SHA-256 `3a401dbfee5eaaaddb49ae384d8ba6b055dcd8764f6380d1f59d682fb6a3938b`, `daily-axis-verification.json` SHA-256 `a639219e27b2ec1544052603c7abc23b0047cfa975bb4a2724ac6c39ad2ae21e`, `authority-boundary-probe.json` SHA-256 `43421f44a7bdb1aad805310f252d53cde41d9e8ebd5a7c700305e628d9e5e04c`, and `alignment-tests.xml` SHA-256 `b60f5c43a57c3b6281d9647044123bdcf441e8085ac7beb6e25f064d42ed0c36`. Source inspected at Git `a75bffe7e6b208dd95b4b4a36ae5e3584726c3f6`; hosted CI for that source passed 3,190 tests with four skips in 2,025.36 seconds and strict typing over 180 files, and its resource check succeeded. Those broader checks do not supply missing market provenance.
 
 The standing ranked method findings remain in [the signal-method audit](2026-09-30-signal-method-audit.md#ranked-fix-list); this data-alignment audit closes none of M1-M4 or the statistical-adoption gates.
+
+## Ranked fix list
+
+| ID | Finding | Status | Next action |
+|---|---|---|---|
+| A1 | The required paired cash-equity and Nifty 50 archive is not qualified. | OPEN | Obtain the exact source packet and independently verify coverage, identity, timestamp semantics, licence and immutable provenance. |
+| A2 | Point-in-time universe, corporate-action, authoritative calendar and opening-liquidity truth remain external and unqualified. | OPEN | Obtain the source evidence and qualification certificate before decoding prices or evaluating a strategy. |
+| A3 | Full-history memory, runtime and partition-resource budgets have not been verified against the required package. | OPEN | Qualify bounded full-range resources without reducing the declared universe or coverage. |
+| A4 | The legacy daily cache lacks exact benchmark event/availability provenance and cannot support the new execution-time contract. | BLOCKS | Use newly qualified paired inputs; do not promote or reconstruct the legacy cache into an authoritative benchmark source. |
