@@ -1,6 +1,7 @@
 # Historical market-data availability — public evidence
 
-**As of:** 2026-10-14  
+**As of:** 2026-10-14
+
 **Scope:** public, first-party pages only. No vendor contact, account, subscription, payment, sample or raw-data download, broker call, price inspection, strategy evaluation, trial-ledger use, or lockbox access occurred.
 
 ## Decision
@@ -40,7 +41,8 @@ The existing `var/panel.npz` daily cache is also unsuitable for exact-time bench
 
 The following text is a preparation aid only. It has not been sent and does not authorize contact, purchase or data access.
 
-**To:** `marketdata@nse.co.in`  
+**To:** `marketdata@nse.co.in`
+
 **Subject:** `Historical NSE cash equities and Nifty 50 data, 2015–2022: coverage, licence and quote`
 
 > We are assessing a historical-data package for internal quantitative research and reproducible simulation. Please confirm in writing whether you can supply the following as one source-identified package:
@@ -57,4 +59,3 @@ The following text is a preparation aid only. It has not been sent and does not 
 > 10. Delivery format, immutable file/revision identity, re-download policy, total size, lead time and an itemised quote for this exact package.
 
 Any response must be reviewed and pinned outside the delivered bundle before price parsing. An advertisement, self-declared manifest hash, or successful software test does not qualify real inputs.
-
