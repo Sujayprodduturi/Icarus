@@ -43,12 +43,12 @@ The following text is a preparation aid only. It has not been sent and does not 
 
 **To:** `marketdata@nse.co.in`
 
-**Subject:** `Historical NSE cash equities and Nifty 50 data, 2015–2022: coverage, licence and quote`
+**Subject:** `Historical NSE cash equities and Nifty 50 data, daily 2011-2022 and intraday 2015–2022: coverage, licence and quote`
 
 > We are assessing a historical-data package for internal quantitative research and reproducible simulation. Please confirm in writing whether you can supply the following as one source-identified package:
 >
-> 1. NSE Capital Market executed trades for every available cash-equity instrument from 2015-01-01 through 2022-12-31, at tick resolution or sufficient to derive exact 15-minute OHLCV bars.
-> 2. Official Nifty 50 **price-index** observations, not TRI, futures or a constituent reconstruction, over the identical interval, with original event timestamps.
+> 1. Daily cash-equity OHLCV history for 2011-01-01 through 2022-12-31, plus NSE Capital Market executed trades for every available cash-equity instrument from 2015-01-01 through 2022-12-31, at tick resolution or sufficient to derive exact 15-minute OHLCV bars. Historical security masters, point-in-time membership, corporate actions and session calendars must cover the full daily interval. Quote the daily archive and intraday archive separately so existing local daily data can be reused if separately qualified.
+> 2. Official Nifty 50 **price-index** observations: daily history from 2011-01-01 through 2022-12-31 and intraday history from 2015-01-01 through 2022-12-31, with original event timestamps and availability semantics. Please separate official end-of-day publication from observations actually available at the venue session close; do not substitute TRI, futures or a constituent reconstruction.
 > 3. Historical security masters covering listed and delisted instruments, ISINs, symbol/name changes, listing/delisting dates and series/status changes, sufficient to build a point-in-time universe without survivorship bias.
 > 4. Corporate actions and the supplied price/volume adjustment basis, including revision history.
 > 5. Pre-open/auction trade or volume records needed to model opening liquidity causally.
