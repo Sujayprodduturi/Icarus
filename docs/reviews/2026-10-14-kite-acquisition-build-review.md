@@ -1,5 +1,31 @@
 # Kite acquisition build — scoped local GO
 
+## Actual first connection and narrow compatibility repair
+
+The first submitted callback authenticated successfully and acquired the NSE
+instrument master (687,745 bytes, SHA-256
+`48adffbfde4a9248ef5541b4273531671e87da3a4b745881125aef02a7bf0d22`)
+and 125 INFY M15 candles for 2022-12-26 through 2022-12-30 (7,898 bytes, SHA-256
+`a3c154170cb3c91d81340003e4ca9dd946401fef6ae5c0dc8ce24fc02f77f9cc`).
+No performance result was calculated. This confirms that request's authenticated
+history access, not full-source coverage or qualification.
+
+The next Nifty mapping check failed because the current vendor master uses
+`segment=INDICES`, while the downloader required the older `NSE-INDICES` example.
+It was a downloader compatibility bug, not a bad operator callback. The narrow
+repair accepts these two known aliases while retaining exact NSE/EQ/name/symbol
+and uniqueness guards. TRI, futures, wrong venues and ambiguous matches refuse.
+Existing raw artifacts are unchanged and reused; no inferred timestamps or
+coverage were added. Root's repaired regression passes 90 tests; independent
+review passes 18 focused tests and gives scoped GO. Review receipt SHA-256:
+`a835beadfdb086d17bd3ea46f433e9ceba4018df5b4c03e920e609db5b110d33`.
+
+The failed process discarded its memory-only daily token. A new local credential
+prompt is opened with the same run ID; fresh operator login is required before
+Nifty probing/full acquisition can continue. Full acquisition, DATA_QUALIFIED and
+actual strategy RUN_AUTHORIZED remain unclaimed. The earlier checkpoint below
+describes the state before this first authenticated response.
+
 ## Outcome
 
 The operator-side historical downloader is built and independently reviewed.

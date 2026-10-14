@@ -198,6 +198,23 @@ def test_instrument_resolution_requires_exact_unique_contract() -> None:
         _resolve([index, index], "NIFTY50")
 
 
+def test_nifty_resolution_accepts_current_and_legacy_segments_only() -> None:
+    current = {
+        "name": "NIFTY 50",
+        "tradingsymbol": "NIFTY 50",
+        "instrument_type": "EQ",
+        "segment": "INDICES",
+        "exchange": "NSE",
+        "instrument_token": "256265",
+    }
+    legacy = {**current, "segment": "NSE-INDICES"}
+    assert _resolve([current], "NIFTY50") == 256265
+    assert _resolve([legacy], "NIFTY50") == 256265
+    assert _resolve([{**current, "segment": "NFO"}], "NIFTY50") is None
+    with pytest.raises(SchemaFailure, match="non-unique"):
+        _resolve([current, legacy], "NIFTY50")
+
+
 def test_historical_manifest_reports_coverage_without_prices(tmp_path: Path) -> None:
     payload = (
         b'{"status":"success","data":{"candles":['

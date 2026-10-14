@@ -420,13 +420,15 @@ def create_session(api_key: str, api_secret: str, request_token: str, transport:
 
 def _resolve(rows: list[dict[str, str]], symbol: str) -> int | None:
     if symbol == "NIFTY50":
+        # /instruments/NSE observed 2026-10-14 uses INDICES; older provider examples
+        # use NSE-INDICES. Venue, EQ type and exact Nifty 50 identity stay required.
         matches = [
             r
             for r in rows
             if r["name"] == "NIFTY 50"
             and r["tradingsymbol"] == "NIFTY 50"
             and r["instrument_type"] == "EQ"
-            and r["segment"] == "NSE-INDICES"
+            and r["segment"] in {"INDICES", "NSE-INDICES"}
             and r["exchange"] == "NSE"
         ]
     else:
