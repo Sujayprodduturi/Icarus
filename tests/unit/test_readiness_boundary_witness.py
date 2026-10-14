@@ -6,7 +6,13 @@ import pytest
 from tests.unit import test_timed_runner as helpers
 
 from icarus.engine.data_readiness import BundlePreflight
-from icarus.engine.timed_runner import AssembledTimedInputs, InputUnavailable, assemble_timed_inputs
+from icarus.engine.timed_runner import (
+    AssembledTimedInputs,
+    GuardedTimedRunner,
+    InputUnavailable,
+    RunnerError,
+    assemble_timed_inputs,
+)
 
 
 def test_calendar_metadata_cannot_extend_one_closed_day_before_payload(
@@ -37,3 +43,19 @@ def test_calendar_metadata_cannot_extend_one_closed_day_before_payload(
 
     with pytest.raises(InputUnavailable, match=r"^CALENDAR_COVERAGE_BOUNDARY$"):
         assemble_timed_inputs(invalid)
+
+
+def test_invented_authorization_refuses_before_ledger_or_decode() -> None:
+    events: list[str] = []
+    authorization = replace(helpers._authorization(), invented=True)
+
+    with pytest.raises(RunnerError, match=r"^INVENTED_AUTHORIZATION$"):
+        GuardedTimedRunner(helpers._Ledger(events)).run(
+            authorization,
+            helpers._binding(),
+            (helpers._plan("one", "signal", None),),
+            lambda: events.append("decode"),
+            lambda *_: (),
+        )
+
+    assert events == []

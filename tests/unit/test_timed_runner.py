@@ -500,8 +500,8 @@ class _Ledger:
 def _authorization() -> RunAuthorization:
     return RunAuthorization(
         authorization_id="external-run-1",
-        issued_at=datetime(2026, 10, 14, tzinfo=UTC),
-        expires_at=datetime(2026, 10, 15, tzinfo=UTC),
+        issued_at=datetime.now(UTC) - timedelta(days=1),
+        expires_at=datetime.now(UTC) + timedelta(days=1),
         bundle_sha256="a" * 64,
         approval_sha256="b" * 64,
         policy_sha256="c" * 64,
