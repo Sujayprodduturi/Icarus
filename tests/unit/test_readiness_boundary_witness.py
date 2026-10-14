@@ -104,3 +104,29 @@ def test_strategy_card_capture_requests_one_bounded_read(
     monkeypatch.setattr(Path, "open", spy_open)
     assert _stable_card_bytes(card) == b"invented"
     assert requested == [1_000_001]
+
+
+def test_nifty_projection_requires_exact_observed_session_close(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[BundlePreflight] = []
+
+    def capture(value: BundlePreflight) -> AssembledTimedInputs:
+        captured.append(value)
+        return assemble_timed_inputs(value)
+
+    monkeypatch.setattr(helpers, "assemble_timed_inputs", capture)
+    helpers.test_all_seven_artifacts_assemble_one_causal_panel_and_timed_fixture()
+    preflight = captured[0]
+    nifty = next(item for item in preflight.artifacts if item.role == "nifty_observation")
+    invalid_nifty = replace(nifty, metadata={**nifty.metadata, "projection_policy": "NONE"})
+    invalid = replace(
+        preflight,
+        artifacts=tuple(
+            invalid_nifty if item.role == "nifty_observation" else item
+            for item in preflight.artifacts
+        ),
+    )
+
+    with pytest.raises(InputUnavailable, match=r"^NIFTY_OBSERVATION_METADATA$"):
+        assemble_timed_inputs(invalid)
