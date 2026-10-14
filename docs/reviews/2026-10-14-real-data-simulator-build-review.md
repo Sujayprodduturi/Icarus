@@ -72,3 +72,17 @@ Prior hosted CI run `38526988627` reached 3,190 passing tests with four skips bu
 audit-ledger shape checks because the new alignment audit omitted its required ranked fix list.
 The audit now carries four alignment-local findings using the existing four-column ledger schema.
 This repairs the documented handover shape; no new hosted CI pass is claimed.
+
+## Source next action
+
+Qualify the existing Kite Connect historical path first. Public documentation advertises
+minute/day/15-minute candles and includes historical data in the paid INR500/month/key plan,
+but this review did not authenticate an account, entitlement or any data. Qualification must
+establish exact 2011–2022 daily and 2015–2022 intraday coverage, OHLCV timestamp and adjustment
+semantics, licence/archival rights, Nifty identity and availability, full-range resources, and
+OS-isolated credential/network handling. Preserve D3's authoritative NSE daily PIT inputs and
+delisted-name refusals, D7's full date ranges and D21's isolated ingestion boundary; the existing
+wrapper and hosted Kite MCP do not satisfy that security boundary. Keep the NSE request unsent and
+use it only as a reviewable fallback for gaps Kite cannot establish. This source ordering changes
+neither `DATA_QUALIFIED=false` nor `RUN_AUTHORIZED=false` and authorizes no API call, subscription,
+purchase, contact or strategy evaluation.
