@@ -1,11 +1,10 @@
 # Paired daily/M15 source adapter — build review
 
-Status: **PRECOMMIT SOFTWARE CHECKS PASS; POSTCOMMIT FAULT PROOF PENDING**,
+Status: **LOCAL SOFTWARE VERIFIED; POSTCOMMIT FAULT PROOF GO**,
 under operator approval D56. Source qualification and actual strategy evaluation
 remain held.
 The reviewed source is committed locally as
-`bb52837aef3ef756b8682445c31319285d26faf1`; temporary fault checks must restore
-this exact candidate before publication.
+`bb52837aef3ef756b8682445c31319285d26faf1`; all five product files were restored byte-for-byte after fault checks.
 Approved scope: [paired-source adapter](../plans/2026-10-15-paired-source-adapter-proposal.md).
 
 ## Required behavior
@@ -73,14 +72,12 @@ closed supported volume/opening rules, rejecting relative price conversions,
 sealing daily axes and benchmark arrays, verifying the full projection before
 slicing, rechecking captured document bytes, and covering full sessions with
 dated security mappings. These passed final code/security review; postcommit
-semantic fault checks are still required before the completion claim.
+semantic fault checks subsequently passed as recorded below.
 The final candidate also checks vendor/revision identities against captured
 metadata and validates both daily and M15 candles independently before allowing
 different closing conventions. Relative action-factor conversion is unsupported.
 Lineage/reviewer declarations remain external attestations, not software proof
 of the vendor's historical truth or a replacement for source qualification.
-
-## Prior hosted failure corrected locally
 
 ## Postcommit proof checkpoint
 
@@ -94,9 +91,29 @@ is retained as **not caught**, not converted into a PASS.
 The test-only correction copies every benchmark array and verifies a benchmark
 mutation leaves stock close unchanged. Root's simplification pass and formal
 review are GO; both corrected daily/benchmark checks pass. Product hashes remain
-unchanged. Commit this test correction before continuing M12–M14; final restored
-positives and overall postcommit verdict remain pending at this checkpoint.
+unchanged. The test correction was committed as 2c67992 before continuing
+M12–M14. The continuation caught all three intended failures; M01–M11 remain
+caught in the preserved receipt. Overall postcommit verdict: GO, 14 cases caught.
+The continuation baseline passed 107 tests in 82.27 seconds and final restored
+positives passed 107 in 58.45 seconds. All five product hashes and line-ending
+counts match the reviewed source exactly. Continuation receipt SHA-256:
+4279caec63c1bd433e251f7ce3500418e6458a5c1a303405536af7616601f75a.
 
+## Final CI-equivalent local check
+
+The exact default `uv run mypy` initially found seven typing errors in two
+new tests that the earlier source-only typing command omitted. Reviewed
+variable names and explicit Optional opening handling fix these in test-only
+commit `a6b238f`; runtime hashes remain unchanged. Root then independently
+passed typing across all 195 configured files, 109 relevant restored tests
+in 15.18 seconds, global Ruff and formatting of 437 files. Independent formal
+review of the correction is GO with four affected tests passing. A sandbox
+UV default-cache permission failure was resolved by using the existing
+workspace-local cache; it was not counted as a successful verification.
+
+This is local software proof. New-head hosted CI is pending publication;
+actual data qualification, interval benchmark policy and full-history golden
+acceptance remain separate.
 ## Prior hosted failure corrected locally
 
 The preceding documentation commit `97069b2` passed resource proof but failed

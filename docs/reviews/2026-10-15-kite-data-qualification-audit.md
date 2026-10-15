@@ -116,7 +116,7 @@ proxy; the current opening candle's eventual volume remains forbidden.
 |---|---|---|---|
 | K1 | Rejected raw candles and empty responses | OPEN | Preserve quarantines and explicit gaps; no repair, filtering into accepted coverage or silent promotion. |
 | K2 | 150 unmatched historical names | OPEN | Reconcile historical symbol/ISIN lineage against authoritative evidence; retain all names and date-specific missingness. |
-| K3 | Daily/intraday compatibility | IN TASKS.md | Build the approved source adapter that distinguishes daily signal records from execution records. Keep source-supported reconciliation and prohibit arbitrary tolerance. |
+| K3 | Daily/intraday compatibility | PARTLY DONE | Reviewed source adapter and invented-data fault proof are complete. Qualify actual source relationships and evidence before admitting historical inputs; arbitrary tolerance remains prohibited. |
 | K4 | Nifty bar versus exact observation semantics | BLOCKS | Keep bar-resolved timing explicit. Do not fabricate session-close events or exact fill-time benchmark returns from candles. |
 | K5 | Source basis, calendar, rights and availability | BLOCKS | Obtain or reconcile evidence; leave unknown fields unknown and affected spans unavailable. |
 | K6 | Full bundle and resource qualification | OPEN | Qualify the concrete full bundle; a small descriptive QA sample cannot certify full-history readiness. |
