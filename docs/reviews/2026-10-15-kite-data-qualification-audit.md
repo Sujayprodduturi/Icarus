@@ -110,6 +110,29 @@ are not already qualified security lineage, special-session or availability
 certificates. Prior completed quantity is a possible registered liquidity
 proxy; the current opening candle's eventual volume remains forbidden.
 
+## Source evidence continuation — 2026-10-15
+
+The paired adapter published at `21978fa` passed hosted CI (3,328 tests,
+four skips) and its separate resource proof. This verifies software, not
+actual source qualification. See the [metadata inventory](../data/2026-10-15-source-evidence-inventory.md)
+and [primary-source semantics](../data/2026-10-15-source-semantics-evidence.md).
+
+The bounded local metadata packet retains all 694 requested names. All 50
+existing NSE action caches are hash-pinned; 25,133 source rows yield 24,659
+unique full rows and 474 exact duplicates with all source occurrences retained.
+247 same-symbol/series/date rows are flagged as ambiguous; zero conflicting
+versions under the narrower same-subject key does not prove zero ambiguity.
+85 of 150 currently unmatched names have dated ISIN-bearing action evidence.
+This does not resolve retrieval gaps, continuous lineage or historical tokens.
+
+Root independently passes seven helper tests and reproduces ABAN's nine dated
+observations and ISIN directly from source caches. Independent review verifies
+all 50 files, the three additional input pins, all requested observations and
+mapping dictionaries, calendar metadata and counts. Review receipt SHA-256:
+`199556910970d74a72974a6a8e48276e4551219337d367985a6541e2cdb3e356`.
+Actual qualification remains NO-GO. Next: dated public security/name-change and
+calendar evidence, then concrete action-basis reconciliation; support questions
+remain unsent. No actual strategy, trial ledger or lockbox evaluation occurred.
 ## Ranked fix list
 
 | ID | Finding | Status | Next action |
