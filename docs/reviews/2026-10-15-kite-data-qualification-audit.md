@@ -133,6 +133,13 @@ mapping dictionaries, calendar metadata and counts. Review receipt SHA-256:
 Actual qualification remains NO-GO. Next: dated public security/name-change and
 calendar evidence, then concrete action-basis reconciliation; support questions
 remain unsent. No actual strategy, trial ledger or lockbox evaluation occurred.
+Public evidence continuation also pins the official NSE symbol/company-name CSVs
+and three dated calendar PDFs. Only 18 of the 85 unmatched ISIN-bearing names
+have a directly matched change event effective inside 2011–2022; those events
+do not establish continuous lineage. The weekday-only discovery defect is
+corrected at source 6b71533 and its reintroduction is caught; existing cached
+axes remain incomplete. See the public reports and weekend build review.
+
 ## Ranked fix list
 
 | ID | Finding | Status | Next action |
@@ -143,6 +150,7 @@ remain unsent. No actual strategy, trial ledger or lockbox evaluation occurred.
 | K4 | Nifty bar versus exact observation semantics | BLOCKS | Keep bar-resolved timing explicit. Do not fabricate session-close events or exact fill-time benchmark returns from candles. |
 | K5 | Source basis, calendar, rights and availability | BLOCKS | Obtain or reconcile evidence; leave unknown fields unknown and affected spans unavailable. |
 | K6 | Full bundle and resource qualification | OPEN | Qualify the concrete full bundle; a small descriptive QA sample cannot certify full-history readiness. |
+| K7 | Weekday-only archive discovery omitted weekend candidates | PARTLY DONE | Scanner repair and postcommit fault proof pass at 6b71533. Existing cached axis still lacks weekend coverage; reconcile authoritative sessions before a separately bounded rebuild. |
 
 The concrete next implementation proposal is the
 [paired-source adapter](../plans/2026-10-15-paired-source-adapter-proposal.md).
