@@ -452,6 +452,12 @@ Dated decisions that are not code and not in `goal.yaml`, so they have nowhere e
 |---|---|---|
 | D54 | **Connect the newly created, paid Kite app and obtain historical data.** The operator reports creating the app and paying, and explicitly authorizes authenticated historical acquisition. Use an independently reviewed operator-side acquisition container, ephemeral hidden credential entry and separate broker egress; export inert records for later credential-free offline research. Start with a coverage probe, then checkpoint the agreed daily 2011–2022 and M15 2015–2022 history for the existing requested symbols plus Nifty 50. This supersedes D53's no-broker-access hold only for acquisition. It does not authorize order placement, actual-ledger activation, strategy evaluation, source certification by assumption, lockbox use, inference or relaxing numeric gates. Subscription entitlement remains operator-reported until tested. [Acquisition plan](docs/plans/2026-10-14-kite-acquisition.md). | operator, direct instruction on 2026-10-14 |
 
+### 2026-10-15 — review acquired inputs before simulation
+
+| # | decision | who |
+|---|---|---|
+| D55 | **Proceed with gap/rejection review and stock/Nifty input readiness after acquisition completion.** The operator's Go ahead follows the completion explanation and next-step proposal. Authorizes independently reviewed, bounded, offline data-QA and descriptive timestamp/coverage/adjustment consistency checks, classification of the 150 unresolved names against existing archive metadata, and public primary-source research. Actual record inspection is data-plane QA, never strategy evaluation. Pin inputs to the external snapshot; use UID10002/network-none with read-only raw/code mounts and no credentials/SDK/socket. Never repair prices, infer listing/delisting from absence, replace the PIT universe with survivors, invent event/availability facts, consume lockbox data, or silently accept quarantined chunks. Source qualification requires independent evidence; actual-ledger activation, strategy runs, inference, promotion, live orders and additional purchases/vendor messages remain unapproved. | operator, direct Go ahead on2026-10-15 |
+
 ## 7c. Deferred by decision — not forgotten
 
 Things consciously postponed. **Each names the condition that reopens it.** A deferral without a
