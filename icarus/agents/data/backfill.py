@@ -4,10 +4,11 @@ Two jobs, done in one pass because they need the same downloads:
 
 1. **Warm the bhavcopy day-cache** for the backtest span, so the universe builder and the
    backtester read from disk instead of the network.
-2. **Derive the trading calendar** for years NSE no longer publishes holidays for. NSE's holiday
-   API serves only the current year, so 2021-2025 have no authoritative list. A weekday with no
-   bhavcopy in *either* archive is recorded as a closure: the exchange declining to publish an
-   end-of-day file is its own evidence the market was shut (operator decision, 2026-07-29).
+2. **Derive the trading calendar** without loading the historical holiday, amendment, or
+   special-session circulars. A calendar date with no bhavcopy in *either* archive is recorded as
+   a derived closure. This preserves the legacy archive-presence inference while allowing
+   published weekend special sessions to be discovered; it is not an authoritative exchange
+   calendar.
 
 The residual risk is a genuine hole in NSE's archive being misread as a holiday. That is guarded
 by a session-count check per complete year — NSE runs ~245-250 sessions, so a year outside
@@ -15,7 +16,8 @@ by a session-count check per complete year — NSE runs ~245-250 sessions, so a 
 and the artifact is refused rather than silently trusted (§29.4).
 
 This module deliberately does **not** consult the calendar while scanning — it is what produces
-the calendar. It walks raw weekdays instead.
+the derived artifact. It walks every raw calendar date so weekend special sessions are not
+excluded before the archive is queried.
 """
 
 from __future__ import annotations
@@ -41,7 +43,7 @@ _ARTIFACT_SCHEMA = 1
 
 @dataclass(frozen=True)
 class BackfillResult:
-    """What a scan found: the sessions that produced a file, and the weekdays that did not."""
+    """What a scan found: dates that produced a file and dates that did not."""
 
     frm: date
     to: date
@@ -64,33 +66,32 @@ class BackfillResult:
         )
 
 
-def weekdays_between(frm: date, to: date) -> list[date]:
-    """Every Mon-Fri in ``[frm, to]``. The scan's candidate set, before the archive rules."""
+def days_between(frm: date, to: date) -> list[date]:
+    """Every calendar date in inclusive ``[frm, to]``; reversed ranges stay empty."""
     days: list[date] = []
     day = frm
     while day <= to:
-        if day.weekday() < 5:
-            days.append(day)
+        days.append(day)
         day += timedelta(days=1)
     return days
 
 
 async def scan(source: NseBhavcopySource, frm: date, to: date) -> BackfillResult:
-    """Download every weekday's bhavcopy in range, recording which dates the exchange published.
+    """Check every calendar date, retaining each date whose bhavcopy archive is published.
 
     Sequential and rate-limited by the source: this hits a free public archive a few hundred to a
     few thousand times, and being blocked would cost far more than the wall-clock saved.
     """
     sessions: list[date] = []
     closures: list[date] = []
-    candidates = weekdays_between(frm, to)
-    log.info("backfill scan starting", frm=str(frm), to=str(to), weekdays=len(candidates))
+    candidates = days_between(frm, to)
+    log.info("backfill scan starting", frm=str(frm), to=str(to), calendar_days=len(candidates))
 
     for day in candidates:
         try:
             await source.day_rows(day)
         except SourceUnavailableError:
-            closures.append(day)  # no file in either archive -> the market was shut
+            closures.append(day)  # legacy derived absence; not authoritative calendar evidence
             continue
         sessions.append(day)
 

@@ -1,6 +1,6 @@
 """Warm the bhavcopy day-cache and derive the trading calendar for the backtest span.
 
-A one-off operational script, not library code. It walks every weekday from
+A one-off operational script, not library code. It walks every calendar date from
 ``data_split.walk_forward_start`` to yesterday, downloading each session's end-of-day file into
 ``var/bhavcopy/`` and writing the derived session calendar to ``var/calendar.json``.
 
@@ -14,10 +14,11 @@ at best. Being blocked by NSE is a halted data plane (invariant #10), which is a
 outcome than waiting.
 
 **A network timeout is retried here; it is never allowed to become a market holiday.** That
-distinction is the whole reason this loop exists. :func:`backfill.scan` records a weekday with no
-bhavcopy in *either* archive as an exchange closure — which is correct, because NSE declining to
-publish an end-of-day file is real evidence the market was shut. A read timeout is not that
-evidence, so the library raises ``TransientSourceError`` and refuses to guess, and it is right to.
+distinction is the whole reason this loop exists. :func:`backfill.scan` records a date with no
+bhavcopy in *either* archive as a derived closure under the legacy archive-presence rule. That
+artifact is not an authoritative exchange calendar, but scanning all dates keeps weekend special
+sessions discoverable. A read timeout is not evidence of absence, so the library raises
+``TransientSourceError`` and refuses to guess, and it is right to.
 But a single hiccup two thousand files into an hour-long unattended download should not throw the
 run away, so the *script* retries. Re-running is nearly free: every session already on disk is
 served from the cache, so a retry fast-forwards to wherever it stopped.
