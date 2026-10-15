@@ -145,21 +145,24 @@ axes remain incomplete. See the public reports and weekend build review.
 | ID | Finding | Status | Next action |
 |---|---|---|---|
 | K1 | Rejected raw candles and empty responses | OPEN | Preserve quarantines and explicit gaps; no repair, filtering into accepted coverage or silent promotion. |
-| K2 | 150 unmatched historical names | OPEN | Reconcile historical symbol/ISIN lineage against authoritative evidence; retain all names and date-specific missingness. |
-| K3 | Daily/intraday compatibility | PARTLY DONE | Reviewed source adapter and invented-data fault proof are complete. Qualify actual source relationships and evidence before admitting historical inputs; arbitrary tolerance remains prohibited. |
-| K4 | Nifty bar versus exact observation semantics | BLOCKS | Keep bar-resolved timing explicit. Do not fabricate session-close events or exact fill-time benchmark returns from candles. |
-| K5 | Source basis, calendar, rights and availability | BLOCKS | Obtain or reconcile evidence; leave unknown fields unknown and affected spans unavailable. |
-| K6 | Full bundle and resource qualification | OPEN | Qualify the concrete full bundle; a small descriptive QA sample cannot certify full-history readiness. |
+| K2 | 150 unmatched historical names | PARTLY DONE | Raw trade-date identifiers recovered and reviewed; continuous/provider-token spans remain unproved. Five-date price/liquidity QA narrows material gaps to 19 labels, with 15 retrieval candidates and four without a prepared route. Retain all requested names; candidates are not recovered history. |
+| K3 | Daily/intraday compatibility | PARTLY DONE; ACTUAL PAIR BLOCKED | Reviewed source adapter and invented-data fault proof are complete. Pilot QA finds 1,915/2,695 exact-name cells satisfy its LE-volume predicates, without certifying common basis. Independent INFY replay fails open/extrema; all 597 present daily rows match official raw on each pilot date, ruling out a mismatched daily cache in that slice. Resolve the source relationship; arbitrary tolerance remains prohibited. |
+| K4 | Nifty bar versus exact observation semantics | DESCRIPTIVE SOFTWARE VERIFIED; EXACT POINT UNAVAILABLE | Reviewed descriptive candle lane at 1cd3441 retains modeled availability and per-comparison captured-record intervals, with no aggregate alpha or promotion. Keep strict mode unchanged and do not fabricate official close events or exact fill-time points. |
+| K5 | Source basis, calendar, rights and availability | PARTLY DONE; ADMISSION BLOCKED | Bounded 2021–2022 calendar evidence is reviewed. Shared adjustment basis and applicable reproducible-archive rights remain unresolved; provider questions remain unsent by D58. Bind only proved facts and preserve unknown publication/revision semantics. |
+| K6 | Concrete bundle and resource qualification | OPEN | Qualify the claimed interval and required warm-up, then its concrete bundle/resources. A bounded pilot need not wait for unrelated older-year calendar gaps; its success would not certify full-history readiness. |
 | K7 | Weekday-only archive discovery omitted weekend candidates | PARTLY DONE | Scanner repair and postcommit fault proof pass at 6b71533. Existing cached axis still lacks weekend coverage; reconcile authoritative sessions before a separately bounded rebuild. |
+| K8 | Legacy EQ rows do not establish stock instrument class | CLASS EVIDENCE RESOLVED FOR THREE; DISPOSITION OPEN | Historical issuer factsheets independently checked by root identify BANKBEES/NIFTYBEES as equity ETFs and LIQUIDBEES as a fixed-income ETF, with ISINs matching sealed 2022-12-30 NSE metadata. `nse.py` legacy series filtering does not distinguish these classes. Bind the existing stock-universe specification's explicit counted class disposition and applicable costs before qualified artifacts; no silent dropping or ordinary-stock cost assumption. See [dated class evidence](../data/2026-10-15-pilot-instrument-classes.md). |
 
-The concrete next implementation proposal is the
-[paired-source adapter](../plans/2026-10-15-paired-source-adapter-proposal.md).
-Independent design review required shared economic adjustment bases and
-deterministic cross-source checks, rather than diagnostics replacing every
-reconciliation guard; the proposal now states those requirements explicitly.
-Final independent proposal review is GO after that clarification; no adapter
-implementation occurred. Engine acceptance and interval-benchmark methodology are separate approval
-boundaries, not implied by this audit's scoped QA GO.
+The initial audit led to the approved
+[paired-source adapter](../plans/2026-10-15-paired-source-adapter-proposal.md),
+which is now implemented and locally verified. Its independently required
+shared economic basis and deterministic checks remain admission conditions;
+diagnostics do not replace them. The separate descriptive candle benchmark
+lane is also implemented, independently reviewed and locally verified at
+1cd3441. The next task is concrete source/input qualification, rather than
+rebuilding either adapter. See the [pilot candle check](../data/2026-10-15-pilot-candle-coverage.md),
+[daily-source provenance](../data/2026-10-15-pilot-daily-source-provenance.md),
+and [current identity review](2026-10-15-final-dated-identity-review.md).
 
 No product runtime, risk thresholds, numeric validation gates, trial ledger,
 inference or live-order code changes in this unit. The 2023+ price lockbox is

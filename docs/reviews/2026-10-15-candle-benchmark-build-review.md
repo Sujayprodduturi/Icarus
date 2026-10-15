@@ -1,6 +1,6 @@
 # Candle benchmark build review — 2026-10-15
 
-Status: **independent implementation review GO; full regression completion pending**. Synthetic scope only; actual data qualification and run authorization remain false.
+Status: **LOCAL SOFTWARE VERIFIED; independent review and postcommit defect proof GO**. Hosted exact-source checks remain a separately recorded publication gate. Synthetic scope only; actual data qualification and run authorization remain false.
 
 ## Ordered simplicity review
 
@@ -29,3 +29,15 @@ The independent v2 re-review is GO with zero open findings on both standards and
 Root's repository-wide mypy initially found seven test typing errors missed by the narrower builder check. Three runtime-neutral fixture corrections use a typed cast for deliberately malformed input, explicit four OHLC arguments, and an import from the registry's defining module. The 93 tests in those three modules pass again. Global mypy now passes all 196 source files; Ruff lint and formatting pass all 457 discovered files. The original full regression process had already collected tests before these typing corrections; its runtime implementation bytes remain identical to reviewed v2. Its terminal result is still pending.
 
 Frozen v3 records only these three test-file changes; all eight runtime/script hashes remain identical to independently reviewed v2. Manifest SHA-256: `db466a8d1edbfbcf9ef35470236042df7bb18c53059713c38f83dac17dfef1e3`. V1 and v2 remain preserved. No postcommit defect reintroduction has been applied; the four-case harness is prepared but held until a commit exists and the full regression process has ended.
+
+## Terminal completion evidence
+
+The preceding pending statements describe their earlier checkpoints. Source commit `1cd34413993274eff1c47e8608af35f7b062e5e3` is committed and pushed. Root's full offline regression completed with **3,332 passed, 36 skipped and four existing importlib-metadata deprecation warnings in 2,649.64 seconds**. The full run included the golden regressions. Skips remain explicit, rather than claimed as exercised capabilities.
+
+Only after that process ended, an exclusive postcommit mutation window reintroduced four defects: stale marks accepted, schema version 2.0 accepted, a 30-minute benchmark candle accepted, and required interpretation omitted. **All four failed their intended assertions**, with no import, syntax, timeout or unrelated failure. The original bytes were restored in `finally`; the three-file source union SHA-256 before and after is `7379444668d5c891bec75059248255faedd83dec7398ce397de1b2501ca58c6b`. All 13 v3 hashes and Git HEAD blobs match after restoration. The restored seven checks pass, including the descriptive 21-plan public CLI. Fresh global mypy, Ruff lint and format checks pass. Logs, inspected failure details and receipt are in ignored `var/verification/2026-10-15/candle-postcommit/`.
+
+Root independently repeated the 13-file hash/committed-blob comparisons and two fresh restored stale-mark/M15 tests; both pass. No product or test changes were required after the commit. These checks establish the local invented-data software contract; they do not certify actual price bases, missing historical identities, source rights, full-range resources or strategy performance.
+
+## Published source CI
+
+Exact source `1cd34413993274eff1c47e8608af35f7b062e5e3` passed [hosted CI run 38774251027](https://github.com/Sujayprodduturi/Icarus/actions/runs/38774251027): **3,364 passed, four skipped and four warnings in 2,140.48 seconds**, with lint, formatting and strict typing also successful. Linux CI exercises its configured Postgres/Valkey integration services; the local Windows skip count is separately retained above. This source push did not trigger the path-filtered calibration resource workflow. The final documentation checkpoint has its own subsequent checks, whose status must be verified separately before any actual study.

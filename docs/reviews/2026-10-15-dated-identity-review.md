@@ -1,0 +1,44 @@
+# Independent dated-identity reconciliation review — 2026-10-15
+
+## Verdict
+
+**GO for retaining the frozen output as bounded, metadata-only discovery evidence. NO-GO for treating it as a complete ISIN authority, a deduplicated security universe, historical Kite-token continuity, or strategy/data eligibility.** `DATA_QUALIFIED=false` and `RUN_AUTHORIZED=false` remain required.
+
+Scope reviewed: `docs/data/2026-10-15-dated-identity-reconciliation.md`; the four named helpers and their tests; frozen `dated-identity-matrix.json`, `late2022-coverage.json`, `raw-identity-samples.json`, and detailed pre/post cache manifests. I did not inspect the mutable `raw-2012-2022/` recovery directory, downloader, prices, broker/SDK paths, trial ledger, strategies, or 2023+ data.
+
+## Findings
+
+### [P1 / specification] The observation count is not a unique dated-security count
+
+`expand_alias_symbols()` deliberately ignores `effective_date` and constructs an undirected transitive candidate set (`build_dated_identities.py:131-143`). The reverse index then assigns one archive symbol observation to every requested name containing that candidate (`:205-208`, `:230-232`). In this frozen matrix, `SKSMICRO`, `IBVENTURES`, and `STRTECH` each belong to two requested records. This duplicates 1,294 + 1,285 + 2,387 = **4,966** observations byte-for-byte across `BHARATFIN/SKSMICRO`, `DHANI/IBVENTURES`, and `STLTECH/STRTECH` respectively. Representative source-bound examples are `SKSMICRO` and `STRTECH` on 2011-01-03 from cache SHA-256 `8d253b7a177188397a7ab1c5207e71cfa4290c303651b4725c71eb76df06d239`, and `IBVENTURES` on 2015-04-01 from `7fd15961635e7dda79f11cff4f16ea715cb6f6faa3f08bbc60aaa0bd9a66c316`.
+
+The implementation does preserve `continuous_identity_interval=UNPROVEN` and `historical_token_identity=UNKNOWN`, and observed old/new symbols fall on the expected side of the captured effective dates. The problem is the aggregate label: `1,421,549 dated_observations` is a count of requested-record assignments, not unique `(date,symbol,series)` observations or proven identities. Likewise 693/693 proves every requested label has an own-or-alias archive observation; it does not establish 693 distinct securities. The reconciliation report should say this explicitly, and downstream work must deduplicate by exact observation key before using aggregate coverage.
+
+### [P1 / specification] The alias evidence embedded in the matrix is cohort-truncated
+
+The frozen `public_events` came from an earlier pass limited to 85 of 150 unmatched names that already had action-ISIN rows. Directly reading both sides of the existing captured `symbolchange.csv` against all 58 late-2022 unresolved names finds **35 names / 37 rows**, while the matrix exposes symbol-change rows for only 10 of those names. Thus its alias candidates are incomplete even as discovery metadata; a pre-2023 event cutoff is correct for assigning historical observations, but is incorrect for modern retrieval-alias discovery.
+
+Existing captured evidence supplies **24 exact new-symbol → current NSE/EQ master candidates**: `IIFLWAM→360ONE`, `AMIORG→ACUTAAS`, `ADANITRANS→ADANIENSOL`, `CENTURYTEX→ABREL`, `AEGISCHEM→AEGISLOG`, `GLS→ALIVUS`, `AMARAJABAT→ARE&M`, `ZOMATO→ETERNAL`, `IBREALEST→EMBDL`, `MFL→EPIGRAL`, `GMRINFRA→GMRAIRPORT`, `GUJGASLTD→GUJENERGY`, `HBLPOWER→HBLENGINE`, `HEG→HEGAM`, `L&TFH→LTF`, `DAAWAT→LTFOODS`, `LTIM→LTM`, `PVR→PVRINOX`, `SWANENERGY→SWANCORP`, `IBULHSGFIN→SAMMAANCAP`, `TATAMOTORS→TMPV`, `MCDOWELL-N→UNITDSPR`, `SEQUENT→VIYASH`, and `WELSPUNIND→WELSPUNLIV`. These are retrieval candidates only: the captured master has no ISIN, and the symbol-change row plus matching current symbol does not prove same-ISIN continuity or historical token identity.
+
+The existing tests cover exact-date attachment, conflict preservation, missing-ISIN failure, non-EQ retention, frozen-hash rejection, and the intentional non-temporal alias expansion. They do not test alias collisions in the 693-name denominator or assert unique aggregate semantics, which is why this ambiguity passed them.
+
+No code defect was found in the exact ISIN attachment itself. An independent join against `metadata-packet.json` confirmed all 7,456 non-null matrix cells have an exact matching `(requested_name, ex_date, symbol, series, ISIN)` action row. Representative reproduced rows include `AARTIDRUGS/EQ/INE767A01016` on 2011-02-07, 2011-07-14, and 2012-02-06. No matrix conflict or `isin_candidates` cell exists; 1,414,093 cells remain explicitly null.
+
+## Reproduced evidence
+
+- Frozen matrix: 96,363,300 bytes, SHA-256 `4de39c206b47efce6a0af9f366dee506f71207082dc131a3426c7a17f816de00`; 693 records/693 unique requested labels; 2,962 source entries; 1,421,549 requested-record observations; 7,456 exact action ISIN attachments; zero conflicts; all series `EQ`; all 693 continuity fields `UNPROVEN`; all token fields `UNKNOWN`.
+- Detailed pre/post manifests have identical 2,962-entry arrays, 308,812,639 total bytes, and declared manifest SHA-256 `e2de89d36d2e9d5b5a77783235a3e0fb99929ef370b2cfeea968bbf26c5df31a`.
+- `late2022-coverage.json` is bound to the matrix hash. Each of 2022-12-26 through 2022-12-30 has 597 present, 96 absent, and the same 58 present names without a current Kite mapping. The 248 observed 2022 dates yield 615 ever present, 78 never present, 543 present on every observed date, and 73 ever-present names without a current mapping. Its status and limits correctly say this is not universe qualification and that absence is not delisting evidence.
+- Raw sample receipt reproduces: 2011-01-03 `SCHEMA_GAP` because the header lacks `ISIN`; 2017-01-02 has 1,692 rows; 2022-12-30 has 2,335 rows; `price_fields_emitted=false`. All 58 late-2022 unresolved names have an exact `EQ` ISIN in the sealed 2022-12-30 raw sample. The matrix has 1,077 exact sample-date/symbol/series overlaps, but none of those cells acquired ISIN because the frozen matrix predates raw-sample ingestion; this correctly demonstrates incompleteness rather than a conflict.
+
+Commands used (read-only): `Get-Content -Raw` on scoped helpers/reports; `rg -n` for implementation/test lines; Python `json.loads` checks over frozen metadata outputs and `metadata-packet.json`; SHA-256 via `hashlib`. The two scoped test modules independently pass **13/13** in `python:3.12-slim` with `--network none --user 10002:10002 --read-only --cap-drop ALL --security-opt no-new-privileges --memory 1g --cpus 2`, a read-only scope mount, and bounded writable tmpfs. An initial `unittest` path invocation failed by command syntax only; a broad discovery invocation then encountered a newly appearing out-of-scope recovery test, so the successful final command named exactly `test_build_dated_identities test_parse_raw_identity`. The full 2,962-file bhavcopy payload was not rescanned.
+
+## Short next-metadata route for the 58 late-2022 gaps
+
+This is a candidate-generation route only. Start from each exact `2022-12-30 + symbol + EQ + ISIN` raw row (available for all 58), then join that ISIN to existing dated action observations. Enumerate the all-date public symbol-change graph against all 150 unmatched names and all 693 requested labels, matching both old and new sides; use post-2022 rows only to propose a modern retrieval alias, never as future knowledge in the 2022 universe. Classify current `BE/BZ` candidates only when the captured master/action metadata explicitly supplies that series; never infer it from an absent `EQ` row. Merger/delisting remains `UNKNOWN` unless an existing public event explicitly proves the event and effective date; absence from the current master proves only a retrieval gap.
+
+For every proposed current candidate, require: the raw 2022 exact-date `EQ` ISIN; the dated action or public-change row(s) and source hashes; effective-date ordering with no unexplained overlap; the current captured symbol/segment/token row; and an explicit statement that current token continuity is unproved. Kite's documented T2T behavior can assign a new token, so no equity token may be presumed constant. The next acquisition may use alias-aware additional raw requests under the existing historical permission, but it needs a new run ID, preserved original snapshot, the existing isolated/manual operator authorization boundary, and no admission based on aliases alone. Until same-ISIN dated proof exists per name, sparse exact-date identity observations are usable, while historical intervals and token routing remain blocked.
+
+## Summary
+
+Standards: no independent correctness or safety finding in the scoped helpers; 13/13 scoped tests pass. Specification: two P1 scope/identity findings (duplicated aggregate semantics and cohort-truncated alias discovery). The evidence is safe to retain within its declared metadata scope after qualifying both; it cannot authorize eligibility or historical identity/token continuity.

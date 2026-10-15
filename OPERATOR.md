@@ -464,6 +464,13 @@ Dated decisions that are not code and not in `goal.yaml`, so they have nowhere e
 |---|---|---|
 | D56 | **Build the independently reviewed paired-source adapter and engine integration.** The operator explicitly approved the proposal after the bounded Kite QA milestone. Preserve official daily signal prices and NSE PIT authority, use M15 only for execution, require independent evidence and byte/effective-date bindings for lineage, shared economic action bases and source-supported deterministic reconciliation. Keep the existing exact-aggregate default and all causal/grid/fill/risk refusals. Use invented fixtures and independent review before claiming software completion. This does not qualify downloaded data, authorize actual strategy trials or ledger activation, change interval-benchmark methodology, consume the lockbox, permit broker/live operations, or approve vendor messages/purchases. [Approved proposal](docs/plans/2026-10-15-paired-source-adapter-proposal.md). | operator, direct Approved. Go ahead on 2026-10-15 |
 
+### 2026-10-15 — finish reconciliation and review the benchmark method
+
+| # | decision | who |
+|---|---|---|
+| D57 | **Continue remaining data reconciliation and obtain independent benchmark-method review until real-data readiness.** The operator explicitly asks to keep working toward being able to run the strategies on real data. Continue bounded offline metadata/data QA, dated company/action/session reconciliation and primary-source evidence collection; review an honest candle-compatible benchmark method without fabricating exact event/publication facts. Prior safety, source qualification, trial-ledger and lockbox requirements remain controlling. No external vendor message, purchase, live broker operation, numeric gate relaxation, or source certification by assumption is granted by this instruction. Actual strategy evaluation remains distinct from readiness and requires the existing qualified package and run authorization. | operator, direct instruction on 2026-10-15 |
+| D58 | **Keep the prepared Zerodha questions unsent.** The operator explicitly declined sending the source-adjustment and local-retention questions. Continue authorized local reconciliation and published-source research. This does not supply missing provider facts or waive source qualification, and no external message may be sent under this decision. | operator, direct asynchronous answer on 2026-10-15 |
+
 ## 7c. Deferred by decision — not forgotten
 
 Things consciously postponed. **Each names the condition that reopens it.** A deferral without a

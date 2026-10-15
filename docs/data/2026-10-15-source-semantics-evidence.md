@@ -61,21 +61,21 @@ There is an additional point-in-time problem: the snapshot was retrieved in 2026
 - NSE's current [market timings and holidays](https://www.nseindia.com/resources/exchange-communication-holidays) gives the normal equity session as 09:15–15:30 and explicitly notes that Muhurat timings are separately notified.
 - NSE's cash-market circular [NSE/CMTR/54023 dated 2022-10-11](https://archives.nseindia.com/content/circulars/CMTR54023.pdf) records a special Muhurat session on 2022-10-24. One circular proves that archive-presence weekdays and a fixed 09:15–15:30 grid are not a complete calendar rule.
 
-**Adapter consequence:** public NSE material can support a calendar only after a complete 2011–2022 manifest of dated normal holidays, Muhurat/special sessions, outages and changed boundaries is assembled and hashed. The current dynamic page plus isolated circulars is insufficient. Do not infer sessions from candle or bhavcopy presence.
+**Adapter consequence:** calendar evidence must cover the interval being claimed, including its needed warm-up, with dated holidays, special sessions, outages and changed boundaries. A whole-2011–2022 claim requires that whole range; it is not a prerequisite for an independently supported bounded interval. The [reviewed 2021–2022 certificate](2026-10-15-historical-calendar-reconciliation.md) now supplies bounded calendar evidence, while the older full-range candidate retains explicit gaps and no qualified runtime artifact is claimed. Do not infer sessions from candle or bhavcopy presence.
 
 ### 6. Nifty event and publication semantics remain incomplete
 
 - NSE Indices describes the Nifty close construction, and an [April 2026 press release](https://www.niftyindices.com/Press_Release/ind_prs22042026.pdf) says Nifty 50 was disseminated live every 500 ms before moving to 250 ms on 2026-05-11. These establish a live index stream and a separately calculated official close.
 - They do not map Kite historical candle labels to individual NSE index observations, certify which observations were captured in each 2015–2022 candle, identify a historical revision, or attest when each archived candle/daily close became available.
 
-**Adapter consequence:** keep Nifty M15 as interval observations only. Do not turn the final candle into an official daily close or an exact fill-time benchmark point. Treating `bar_start + 15 minutes` as availability would be a separately approved modeled replay rule, not vendor-observed availability; delayed writes or later revisions can still leak. Exact causal benchmark returns remain unavailable pending the separately reviewed interval-benchmark policy.
+**Adapter consequence:** keep Nifty M15 as interval observations only. Do not turn the final candle into an official daily close or an exact fill-time benchmark point. The [reviewed descriptive candle policy](../plans/2026-10-15-candle-benchmark-method.md) now keeps captured-record intervals and modeled availability explicit, without exact-point alpha, aggregate benchmark inference or promotion. Modeled completion is not vendor-observed availability; delayed writes and revisions remain unknown. Exact causal benchmark returns remain unavailable.
 
 ### 7. Rights for a durable private research archive are unresolved
 
 - Zerodha's current [terms, clause 16.3](https://zerodha.com/terms-and-conditions) permits extraction through officially authorized APIs under a valid subscription.
 - Zerodha's support page says Kite data [cannot be displayed on other platforms](https://support.zerodha.com/category/trading-and-markets/general-kite/kite-api/articles/can-i-use-historical-and-live-data-taken-from-kite-connect-api-on-other-platforms) because of exchange data-vending policy.
 
-Neither page expressly grants or forbids Icarus's proposed durable private local archive, derived M15 artifacts, backups, reproducible reruns, or retention after subscription expiry. No legal conclusion is drawn.
+**Updated primary evidence, checked 2026-10-15:** [Kite staff clarification dated 9 October 2026, section 5](https://kite.trade/forum/discussion/16304/written-clarification-for-self-built-kite-connect-trading-system) permits personal analysis but states that permanent storage is restricted, separately from its restriction on paper trading with live data. This supersedes treating retention as mere silence. The page supplies no retention duration or complete historical-backtest retention rule; neither arbitrary expiry nor blanket prohibition on private historical analysis follows. The applicable contract and intended reproducible archive still need a disposition. No legal conclusion is drawn.
 
 **Adapter consequence:** keep archival/use evidence unqualified. Existing bytes may remain quarantined as evidence, but they must not be admitted to the research bundle on the strength of these pages.
 
@@ -91,7 +91,7 @@ Neither page expressly grants or forbids Icarus's proposed durable private local
 
 ### Evidence that can be assembled from public exchange material
 
-1. Build a complete, hashed 2011–2022 NSE cash-market calendar from annual holiday notices plus every special-session, Muhurat, contingency/outage and timing-change circular; independently check it against archive presence without treating presence as authority.
+1. Bind the reviewed bounded 2021–2022 NSE cash-market calendar evidence to any claimed pilot and its warm-up. Complete the older amendment inventory before claiming the full 2011–2022 range, checking against archive presence without treating presence as authority.
 2. Bind the existing NSE corporate-action records to an effective-dated security/ISIN lineage and compare their event set with independently established Kite factors, using provider evidence where unresolved. Public events alone still cannot reveal which revisions were applied inside Kite bytes.
 3. Preserve official Nifty close records separately from Kite M15 candles and document Price Index versus Total Return Index identity. This still does not create exact historical publication timestamps.
 
@@ -115,9 +115,9 @@ Neither page expressly grants or forbids Icarus's proposed durable private local
 | Daily open equals first M15 open | No universal guarantee; actual full-range relation not yet established | Keep strict check; actual pair refuses until independently justified and reconciled |
 | Extrema/volume relationship | Plausible subset relation, but basis and capture guarantees absent | Diagnostic until independently established and reconciled; provider evidence where unresolved |
 | Shared action basis | Conflicting/mutable vendor statements | Unknown → refuse |
-| Dated security mapping | Current master only | Unknown spans/names → refuse |
-| Regular/special calendar | Normal hours plus examples, no complete historical certificate | Unknown sessions → refuse |
+| Dated security mapping | Reviewed 2012–2022 raw trade-date ISIN recovery; continuous identity/provider-token spans remain unproved | Preserve source-labelled identifiers; unknown spans/names → refuse |
+| Regular/special calendar | Bounded 2021–2022 evidence certificate reviewed; older full-range candidate incomplete; runtime qualification separate | Bind only the supported claimed slice; unknown sessions → refuse |
 | Nifty exact event/availability | Close method and live dissemination known; candle mapping absent | Exact-point use unavailable |
-| Private archival rights | API access and no-display rule known; retention/derivation silent | Rights evidence absent → refuse admission |
+| Private archival rights | Personal analysis permitted; current staff statement restricts permanent storage; exact historical retention rule unresolved | Resolve applicable archive use before admission |
 
 This evidence changes no threshold, source bytes, quarantine, lineage declaration, adapter rule, benchmark policy, trial ledger or authorization.
