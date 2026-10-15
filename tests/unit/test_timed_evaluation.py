@@ -211,6 +211,73 @@ def test_actual_signal_and_portfolio_modes_use_shared_columns_and_fresh_books(
     assert payload.column_evaluations == 1
 
 
+@pytest.mark.parametrize("mutation", ["daily", "benchmark"])
+def test_paired_evaluator_refuses_projection_mutated_after_assembly(
+    monkeypatch: pytest.MonkeyPatch,
+    mutation: str,
+) -> None:
+    from tests.unit.test_source_pair import _raw
+
+    from icarus.engine.source_pair import (
+        BoundPairQualification,
+        daily_projection_digest,
+        parse_source_pair_qualification,
+    )
+
+    panel = invented_panel()
+    if mutation == "benchmark":
+        panel = replace(panel, benchmark=panel.bars[0])
+    fixture = _fixture(panel)
+    pair = BoundPairQualification(
+        parse_source_pair_qualification(_raw()),
+        daily_projection_digest(panel, tuple(range(len(panel)))),
+    )
+    digest = timed_fixture_digest(
+        fixture.sessions, fixture.refinements, fixture.inactive, pair.qualification.document_sha256
+    )
+    source = replace(fixture.source, sha256=digest)
+    fixture = replace(
+        fixture,
+        sessions=tuple(replace(row, source=source) for row in fixture.sessions),
+        refinements=tuple(
+            Refinement(
+                item.symbol,
+                tuple(
+                    replace(row, source=source, opening=replace(row.opening, source=source))
+                    for row in item.bars
+                ),
+            )
+            for item in fixture.refinements
+        ),
+        source=source,
+        pair_qualification=pair,
+    )
+    goal = load_goal()
+    cards = load_strategy_catalogue((Path("strategies/baseline_buy_and_hold.yaml"),), goal)
+    assembled = _assembled(panel, fixture)
+    assert not hasattr(assembled, "source_pair")
+    payload = CataloguePayload.from_assembled(assembled, cards)
+    if mutation == "daily":
+        panel.bars[0].close[10] += 0.01
+    else:
+        assert panel.benchmark is not None
+        panel.benchmark.close[10] += 0.01
+    monkeypatch.setattr(
+        "icarus.engine.timed_evaluation._clock_windows",
+        lambda *_: (Window(0, 300, 305, 500, 5),),
+    )
+    plan = build_evaluation_plans(
+        cards,
+        EvaluationClock(
+            tuple(item.index for item in fixture.sessions),
+            tuple(item.open_ts for item in fixture.sessions),
+        ),
+        goal,
+    )[0]
+    with pytest.raises(ValueError, match="daily projection changed"):
+        TimedCatalogueEvaluator(cards, goal, _policy()).evaluate(plan, payload)
+
+
 def test_all_seven_cards_run_twenty_one_actual_modes_with_management_events(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

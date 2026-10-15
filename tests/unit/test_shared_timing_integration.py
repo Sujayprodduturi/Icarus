@@ -156,7 +156,9 @@ def simulate(
     columns = {s: np.array(v, dtype=np.float64) for s, v in signals.items()}
     stops = {s: np.full(len(fixture.sessions), stop) for s in signals}
     kwargs: dict[str, Any] = dict(
-        fixture=fixture, source_indices=tuple(s.index for s in fixture.sessions), ranks=ranks
+        fixture=fixture,
+        source_indices=tuple(s.index for s in fixture.sessions),
+        ranks=ranks,
     )
     if mode == "portfolio":
         kwargs["starting_equity"] = Decimal(capital)
@@ -379,6 +381,56 @@ def test_daily_aggregation_mismatch_refuses_without_timeline_repair(
     run = simulate(m, mode, fixture, {"S0": [1, 0, 0, 0]}, daily=daily)
     assert not run.valid and not run.trades
     assert run.refusal.reason is m.TimedRefusal.AGGREGATION
+
+
+@pytest.mark.parametrize("mode", ["signal", "portfolio"])
+def test_qualified_pair_preserves_distinct_daily_close_and_m15_fill(
+    m: ModuleType, mode: str
+) -> None:
+    from tests.unit.test_source_pair import _raw
+
+    from icarus.engine.source_pair import (
+        BoundPairQualification,
+        daily_projection_digest,
+        parse_source_pair_qualification,
+    )
+
+    fixture = make(m)
+    daily = panel(fixture)
+    daily.bars[0].close[1] = 101.0
+    pair = parse_source_pair_qualification(_raw())
+    pair = BoundPairQualification(
+        pair, daily_projection_digest(daily, tuple(s.index for s in fixture.sessions))
+    )
+    digest = m.timed_fixture_digest(
+        fixture.sessions,
+        fixture.refinements,
+        fixture.inactive,
+        pair.qualification.document_sha256,
+    )
+    source = replace(fixture.source, sha256=digest)
+    fixture = replace(
+        fixture,
+        sessions=tuple(replace(row, source=source) for row in fixture.sessions),
+        refinements=tuple(
+            m.Refinement(
+                item.symbol,
+                tuple(
+                    replace(
+                        row,
+                        source=source,
+                        opening=replace(row.opening, source=source),
+                    )
+                    for row in item.bars
+                ),
+            )
+            for item in fixture.refinements
+        ),
+        source=source,
+        pair_qualification=pair,
+    )
+    run = simulate(m, mode, fixture, {"S0": [1, 0, 0, 0]}, daily=daily)
+    assert run.valid and run.trades[0].entry.price == Decimal("100.05")
 
 
 def test_valid_event_match_calls_real_hook_and_incomplete_trade_returns_none(

@@ -29,6 +29,7 @@ from icarus.engine.fills import FillModel
 from icarus.engine.portfolio import PortfolioSimulator
 from icarus.engine.runner import evaluate_once
 from icarus.engine.signaltest import SignalSimulator
+from icarus.engine.source_pair import BoundPairQualification, daily_projection_digest
 from icarus.engine.timed_runner import (
     AssembledTimedInputs,
     EvaluationOutcome,
@@ -94,9 +95,15 @@ class CataloguePayload:
         if not isinstance(assembled, AssembledTimedInputs):
             raise TypeError("assembled input must be typed")
         fixture = assembled.fixture
-        if fixture.source.sha256 != timed_fixture_digest(
-            fixture.sessions, fixture.refinements, fixture.inactive
-        ):
+        expected_fixture_digest = timed_fixture_digest(
+            fixture.sessions,
+            fixture.refinements,
+            fixture.inactive,
+            None
+            if fixture.pair_qualification is None
+            else fixture.pair_qualification.qualification.document_sha256,
+        )
+        if fixture.source.sha256 != expected_fixture_digest:
             raise ValueError("fixture source digest does not bind inactive cells and rows")
         source = assembled.nifty_source
         if source is None:
@@ -319,7 +326,17 @@ def _slice_fixture(
         )
         for item in fixture.refinements
     )
-    source = replace(fixture.source, sha256=timed_fixture_digest(sessions, refinements, inactive))
+    source = replace(
+        fixture.source,
+        sha256=timed_fixture_digest(
+            sessions,
+            refinements,
+            inactive,
+            None
+            if fixture.pair_qualification is None
+            else fixture.pair_qualification.qualification.document_sha256,
+        ),
+    )
     sessions = tuple(replace(item, source=source) for item in sessions)
     refinements = tuple(
         Refinement(
@@ -335,7 +352,7 @@ def _slice_fixture(
         )
         for item in refinements
     )
-    return TimedFixture(sessions, refinements, source, inactive)
+    return TimedFixture(sessions, refinements, source, inactive, fixture.pair_qualification)
 
 
 def _trade_benchmark(
@@ -540,6 +557,11 @@ class TimedCatalogueEvaluator:
     def evaluate(self, plan: EvaluationPlan, payload: object) -> tuple[EvaluationOutcome, ...]:
         if not isinstance(payload, CataloguePayload):
             raise TypeError("payload must be CataloguePayload")
+        bound_pair = payload.assembled.fixture.pair_qualification
+        if bound_pair is not None and bound_pair.daily_projection_sha256 != daily_projection_digest(
+            payload.assembled.panel, payload.assembled.source_indices
+        ):
+            raise ValueError("qualified daily projection changed after assembly")
         card = self._cards.get(plan.card)
         if (
             card is None
@@ -582,6 +604,14 @@ class TimedCatalogueEvaluator:
             if fixture is None:
                 fixture = _slice_fixture(payload.assembled.fixture, payload.timed_index, start, end)
                 payload._fixtures[(start, end)] = fixture
+            if fixture.pair_qualification is not None:
+                fixture = replace(
+                    fixture,
+                    pair_qualification=BoundPairQualification(
+                        fixture.pair_qualification.qualification,
+                        daily_projection_digest(panel, payload.assembled.source_indices[start:end]),
+                    ),
+                )
             costs = CostModel(self._goal.costs)
             fills = FillModel(self._goal.execution_realism)
             stale = self._goal.backtest.stale_position_sessions

@@ -110,16 +110,16 @@ are not already qualified security lineage, special-session or availability
 certificates. Prior completed quantity is a possible registered liquidity
 proxy; the current opening candle's eventual volume remains forbidden.
 
-## Ranked next work
+## Ranked fix list
 
-| ID | Issue | Disposition |
-|---|---|---|
-| K1 | Rejected raw candles and empty responses | Preserve quarantines and explicit gaps; no repair, filtering into accepted coverage or silent promotion. |
-| K2 | 150 unmatched historical names | Reconcile historical symbol/ISIN lineage against authoritative evidence; retain all names and date-specific missingness. |
-| K3 | Daily/intraday compatibility | Complete the fixed sample QA, then design a separately reviewed source adapter that distinguishes daily signal records from execution records. Never remove reconciliation or add an arbitrary tolerance. |
-| K4 | Nifty bar versus exact observation semantics | Keep bar-resolved timing explicit. Do not fabricate session-close events or exact fill-time benchmark returns from candles. |
-| K5 | Source basis, calendar, rights and availability | Obtain or reconcile evidence; leave unknown fields unknown and affected spans unavailable. |
-| K6 | Full bundle and resource qualification | Still pending; a small descriptive QA sample cannot certify full-history readiness. |
+| ID | Finding | Status | Next action |
+|---|---|---|---|
+| K1 | Rejected raw candles and empty responses | OPEN | Preserve quarantines and explicit gaps; no repair, filtering into accepted coverage or silent promotion. |
+| K2 | 150 unmatched historical names | OPEN | Reconcile historical symbol/ISIN lineage against authoritative evidence; retain all names and date-specific missingness. |
+| K3 | Daily/intraday compatibility | IN TASKS.md | Build the approved source adapter that distinguishes daily signal records from execution records. Keep source-supported reconciliation and prohibit arbitrary tolerance. |
+| K4 | Nifty bar versus exact observation semantics | BLOCKS | Keep bar-resolved timing explicit. Do not fabricate session-close events or exact fill-time benchmark returns from candles. |
+| K5 | Source basis, calendar, rights and availability | BLOCKS | Obtain or reconcile evidence; leave unknown fields unknown and affected spans unavailable. |
+| K6 | Full bundle and resource qualification | OPEN | Qualify the concrete full bundle; a small descriptive QA sample cannot certify full-history readiness. |
 
 The concrete next implementation proposal is the
 [paired-source adapter](../plans/2026-10-15-paired-source-adapter-proposal.md).

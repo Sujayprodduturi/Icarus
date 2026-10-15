@@ -40,6 +40,7 @@ EVIDENCE_KEYS = frozenset(
         "raw_event_availability",
     }
 )
+PAIR_EVIDENCE_KEY = "source_pair"
 EXTERNAL_EVIDENCE_KEYS = frozenset({"archive", "licence", "raw_event_availability"})
 PRODUCTION_CARD_FILES = frozenset(
     {
@@ -142,7 +143,7 @@ def parse_qualification_certificate(raw: bytes) -> QualificationCertificate:
         or value["schema_version"] != 1
         or type(value["invented"]) is not bool
         or type(value["evidence_sha256"]) is not dict
-        or set(value["evidence_sha256"]) != EVIDENCE_KEYS
+        or set(value["evidence_sha256"]) not in (EVIDENCE_KEYS, EVIDENCE_KEYS | {PAIR_EVIDENCE_KEY})
     ):
         raise TimedCliError("QUALIFICATION_SCHEMA")
     evidence = {
@@ -230,7 +231,10 @@ def _validate_qualification_evidence(
     }
     if any(certificate.evidence_sha256[key] != value for key, value in expected_bundle.items()):
         raise TimedCliError("QUALIFICATION_ARTIFACT_EVIDENCE")
-    if set(external) != EXTERNAL_EVIDENCE_KEYS:
+    expected_external = EXTERNAL_EVIDENCE_KEYS | (
+        {PAIR_EVIDENCE_KEY} if PAIR_EVIDENCE_KEY in certificate.evidence_sha256 else set()
+    )
+    if set(external) != expected_external:
         raise TimedCliError("QUALIFICATION_EXTERNAL_EVIDENCE")
     for key, path in external.items():
         _assert_external_path(path, bundle_root)
@@ -243,10 +247,18 @@ def _evidence_arguments(values: list[str]) -> dict[str, Path]:
     result: dict[str, Path] = {}
     for value in values:
         key, separator, raw_path = value.partition("=")
-        if not separator or key in result or key not in EXTERNAL_EVIDENCE_KEYS or not raw_path:
+        if (
+            not separator
+            or key in result
+            or key not in EXTERNAL_EVIDENCE_KEYS | {PAIR_EVIDENCE_KEY}
+            or not raw_path
+        ):
             raise TimedCliError("QUALIFICATION_EXTERNAL_EVIDENCE")
         result[key] = Path(raw_path)
-    if set(result) != EXTERNAL_EVIDENCE_KEYS:
+    if not EXTERNAL_EVIDENCE_KEYS.issubset(result) or set(result) - EXTERNAL_EVIDENCE_KEYS not in (
+        set(),
+        {PAIR_EVIDENCE_KEY},
+    ):
         raise TimedCliError("QUALIFICATION_EXTERNAL_EVIDENCE")
     return result
 
@@ -446,6 +458,12 @@ def main(argv: list[str] | None = None) -> int:
     from sqlalchemy import create_engine
 
     from icarus.common.config import GoalConfig
+    from icarus.engine.source_pair import (
+        PairRefusal,
+        parse_source_pair_qualification,
+        validate_source_pair_artifacts,
+        validate_source_pair_identities,
+    )
     from icarus.engine.timed_evaluation import (
         CataloguePayload,
         EvaluationClock,
@@ -474,6 +492,34 @@ def main(argv: list[str] | None = None) -> int:
     _validate_qualification_evidence(
         preflight, certificate, external_evidence, args.manifest.parent
     )
+    source_pair_raw = (
+        _stable(external_evidence[PAIR_EVIDENCE_KEY], 1_000_000, "SOURCE_PAIR_FILE")
+        if PAIR_EVIDENCE_KEY in external_evidence
+        else None
+    )
+    if (
+        source_pair_raw is not None
+        and hashlib.sha256(source_pair_raw).hexdigest()
+        != certificate.evidence_sha256[PAIR_EVIDENCE_KEY]
+    ):
+        raise TimedCliError("QUALIFICATION_EXTERNAL_EVIDENCE")
+    source_pair = (
+        parse_source_pair_qualification(source_pair_raw) if source_pair_raw is not None else None
+    )
+    if source_pair is not None:
+        if not (
+            certificate.policy_registered_at <= source_pair.approved_at <= certificate.approved_at
+        ):
+            raise TimedCliError("PAIR_APPROVAL_CHRONOLOGY")
+        try:
+            validate_source_pair_artifacts(
+                source_pair, {item.role: item.sha256 for item in preflight.artifacts}
+            )
+            validate_source_pair_identities(
+                source_pair, {item.role: item.metadata for item in preflight.artifacts}
+            )
+        except PairRefusal as exc:
+            raise TimedCliError(exc.code) from exc
     authorization = parse_run_authorization_json(authorization_raw)
     matching_policy = parse_matching_policy(policy_raw)
     _validate_policy_registration(source_policy_raw, policy_raw, certificate, matching_policy)
@@ -533,7 +579,12 @@ def main(argv: list[str] | None = None) -> int:
             authorization,
             binding,
             plans,
-            lambda: CataloguePayload.from_assembled(assemble_timed_inputs(preflight), cards),
+            lambda: CataloguePayload.from_assembled(
+                assemble_timed_inputs(preflight)
+                if source_pair is None
+                else assemble_timed_inputs(preflight, source_pair),
+                cards,
+            ),
             evaluator.evaluate,
         )
         report = {

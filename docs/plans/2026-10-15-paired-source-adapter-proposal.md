@@ -1,7 +1,11 @@
 # Next proposed unit: preserve daily signals and qualify M15 execution data
 
-Proposal only; D55's approval covers the descriptive QA, not changes to engine
-acceptance or benchmark semantics. No implementation is claimed here.
+Approved by the operator on 2026-10-15: "Approved. Go ahead" after independent
+proposal review. D56 authorizes implementation and invented-data verification
+of this adapter and its engine integration. D55 covered the preceding QA.
+No actual-data qualification, strategy evaluation or benchmark-method change
+is granted by this implementation approval. Build in progress; no completion
+is claimed here.
 
 ## Problem and resulting behavior
 

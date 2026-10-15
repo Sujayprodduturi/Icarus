@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
-from scripts.run_timed_backtest import _cards_hash, _runner_hash, main
+from scripts.run_timed_backtest import TimedCliError, _cards_hash, _runner_hash, main
 
 from icarus.common.config import load_goal
 from icarus.engine.timed_evaluation import load_strategy_catalogue
@@ -286,7 +286,9 @@ def _build_packet(root: Path) -> tuple[list[str], Path]:
                 "format": "jsonl",
                 "schema_version": 1,
                 "parser_version": "icarus-real-data-v1",
-                "vendor": "INVENTED_CLI_FIXTURE",
+                "vendor": (
+                    "INDEPENDENT_VENDOR_M15" if role == "m15_stock" else "INVENTED_CLI_FIXTURE"
+                ),
                 "venue": "NSE",
                 "instrument": instrument,
                 "price_basis": basis,
@@ -433,6 +435,7 @@ def test_full_invented_cli_reserves_all_twenty_one_before_decode(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     argv, out = _build_packet(tmp_path)
+    _add_valid_source_pair(argv, tmp_path)
     ledger = _RecordingLedger()
     engine = _Engine()
     monkeypatch.setattr("sqlalchemy.create_engine", lambda *_: engine)
@@ -441,9 +444,9 @@ def test_full_invented_cli_reserves_all_twenty_one_before_decode(
 
     original = timed_runner.assemble_timed_inputs
 
-    def observed_decode(value: object) -> object:
+    def observed_decode(value: object, pair: object = None) -> object:
         ledger.events.append("decode")
-        return original(value)  # type: ignore[arg-type]
+        return original(value, pair)  # type: ignore[arg-type]
 
     monkeypatch.setattr(timed_runner, "assemble_timed_inputs", observed_decode)
     assert main(argv) == 0
@@ -472,6 +475,7 @@ def test_full_invented_cli_reserves_all_twenty_one_before_decode(
         "pit_delisted",
         "prior_only_liquidity",
         "raw_event_availability",
+        "source_pair",
     }
     outcomes = [outcome for result in report["results"] for outcome in result["outcomes"]]
     folds = [fold for outcome in outcomes for fold in outcome.get("folds", [])]
@@ -645,3 +649,150 @@ def test_cli_failures_never_publish_or_evaluate_twice(
     assert persistence.events[:21] == ["reserve"] * 21
     assert persistence.events[21:23] == ["complete", "complete"]
     assert persistence.events[23:] == ["fail"] * 20
+
+
+def test_bad_source_pair_binding_refuses_before_database_or_trial_reservation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    argv, _ = _build_packet(tmp_path)
+    external = tmp_path / "external"
+    pair_path = external / "source_pair.json"
+    pair = {
+        "schema_version": 1,
+        "pair_id": "invented-negative-pair",
+        "reviewer": "independent-invented-reviewer",
+        "approved_at": "2026-10-14T00:45:00Z",
+        "effective_start": "2011-01-01T00:00:00Z",
+        "effective_end": "2014-12-31T23:59:59Z",
+        "daily_sha256": "0" * 64,
+        "m15_sha256": "1" * 64,
+        "action_sha256": "2" * 64,
+        "calendar_sha256": "3" * 64,
+        "daily_source": {"vendor": "INVENTED_CLI_FIXTURE", "source_revision": "r1"},
+        "m15_source": {"vendor": "INDEPENDENT_VENDOR_M15", "source_revision": "r1"},
+        "daily_close_rule": "OFFICIAL_SESSION_CLOSE",
+        "m15_capture_rule": "VENDOR_INTERVAL_CAPTURE_V1",
+        "session_rule": "PINNED_NSE_CALENDAR_V1",
+        "price_basis": {
+            "split": "BACK_ADJUSTED",
+            "bonus": "BACK_ADJUSTED",
+            "rights": "BACK_ADJUSTED",
+            "dividend": "UNADJUSTED",
+        },
+        "relations": {"open": "EQUAL", "extrema_containment": "SUPPORTED", "volume": "EQUAL"},
+        "mappings": [
+            {
+                "symbol": "SYN00",
+                "isin": "INE000000001",
+                "daily_symbol": "SYN00",
+                "m15_symbol": "SYN00",
+                "m15_token": "vendor-0",
+                "lineage_sha256": "4" * 64,
+                "split_factor": "1",
+                "bonus_factor": "1",
+                "rights_factor": "1",
+                "effective_start": "2011-01-01T00:00:00Z",
+                "effective_end": "2014-12-31T23:59:59Z",
+            }
+        ],
+        "invented": False,
+    }
+    pair_raw = _dump(pair_path, pair)
+    qualification_path = Path(argv[argv.index("--qualification") + 1])
+    qualification = json.loads(qualification_path.read_text())
+    qualification["evidence_sha256"]["source_pair"] = hashlib.sha256(pair_raw).hexdigest()
+    qualification_raw = _dump(qualification_path, qualification)
+    authorization_path = Path(argv[argv.index("--authorization") + 1])
+    authorization = json.loads(authorization_path.read_text())
+    authorization["qualification_sha256"] = hashlib.sha256(qualification_raw).hexdigest()
+    _dump(authorization_path, authorization)
+    insert_at = argv.index("--authorization")
+    argv[insert_at:insert_at] = ["--qualification-evidence", f"source_pair={pair_path}"]
+    monkeypatch.setattr(
+        "sqlalchemy.create_engine", lambda *_: pytest.fail("bad pair reached database")
+    )
+    with pytest.raises(TimedCliError, match="PAIR_ARTIFACT_BINDING"):
+        main(argv)
+
+
+def test_source_pair_second_capture_change_refuses_before_database_or_decode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import scripts.run_timed_backtest as timed_cli
+
+    argv, _ = _build_packet(tmp_path)
+    _add_valid_source_pair(argv, tmp_path)
+    pair_path = tmp_path / "external" / "source_pair.json"
+    original = timed_cli._validate_qualification_evidence
+
+    def change_after_first_hash(*args: object, **kwargs: object) -> None:
+        original(*args, **kwargs)  # type: ignore[arg-type]
+        pair_path.write_bytes(pair_path.read_bytes() + b" ")
+
+    monkeypatch.setattr(timed_cli, "_validate_qualification_evidence", change_after_first_hash)
+    monkeypatch.setattr(
+        "sqlalchemy.create_engine", lambda *_: pytest.fail("changed pair reached database")
+    )
+    with pytest.raises(TimedCliError, match="QUALIFICATION_EXTERNAL_EVIDENCE"):
+        main(argv)
+
+
+def _add_valid_source_pair(argv: list[str], root: Path) -> None:
+    manifest = json.loads(Path(argv[argv.index("--manifest") + 1]).read_text())
+    hashes = {row["role"]: row["sha256"] for row in manifest["artifacts"]}
+    pair_path = root / "external" / "source_pair.json"
+    mappings = [
+        {
+            "symbol": f"SYN{i:02d}",
+            "isin": f"INE{i:09d}",
+            "daily_symbol": f"SYN{i:02d}",
+            "m15_symbol": f"SYN{i:02d}",
+            "m15_token": f"vendor-{i}",
+            "lineage_sha256": f"{i + 1:064x}",
+            "split_factor": "1",
+            "bonus_factor": "1",
+            "rights_factor": "1",
+            "effective_start": "2011-01-01T00:00:00Z",
+            "effective_end": "2014-12-31T23:59:59Z",
+        }
+        for i in range(31)
+    ]
+    pair_raw = _dump(
+        pair_path,
+        {
+            "schema_version": 1,
+            "pair_id": "invented-valid-pair",
+            "reviewer": "independent-invented-reviewer",
+            "approved_at": "2026-10-14T00:45:00Z",
+            "effective_start": "2011-01-01T00:00:00Z",
+            "effective_end": "2014-12-31T23:59:59Z",
+            "daily_sha256": hashes["daily_stock"],
+            "m15_sha256": hashes["m15_stock"],
+            "action_sha256": hashes["corporate_action"],
+            "calendar_sha256": hashes["session_calendar"],
+            "daily_source": {"vendor": "INVENTED_CLI_FIXTURE", "source_revision": "r1"},
+            "m15_source": {"vendor": "INDEPENDENT_VENDOR_M15", "source_revision": "r1"},
+            "daily_close_rule": "OFFICIAL_SESSION_CLOSE",
+            "m15_capture_rule": "VENDOR_INTERVAL_CAPTURE_V1",
+            "session_rule": "PINNED_NSE_CALENDAR_V1",
+            "price_basis": {
+                "split": "BACK_ADJUSTED",
+                "bonus": "BACK_ADJUSTED",
+                "rights": "BACK_ADJUSTED",
+                "dividend": "UNADJUSTED",
+            },
+            "relations": {"open": "EQUAL", "extrema_containment": "SUPPORTED", "volume": "EQUAL"},
+            "mappings": mappings,
+            "invented": False,
+        },
+    )
+    qualification_path = Path(argv[argv.index("--qualification") + 1])
+    qualification = json.loads(qualification_path.read_text())
+    qualification["evidence_sha256"]["source_pair"] = hashlib.sha256(pair_raw).hexdigest()
+    qualification_raw = _dump(qualification_path, qualification)
+    authorization_path = Path(argv[argv.index("--authorization") + 1])
+    authorization = json.loads(authorization_path.read_text())
+    authorization["qualification_sha256"] = hashlib.sha256(qualification_raw).hexdigest()
+    _dump(authorization_path, authorization)
+    insert_at = argv.index("--authorization")
+    argv[insert_at:insert_at] = ["--qualification-evidence", f"source_pair={pair_path}"]

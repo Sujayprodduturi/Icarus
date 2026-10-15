@@ -20,6 +20,11 @@ from icarus.common.calendar import IST
 from icarus.common.config import LOCKBOX_START
 from icarus.engine.data_readiness import ARTIFACT_ROLES, BundlePreflight
 from icarus.engine.fills import SimBar
+from icarus.engine.source_pair import (
+    PairQualification,
+    _bind_source_pair,
+    validate_source_pair_identities,
+)
 from icarus.engine.timed_simulation import (
     OpeningLiquidity,
     Refinement,
@@ -491,7 +496,9 @@ def _typed_rows(raw: bytes, fields: set[str], code: str) -> tuple[dict[str, Any]
     return rows
 
 
-def assemble_timed_inputs(preflight: BundlePreflight) -> AssembledTimedInputs:
+def assemble_timed_inputs(
+    preflight: BundlePreflight, source_pair: PairQualification | None = None
+) -> AssembledTimedInputs:
     """Decode all seven captured artifacts and build one causally aligned engine input."""
     if not isinstance(preflight, BundlePreflight) or not preflight.software_verified:
         raise InputUnavailable("PREFLIGHT_REQUIRED")
@@ -499,6 +506,21 @@ def assemble_timed_inputs(preflight: BundlePreflight) -> AssembledTimedInputs:
     if tuple(payloads) != ARTIFACT_ROLES:
         raise InputUnavailable("ARTIFACT_ROLES")
     artifacts = {item.role: item for item in preflight.artifacts}
+    if source_pair is not None:
+        expected = {
+            "daily_stock": source_pair.daily_sha256,
+            "m15_stock": source_pair.m15_sha256,
+            "corporate_action": source_pair.action_sha256,
+            "session_calendar": source_pair.calendar_sha256,
+        }
+        if any(artifacts[role].sha256 != digest for role, digest in expected.items()):
+            raise InputUnavailable("PAIR_ARTIFACT_BINDING")
+        try:
+            validate_source_pair_identities(
+                source_pair, {role: artifact.metadata for role, artifact in artifacts.items()}
+            )
+        except ValueError as exc:
+            raise InputUnavailable("PAIR_SOURCE_IDENTITY") from exc
     role_identity = {
         "daily_stock": ("NSE", "CASH_EQUITY", "BACK_ADJUSTED"),
         "pit_universe": ("NSE", "CASH_EQUITY", "POINT_IN_TIME_MEMBERSHIP"),
@@ -713,6 +735,17 @@ def assemble_timed_inputs(preflight: BundlePreflight) -> AssembledTimedInputs:
     expected_grid = {(index, symbol) for index in source_indices for symbol in symbols}
     if set(daily_map) != expected_grid:
         raise InputUnavailable("DAILY_COVERAGE")
+    if source_pair is not None:
+        try:
+            for index, symbol in expected_grid:
+                session = session_by_index[index]
+                assert session.open_ts is not None
+                assert session.close_ts is not None
+                mapping = source_pair.mapping_for(symbol, session.open_ts, session.close_ts)
+                if mapping.daily_symbol != symbol or mapping.m15_symbol != symbol:
+                    raise ValueError("canonical symbol mismatch")
+        except (AssertionError, ValueError) as exc:
+            raise InputUnavailable("PAIR_LINEAGE_MAPPING") from exc
     pit_map: dict[tuple[int, str], bool] = {}
     for row in pit:
         key = (row["source_index"], _text(row["symbol"]))
@@ -763,14 +796,14 @@ def assemble_timed_inputs(preflight: BundlePreflight) -> AssembledTimedInputs:
             raise InputUnavailable("M15_IDENTITY")
         if daily_map[(index, symbol)]["state"] == "INACTIVE_ABSENT":
             raise InputUnavailable("M15_INACTIVE_CONFLICT")
-        session = session_by_index.get(index)
+        m15_session = session_by_index.get(index)
         if (
-            session is None
-            or session.open_ts is None
-            or session.close_ts is None
-            or event < session.open_ts
+            m15_session is None
+            or m15_session.open_ts is None
+            or m15_session.close_ts is None
+            or event < m15_session.open_ts
             or end <= event
-            or end > session.close_ts
+            or end > m15_session.close_ts
         ):
             raise InputUnavailable("M15_SESSION_TIME")
         if (
@@ -793,7 +826,12 @@ def assemble_timed_inputs(preflight: BundlePreflight) -> AssembledTimedInputs:
         if row["state"] == "INACTIVE_ABSENT"
     )
     refinements = tuple(Refinement(symbol, tuple(rows_by_symbol[symbol])) for symbol in symbols)
-    digest = timed_fixture_digest(sessions, refinements, inactive)
+    digest = timed_fixture_digest(
+        sessions,
+        refinements,
+        inactive,
+        None if source_pair is None else source_pair.document_sha256,
+    )
     bound = replace(source, sha256=digest)
     sessions = tuple(replace(row, source=bound) for row in sessions)
     refinements = tuple(
@@ -864,9 +902,21 @@ def assemble_timed_inputs(preflight: BundlePreflight) -> AssembledTimedInputs:
         benchmark_values[:, 1],
         np.full(len(axis), np.nan),
     )
+    panel = Panel.build(bar_columns, tradable, benchmark=benchmark)
+    bound_pair = (
+        None
+        if source_pair is None
+        else _bind_source_pair(
+            source_pair,
+            {role: artifact.sha256 for role, artifact in artifacts.items()},
+            {role: artifact.metadata for role, artifact in artifacts.items()},
+            panel,
+            source_indices,
+        )
+    )
     return AssembledTimedInputs(
-        Panel.build(bar_columns, tradable, benchmark=benchmark),
-        TimedFixture(sessions, refinements, bound, inactive),
+        panel,
+        TimedFixture(sessions, refinements, bound, inactive, bound_pair),
         source_indices,
         nifty,
         False,

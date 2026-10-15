@@ -37,6 +37,12 @@ from icarus.engine.simcore import (
     rebalance_decision,
     validate_consumer_columns,
 )
+from icarus.engine.source_pair import (
+    BoundPairQualification,
+    PairRefusal,
+    daily_projection_digest,
+    reconcile_source_pair,
+)
 from icarus.engine.timed_execution import (
     ExitCause,
     ReplayRefusal,
@@ -83,6 +89,7 @@ class TimedRefusal(StrEnum):
     MISSING_REFINEMENT = "missing_or_conflicting_refinement"
     SOURCE_MISMATCH = "incompatible_source_or_fixture_hash"
     AGGREGATION = "daily_m15_aggregation_mismatch"
+    SOURCE_PAIR = "qualified_source_pair_refusal"
     LIQUIDITY_UNAVAILABLE = "opening_candidate_unsupported_by_realized_volume"
     MISSING_OPENING_LIQUIDITY = "missing_opening_liquidity"
     LATE_OPENING_LIQUIDITY = "late_opening_liquidity"
@@ -127,6 +134,7 @@ class TimedFixture:
     refinements: tuple[Refinement, ...]
     source: SourceDeclaration
     inactive: frozenset[tuple[str, int]] = frozenset()
+    pair_qualification: BoundPairQualification | None = None
 
     def __post_init__(self) -> None:
         if type(self.sessions) is not tuple or any(
@@ -143,6 +151,10 @@ class TimedFixture:
             type(symbol) is not str or type(index) is not int for symbol, index in self.inactive
         ):
             raise TypeError("fixture inactive cells must be an immutable symbol/index set")
+        if self.pair_qualification is not None and not isinstance(
+            self.pair_qualification, BoundPairQualification
+        ):
+            raise TypeError("source-pair exception requires an assembler-bound qualification")
 
 
 @dataclass(frozen=True, slots=True)
@@ -192,10 +204,13 @@ def timed_fixture_digest(
     sessions: tuple[Session, ...],
     refinements: tuple[Refinement, ...],
     inactive: frozenset[tuple[str, int]] = frozenset(),
+    pair_document_sha256: str | None = None,
 ) -> str:
     payload: list[object] = [(r.symbol, fixture_digest(sessions, r.bars)) for r in refinements]
     if inactive:
         payload.append(("__inactive__", sorted(inactive)))
+    if pair_document_sha256 is not None:
+        payload.append(("__source_pair__", pair_document_sha256))
     return sha256(json.dumps(payload, separators=(",", ":")).encode()).hexdigest()
 
 
@@ -439,6 +454,10 @@ def _preflight(
     ):
         raise ValueError("columns must preserve the exact panel universe")
     local_by_source = {index: local for local, index in enumerate(source)}
+    if fixture.pair_qualification is not None and (
+        fixture.pair_qualification.daily_projection_sha256 != daily_projection_digest(panel, source)
+    ):
+        return refuse(TimedRefusal.SOURCE_PAIR)
     for symbol, source_index in fixture.inactive:
         local = local_by_source.get(source_index)
         if symbol not in panel.symbols or local is None:
@@ -528,8 +547,22 @@ def _preflight(
                 Decimal(str(float(getattr(daily, name)[local])))
                 for name in ("open", "high", "low", "close", "volume")
             )
-            if actual != wanted:
-                return refuse(TimedRefusal.AGGREGATION, (r.symbol,))
+            bound_pair = fixture.pair_qualification
+            if bound_pair is None:
+                if actual != wanted:
+                    return refuse(TimedRefusal.AGGREGATION, (r.symbol,))
+            else:
+                try:
+                    reconcile_source_pair(
+                        bound_pair.qualification,
+                        symbol=r.symbol,
+                        session_open=session.open_ts,
+                        session_close=session.close_ts,
+                        daily=wanted,
+                        m15=actual,
+                    )
+                except PairRefusal:
+                    return refuse(TimedRefusal.SOURCE_PAIR, (r.symbol,))
     if (
         any(s.source != fixture.source for s in sessions)
         or any(
@@ -539,7 +572,16 @@ def _preflight(
             for b in r.bars
         )
         or (
-            timed_fixture_digest(sessions, fixture.refinements, fixture.inactive)
+            (
+                timed_fixture_digest(sessions, fixture.refinements, fixture.inactive)
+                if fixture.pair_qualification is None
+                else timed_fixture_digest(
+                    sessions,
+                    fixture.refinements,
+                    fixture.inactive,
+                    fixture.pair_qualification.qualification.document_sha256,
+                )
+            )
             != fixture.source.sha256
         )
     ):

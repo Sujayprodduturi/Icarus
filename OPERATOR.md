@@ -458,6 +458,12 @@ Dated decisions that are not code and not in `goal.yaml`, so they have nowhere e
 |---|---|---|
 | D55 | **Proceed with gap/rejection review and stock/Nifty input readiness after acquisition completion.** The operator's Go ahead follows the completion explanation and next-step proposal. Authorizes independently reviewed, bounded, offline data-QA and descriptive timestamp/coverage/adjustment consistency checks, classification of the 150 unresolved names against existing archive metadata, and public primary-source research. Actual record inspection is data-plane QA, never strategy evaluation. Pin inputs to the external snapshot; use UID10002/network-none with read-only raw/code mounts and no credentials/SDK/socket. Never repair prices, infer listing/delisting from absence, replace the PIT universe with survivors, invent event/availability facts, consume lockbox data, or silently accept quarantined chunks. Source qualification requires independent evidence; actual-ledger activation, strategy runs, inference, promotion, live orders and additional purchases/vendor messages remain unapproved. | operator, direct Go ahead on2026-10-15 |
 
+### 2026-10-15 — implement the reviewed daily/M15 source adapter
+
+| # | decision | who |
+|---|---|---|
+| D56 | **Build the independently reviewed paired-source adapter and engine integration.** The operator explicitly approved the proposal after the bounded Kite QA milestone. Preserve official daily signal prices and NSE PIT authority, use M15 only for execution, require independent evidence and byte/effective-date bindings for lineage, shared economic action bases and source-supported deterministic reconciliation. Keep the existing exact-aggregate default and all causal/grid/fill/risk refusals. Use invented fixtures and independent review before claiming software completion. This does not qualify downloaded data, authorize actual strategy trials or ledger activation, change interval-benchmark methodology, consume the lockbox, permit broker/live operations, or approve vendor messages/purchases. [Approved proposal](docs/plans/2026-10-15-paired-source-adapter-proposal.md). | operator, direct Approved. Go ahead on 2026-10-15 |
+
 ## 7c. Deferred by decision — not forgotten
 
 Things consciously postponed. **Each names the condition that reopens it.** A deferral without a
