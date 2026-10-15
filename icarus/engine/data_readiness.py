@@ -294,9 +294,15 @@ def preflight_bundle(
     for row in rows:
         assert type(row) is dict
         _exact_fields(row, _ARTIFACT_FIELDS, "ARTIFACT_FIELDS")
+        schema_supported = row["schema_version"] == 1 or (
+            row["role"] == "nifty_observation"
+            and row["schema_version"] == 2
+            and row["projection_policy"] == "DESCRIPTIVE_CANDLE_PROXY"
+            and row["parser_version"] == "icarus-benchmark-candle-v2"
+        )
         if (
             type(row["schema_version"]) is not int
-            or row["schema_version"] != 1
+            or not schema_supported
             or row["format"] not in ("json", "jsonl")
         ):
             raise ReadinessError("ARTIFACT_SCHEMA")

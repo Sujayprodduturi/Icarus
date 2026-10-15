@@ -6,9 +6,17 @@ from decimal import Decimal
 from fractions import Fraction
 from importlib import import_module
 from types import ModuleType
-from typing import Any
+from typing import Any, cast
 
 import pytest
+
+from icarus.engine.benchmark_match import (
+    AvailabilityBasis,
+    BenchmarkCandle,
+    CandleRefusalReason,
+    FixtureIdentity,
+    match_candle_benchmark,
+)
 
 ENTRY = datetime(2020, 1, 2, 3, 45, tzinfo=UTC)
 EXIT1 = ENTRY + timedelta(days=1)
@@ -59,6 +67,99 @@ def observations(m: ModuleType, second: Fraction = Fraction(104)) -> tuple[Any, 
         observation(m, "first", EXIT1, Fraction(102)),
         observation(m, "second", EXIT2, second),
     )
+
+
+def _candle(
+    record_id: str, start: datetime, low: int, high: int, *, identity_value: FixtureIdentity
+) -> BenchmarkCandle:
+    return BenchmarkCandle(
+        identity_value,
+        record_id,
+        identity_value.benchmark_version,
+        1,
+        start,
+        start + timedelta(minutes=15),
+        Fraction(low),
+        Fraction(high),
+        Fraction(low),
+        Fraction(high),
+        None,
+        start + timedelta(minutes=15),
+        AvailabilityBasis.MODELED_INTERVAL_END,
+    )
+
+
+def test_captured_candle_match_uses_exact_signed_interval_arithmetic(m: ModuleType) -> None:
+    expected = FixtureIdentity("NIFTY 50", "r1", "PRICE_INDEX", "fixture", "b" * 64)
+    entry_start = ENTRY - timedelta(minutes=5)
+    first_start = EXIT1 - timedelta(minutes=5)
+    second_start = EXIT2 - timedelta(minutes=5)
+    value = m.SyntheticTrade(
+        2,
+        timing(m, ENTRY),
+        (fragment(m, "first", 1, EXIT1), fragment(m, "second", 1, EXIT2)),
+    )
+    result = match_candle_benchmark(
+        value,
+        (
+            _candle("entry", entry_start, 100, 110, identity_value=expected),
+            _candle("first", first_start, 120, 130, identity_value=expected),
+            _candle("second", second_start, 90, 100, identity_value=expected),
+        ),
+        expected,
+    )
+    assert result.return_interval is not None
+    assert result.return_interval.lower == Fraction(-1, 22)
+    assert result.return_interval.upper == Fraction(3, 20)
+
+
+def test_captured_candle_overlap_refuses_whole_trade(m: ModuleType) -> None:
+    expected = FixtureIdentity("NIFTY 50", "r1", "PRICE_INDEX", "fixture", "b" * 64)
+    rows = (
+        _candle("entry", ENTRY - timedelta(minutes=5), 100, 110, identity_value=expected),
+        _candle("duplicate-entry", ENTRY - timedelta(minutes=4), 100, 110, identity_value=expected),
+    )
+    result = match_candle_benchmark(trade(m, exits=()), rows, expected)
+    assert result.return_interval is None
+    assert CandleRefusalReason.OVERLAPPING_CANDLES in result.trade_refusals
+
+
+def test_captured_candle_stale_mark_refuses_whole_trade_and_coverage(m: ModuleType) -> None:
+    expected = FixtureIdentity("NIFTY 50", "r1", "PRICE_INDEX", "fixture", "b" * 64)
+    value = trade(m)
+    stale = replace(value.exits[1], status=m.FragmentStatus.STALE_MARK)
+    result = match_candle_benchmark(
+        replace(value, exits=(value.exits[0], stale)),
+        (
+            _candle("entry", ENTRY - timedelta(minutes=5), 100, 110, identity_value=expected),
+            _candle("first", EXIT1 - timedelta(minutes=5), 120, 130, identity_value=expected),
+            _candle("second", EXIT2 - timedelta(minutes=5), 90, 100, identity_value=expected),
+        ),
+        expected,
+    )
+    assert result.return_interval is None
+    assert result.matched_exit_quantity == 25
+    assert result.legs[2].refusal is CandleRefusalReason.STALE_MARK
+
+
+@pytest.mark.parametrize("session_index", [-1, True, 1.0])
+def test_benchmark_candle_requires_exact_nonnegative_integer_index(session_index: object) -> None:
+    expected = FixtureIdentity("NIFTY 50", "r1", "PRICE_INDEX", "fixture", "b" * 64)
+    with pytest.raises((TypeError, ValueError), match="session_index"):
+        replace(
+            _candle("entry", ENTRY, 100, 110, identity_value=expected),
+            session_index=cast(int, session_index),
+        )
+
+
+def test_benchmark_candle_requires_exact_m15_duration() -> None:
+    expected = FixtureIdentity("NIFTY 50", "r1", "PRICE_INDEX", "fixture", "b" * 64)
+    with pytest.raises(ValueError, match="15 minutes"):
+        replace(
+            _candle("entry", ENTRY, 100, 110, identity_value=expected),
+            interval_end_ts=ENTRY + timedelta(minutes=30),
+            modeled_available_ts=ENTRY + timedelta(minutes=30),
+        )
 
 
 def test_unequal_fragments_use_original_quantity_and_exact_rationals(m: ModuleType) -> None:

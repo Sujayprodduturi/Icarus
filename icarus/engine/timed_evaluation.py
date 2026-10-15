@@ -8,12 +8,16 @@ import stat
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from decimal import Decimal
+from fractions import Fraction
 from pathlib import Path
 
 from icarus.common.config import LOCKBOX_START, GoalConfig
 from icarus.engine.backtest import Window, slice_panel
 from icarus.engine.benchmark_match import (
+    BenchmarkCandle,
+    BenchmarkMode,
     BenchmarkObservation,
+    CapturedReturnInterval,
     ExitFragment,
     FixtureIdentity,
     FragmentStatus,
@@ -23,6 +27,7 @@ from icarus.engine.benchmark_match import (
     SyntheticTrade,
     Timing,
     match_benchmark,
+    match_candle_benchmark,
 )
 from icarus.engine.costmodel import CostModel
 from icarus.engine.fills import FillModel
@@ -49,6 +54,45 @@ from icarus.strategy.dsl import StrategyCandidate, parse_strategy
 from icarus.strategy.library import default_registry
 
 CAPITALS = (100_000, 1_000_000)
+
+
+@dataclass(frozen=True, slots=True)
+class DescriptiveStockComparison:
+    stock_return: Fraction
+    excess_lower: Fraction
+    excess_upper: Fraction
+
+
+def descriptive_stock_comparison(
+    entry_price: Fraction,
+    original_quantity: int,
+    exits: tuple[tuple[int, Fraction], ...],
+    total_charges: Fraction,
+    benchmark: CapturedReturnInterval,
+) -> DescriptiveStockComparison:
+    if (
+        type(entry_price) is not Fraction
+        or entry_price <= 0
+        or type(original_quantity) is not int
+        or original_quantity <= 0
+        or type(exits) is not tuple
+        or sum(quantity for quantity, _ in exits) != original_quantity
+        or any(
+            type(quantity) is not int or quantity <= 0 or price <= 0 for quantity, price in exits
+        )
+        or type(total_charges) is not Fraction
+        or total_charges < 0
+        or not isinstance(benchmark, CapturedReturnInterval)
+    ):
+        raise ValueError("descriptive comparison requires one fully closed exact cash-flow book")
+    initial = entry_price * original_quantity
+    proceeds = sum((price * quantity for quantity, price in exits), Fraction(0))
+    stock_return = (proceeds - initial - total_charges) / initial
+    return DescriptiveStockComparison(
+        stock_return,
+        stock_return - benchmark.upper,
+        stock_return - benchmark.lower,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,6 +128,8 @@ class CataloguePayload:
     timed_index: TimedFixtureIndex
     benchmark_index: ObservationIndex
     benchmark_identity: FixtureIdentity
+    benchmark_mode: BenchmarkMode = BenchmarkMode.EXACT_OBSERVED_SESSION_CLOSE
+    benchmark_candles: tuple[BenchmarkCandle, ...] = ()
     _columns: dict[str, object] = field(default_factory=dict, repr=False)
     _fixtures: dict[tuple[int, int], TimedFixture] = field(default_factory=dict, repr=False)
     column_evaluations: int = 0
@@ -102,20 +148,29 @@ class CataloguePayload:
             None
             if fixture.pair_qualification is None
             else fixture.pair_qualification.qualification.document_sha256,
+            decision_availability=fixture.decision_availability,
+            availability_model=fixture.availability_model,
         )
         if fixture.source.sha256 != expected_fixture_digest:
             raise ValueError("fixture source digest does not bind inactive cells and rows")
         source = assembled.nifty_source
         if source is None:
             raise ValueError("Nifty observations require an explicit pinned source declaration")
+        if assembled.benchmark_mode is BenchmarkMode.DESCRIPTIVE_CANDLE_PROXY:
+            forbidden = {
+                primitive.name for primitive in default_registry() if primitive.require_benchmark
+            }
+            used = sorted(
+                forbidden.intersection(
+                    primitive for card in cards for primitive in card.candidate.primitives_used()
+                )
+            )
+            if used:
+                raise ValueError(f"descriptive candle mode refuses benchmark consumers: {used}")
         if any(item.revision != source.version for item in assembled.nifty):
             raise ValueError("Nifty observation revision differs from its pinned source")
-        identity = FixtureIdentity(
-            "NIFTY 50",
-            source.version,
-            "PRICE_INDEX",
-            source.artifact_id,
-            source.sha256,
+        identity = assembled.benchmark_identity or FixtureIdentity(
+            "NIFTY 50", source.version, "PRICE_INDEX", source.artifact_id, source.sha256
         )
         rows = tuple(
             BenchmarkObservation(
@@ -134,6 +189,8 @@ class CataloguePayload:
             index_timed_fixture(assembled.fixture),
             ObservationIndex(rows),
             identity,
+            assembled.benchmark_mode,
+            assembled.benchmark_candles,
         )
 
 
@@ -314,6 +371,7 @@ def _slice_fixture(
     source_start = fixture.sessions[start].index
     source_end = fixture.sessions[end - 1].index
     sessions = fixture.sessions[start:end]
+    decision_availability = fixture.decision_availability[start:end]
     inactive = frozenset(cell for cell in fixture.inactive if source_start <= cell[1] <= source_end)
     refinements = tuple(
         Refinement(
@@ -335,6 +393,8 @@ def _slice_fixture(
             None
             if fixture.pair_qualification is None
             else fixture.pair_qualification.qualification.document_sha256,
+            decision_availability=decision_availability,
+            availability_model=fixture.availability_model,
         ),
     )
     sessions = tuple(replace(item, source=source) for item in sessions)
@@ -352,7 +412,15 @@ def _slice_fixture(
         )
         for item in refinements
     )
-    return TimedFixture(sessions, refinements, source, inactive, fixture.pair_qualification)
+    return TimedFixture(
+        sessions,
+        refinements,
+        source,
+        inactive,
+        fixture.pair_qualification,
+        decision_availability,
+        fixture.availability_model,
+    )
 
 
 def _trade_benchmark(
@@ -373,7 +441,83 @@ def _trade_benchmark(
             for position, leg in enumerate(trade.exits)
         ),
     )
-    result = match_benchmark(
+    if payload.benchmark_mode is BenchmarkMode.DESCRIPTIVE_CANDLE_PROXY:
+        interpretation = {
+            "captured_bounds_scope": ("CAPTURED_RECORDS_ONLY_NOT_GUARANTEED_MARKET_PRICE_BOUNDS"),
+            "stock_return_basis": "NET_MODELED_TRADING_COSTS_BEFORE_TAX",
+            "benchmark_return_basis": "GROSS_NIFTY_50_PRICE_INDEX",
+            "availability_interpretation": (
+                "MODELED_STOCK_DECISION_AVAILABILITY_VS_RAW_PUBLICATION_REVISION_UNCERTAINTY"
+            ),
+            "raw_timestamp_interpretation": "PRESERVED_WHEN_PROVIDED_OTHERWISE_UNKNOWN",
+        }
+        candle_result = match_candle_benchmark(
+            converted, payload.benchmark_candles, payload.benchmark_identity
+        )
+        benchmark_interval = candle_result.return_interval
+        stock_return: Fraction | None = None
+        excess: tuple[Fraction, Fraction] | None = None
+        if trade.remaining_quantity == 0 and benchmark_interval is not None:
+            charges = Fraction(trade.entry.charges.total) + sum(
+                (Fraction(leg.charges.total) for leg in trade.exits), Fraction(0)
+            )
+            comparison = descriptive_stock_comparison(
+                Fraction(trade.entry.price),
+                trade.original_quantity,
+                tuple((leg.quantity, Fraction(leg.price)) for leg in trade.exits),
+                charges,
+                benchmark_interval,
+            )
+            stock_return = comparison.stock_return
+            excess = (comparison.excess_lower, comparison.excess_upper)
+        return {
+            "benchmark_mode": payload.benchmark_mode.value,
+            "promotion_eligible": False,
+            "tax_status": "PRE_TAX",
+            "interpretation": interpretation,
+            "source_identity": {
+                "benchmark_id": payload.benchmark_identity.benchmark_id,
+                "benchmark_version": payload.benchmark_identity.benchmark_version,
+                "price_basis": payload.benchmark_identity.price_basis,
+                "artifact_id": payload.benchmark_identity.artifact_id,
+                "artifact_sha256": payload.benchmark_identity.artifact_sha256,
+            },
+            "captured_candle_price_return_interval": None
+            if benchmark_interval is None
+            else [str(benchmark_interval.lower), str(benchmark_interval.upper)],
+            "stock_return_after_cost_before_tax": None
+            if stock_return is None
+            else str(stock_return),
+            "descriptive_excess_interval": None
+            if excess is None
+            else [str(excess[0]), str(excess[1])],
+            "matched_exit_quantity": candle_result.matched_exit_quantity,
+            "trade_refusals": [item.value for item in candle_result.trade_refusals],
+            "legs": [
+                {
+                    "id": leg.leg_id,
+                    "refusal": None if leg.refusal is None else leg.refusal.value,
+                    "record_id": leg.candle_record_id,
+                    "interval_start_ts": None
+                    if leg.interval_start_ts is None
+                    else leg.interval_start_ts.isoformat(),
+                    "interval_end_ts": None
+                    if leg.interval_end_ts is None
+                    else leg.interval_end_ts.isoformat(),
+                    "raw_available_ts": None
+                    if leg.raw_available_ts is None
+                    else leg.raw_available_ts.isoformat(),
+                    "modeled_available_ts": None
+                    if leg.modeled_available_ts is None
+                    else leg.modeled_available_ts.isoformat(),
+                    "availability_basis": None
+                    if leg.availability_basis is None
+                    else leg.availability_basis.value,
+                }
+                for leg in candle_result.legs
+            ],
+        }
+    matched = match_benchmark(
         converted,
         payload.benchmark_index.observations,
         payload.benchmark_identity,
@@ -388,9 +532,9 @@ def _trade_benchmark(
             "artifact_id": payload.benchmark_identity.artifact_id,
             "artifact_sha256": payload.benchmark_identity.artifact_sha256,
         },
-        "return": None if result.benchmark_return is None else str(result.benchmark_return),
-        "matched_exit_quantity": result.matched_exit_quantity,
-        "trade_refusals": [item.value for item in result.trade_refusals],
+        "return": None if matched.benchmark_return is None else str(matched.benchmark_return),
+        "matched_exit_quantity": matched.matched_exit_quantity,
+        "trade_refusals": [item.value for item in matched.trade_refusals],
         "legs": [
             {
                 "id": leg.leg_id,
@@ -410,7 +554,7 @@ def _trade_benchmark(
                     None if leg.observation_age is None else leg.observation_age.total_seconds()
                 ),
             }
-            for leg in result.legs
+            for leg in matched.legs
         ],
     }
 
@@ -466,7 +610,8 @@ def _summary(
             )
         )
 
-    return {
+    benchmark = [_trade_benchmark(item, payload, policy) for item in run.trades]
+    result = {
         "card": plan.card,
         "card_version": plan.card_version,
         "card_sha256": plan.card_sha256,
@@ -504,6 +649,7 @@ def _summary(
                 "symbol": trade.signal_id.symbol,
                 "decision_source_index": trade.signal_id.decision_index,
                 "decision_ts": trade.signal_id.decision_ts.isoformat(),
+                "decision_available_ts": trade.decision_available_ts.isoformat(),
                 "intended_quantity": trade.intended_quantity,
                 "original_quantity": trade.original_quantity,
                 "remaining_quantity": trade.remaining_quantity,
@@ -538,8 +684,26 @@ def _summary(
             }
             for trade in run.trades
         ],
-        "benchmark": [_trade_benchmark(item, payload, policy) for item in run.trades],
+        "benchmark": benchmark,
     }
+    if payload.benchmark_mode is BenchmarkMode.DESCRIPTIVE_CANDLE_PROXY:
+        result.pop("alpha_available")
+        result.pop("promotion_available")
+        comparable_count = sum(
+            item["captured_candle_price_return_interval"] is not None for item in benchmark
+        )
+        result["benchmark_comparable_count"] = comparable_count
+        result["benchmark_unavailable_count"] = len(benchmark) - comparable_count
+        result["descriptive_cost_basis"] = {
+            "captured_bounds_scope": ("CAPTURED_RECORDS_ONLY_NOT_GUARANTEED_MARKET_PRICE_BOUNDS"),
+            "stock_return_basis": "NET_MODELED_TRADING_COSTS_BEFORE_TAX",
+            "benchmark_return_basis": "GROSS_NIFTY_50_PRICE_INDEX",
+            "availability_interpretation": (
+                "MODELED_STOCK_DECISION_AVAILABILITY_VS_RAW_PUBLICATION_REVISION_UNCERTAINTY"
+            ),
+            "raw_timestamp_interpretation": "PRESERVED_WHEN_PROVIDED_OTHERWISE_UNKNOWN",
+        }
+    return result
 
 
 class TimedCatalogueEvaluator:

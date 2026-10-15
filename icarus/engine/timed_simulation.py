@@ -18,6 +18,7 @@ import numpy.typing as npt
 
 from icarus.common.config import Risk
 from icarus.common.types import OrderSide
+from icarus.engine.benchmark_match import AvailabilityBasis
 from icarus.engine.costmodel import Charges, CostModel, DeliveryFeeContext, Segment
 from icarus.engine.entry_accounting import (
     charge_difference,
@@ -129,12 +130,33 @@ class Refinement:
 
 
 @dataclass(frozen=True, slots=True)
+class DecisionAvailability:
+    source_index: int
+    raw_available_ts: datetime | None
+    modeled_available_ts: datetime | None
+    basis: AvailabilityBasis
+
+    def __post_init__(self) -> None:
+        _integer(self.source_index, zero=True)
+        if self.raw_available_ts is not None:
+            _utc(self.raw_available_ts)
+        if self.modeled_available_ts is not None:
+            _utc(self.modeled_available_ts)
+        if self.raw_available_ts is not None and self.modeled_available_ts is not None:
+            raise ValueError("raw and modeled availability are distinct declarations")
+        if self.basis is not AvailabilityBasis.MODELED_NEXT_SESSION_OPEN:
+            raise ValueError("daily decisions use modeled next-session-open availability")
+
+
+@dataclass(frozen=True, slots=True)
 class TimedFixture:
     sessions: tuple[Session, ...]
     refinements: tuple[Refinement, ...]
     source: SourceDeclaration
     inactive: frozenset[tuple[str, int]] = frozenset()
     pair_qualification: BoundPairQualification | None = None
+    decision_availability: tuple[DecisionAvailability, ...] = ()
+    availability_model: str | None = None
 
     def __post_init__(self) -> None:
         if type(self.sessions) is not tuple or any(
@@ -155,6 +177,46 @@ class TimedFixture:
             self.pair_qualification, BoundPairQualification
         ):
             raise TypeError("source-pair exception requires an assembler-bound qualification")
+        if bool(self.decision_availability) != bool(self.availability_model):
+            raise ValueError("modeled decision availability requires a named complete schedule")
+        if self.decision_availability:
+            if len(self.decision_availability) != len(self.sessions) or any(
+                item.source_index != session.index
+                for item, session in zip(self.decision_availability, self.sessions, strict=True)
+            ):
+                raise ValueError("decision availability must map one-to-one to fixture sessions")
+            for item, following in zip(
+                self.decision_availability[:-1], self.sessions[1:], strict=True
+            ):
+                if item.modeled_available_ts != following.open_ts:
+                    raise ValueError(
+                        "decision availability must use the next declared session open"
+                    )
+
+
+def decision_available_ts(fixture: TimedFixture, session: Session) -> datetime | None:
+    """Return strict close-time or the sealed descriptive next-session-open assumption."""
+    if not isinstance(fixture, TimedFixture) or not isinstance(session, Session):
+        raise TypeError("decision availability requires a typed fixture and session")
+    if not fixture.decision_availability:
+        return session.close_ts
+    for item in fixture.decision_availability:
+        if item.source_index == session.index:
+            return item.modeled_available_ts
+    raise ValueError("session is absent from the modeled decision schedule")
+
+
+def _bound_fixture_digest(fixture: TimedFixture) -> str:
+    return timed_fixture_digest(
+        fixture.sessions,
+        fixture.refinements,
+        fixture.inactive,
+        None
+        if fixture.pair_qualification is None
+        else fixture.pair_qualification.qualification.document_sha256,
+        decision_availability=fixture.decision_availability,
+        availability_model=fixture.availability_model,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -205,12 +267,37 @@ def timed_fixture_digest(
     refinements: tuple[Refinement, ...],
     inactive: frozenset[tuple[str, int]] = frozenset(),
     pair_document_sha256: str | None = None,
+    *,
+    decision_availability: tuple[DecisionAvailability, ...] = (),
+    availability_model: str | None = None,
 ) -> str:
     payload: list[object] = [(r.symbol, fixture_digest(sessions, r.bars)) for r in refinements]
     if inactive:
         payload.append(("__inactive__", sorted(inactive)))
     if pair_document_sha256 is not None:
         payload.append(("__source_pair__", pair_document_sha256))
+    if decision_availability or availability_model is not None:
+        if not decision_availability or not availability_model:
+            raise ValueError("descriptive fixture requires schedule and availability model")
+        payload.append(
+            (
+                "__decision_availability__",
+                availability_model,
+                [
+                    (
+                        item.source_index,
+                        None
+                        if item.raw_available_ts is None
+                        else item.raw_available_ts.isoformat(),
+                        None
+                        if item.modeled_available_ts is None
+                        else item.modeled_available_ts.isoformat(),
+                        item.basis.value,
+                    )
+                    for item in decision_availability
+                ],
+            )
+        )
     return sha256(json.dumps(payload, separators=(",", ":")).encode()).hexdigest()
 
 
@@ -571,19 +658,7 @@ def _preflight(
             for r in fixture.refinements
             for b in r.bars
         )
-        or (
-            (
-                timed_fixture_digest(sessions, fixture.refinements, fixture.inactive)
-                if fixture.pair_qualification is None
-                else timed_fixture_digest(
-                    sessions,
-                    fixture.refinements,
-                    fixture.inactive,
-                    fixture.pair_qualification.qualification.document_sha256,
-                )
-            )
-            != fixture.source.sha256
-        )
+        or (_bound_fixture_digest(fixture) != fixture.source.sha256)
     ):
         return refuse(TimedRefusal.SOURCE_MISMATCH)
     return None
@@ -790,6 +865,9 @@ def run_timed(
                     and h.pending_exit is not None
                     and session.index >= h.pending_exit.first_execution_index
                     and row.bar.ts >= h.pending_exit.decision_ts + latency
+                    and (
+                        not fixture.decision_availability or row.bar.ts > h.pending_exit.decision_ts
+                    )
                 ):
                     selected = Selection(ExitCause(h.pending_exit.reason.value))
                 if selected.cause is not None:
@@ -804,6 +882,10 @@ def run_timed(
                 for q in queued
                 if source[local] == q[0].decision_index + 1
                 and session.open_ts + bar_local * timedelta(minutes=15) >= q[2] + latency
+                and (
+                    not fixture.decision_availability
+                    or session.open_ts + bar_local * timedelta(minutes=15) > q[2]
+                )
             ]
             for q in eligible:
                 queued.remove(q)
@@ -1007,13 +1089,15 @@ def run_timed(
             )
             marks.append((session.index, session.close_ts, equity))
         if strategy.rebalance is None:
+            modeled_decision_ts = decision_available_ts(fixture, session)
             for signal in decisions:
                 if signal.decision_index == session.index:
-                    if local + 1 == len(source):
+                    if local + 1 == len(source) or modeled_decision_ts is None:
                         decisions[signal] = Disposition.NO_NEXT_SESSION
                     else:
-                        queued.append((signal, daily_by_source[session.index], session.close_ts))
+                        queued.append((signal, daily_by_source[session.index], modeled_decision_ts))
         if has_opposite and exit_signals is not None:
+            modeled_decision_ts = decision_available_ts(fixture, session)
             for symbol, holding in tuple(positions.items()):
                 value = exit_signals[symbol][local]
                 if np.isnan(value):
@@ -1024,10 +1108,10 @@ def run_timed(
                         session.close_ts,
                     )
                     break
-                if value == 1 and holding.pending_exit is None:
+                if value == 1 and holding.pending_exit is None and modeled_decision_ts is not None:
                     pending = ManagementExitEvent(
                         symbol,
-                        session.close_ts,
+                        modeled_decision_ts,
                         session.index,
                         session.index + 1,
                         ExitReason.OPPOSITE_SIGNAL,
@@ -1042,6 +1126,7 @@ def run_timed(
             and rebalance_pulses is not None
             and rebalance_pulses[local]
         ):
+            modeled_decision_ts = decision_available_ts(fixture, session)
             event = rebalance_decision(
                 strategy,
                 panel,
@@ -1052,14 +1137,18 @@ def run_timed(
                 tuple(positions),
                 tuple(symbol for symbol, h in positions.items() if h.pending_exit is not None),
             )
-            event = replace(event, decision_ts=session.close_ts)
+            event = replace(event, decision_ts=modeled_decision_ts or session.close_ts)
             rebalance_events.append(event)
             if event.status is RebalanceStatus.VALID:
                 for symbol, holding in positions.items():
-                    if symbol not in event.candidates and holding.pending_exit is None:
+                    if (
+                        modeled_decision_ts is not None
+                        and symbol not in event.candidates
+                        and holding.pending_exit is None
+                    ):
                         pending = ManagementExitEvent(
                             symbol,
-                            session.close_ts,
+                            modeled_decision_ts,
                             session.index,
                             session.index + 1,
                             ExitReason.REBALANCE,
@@ -1076,10 +1165,10 @@ def run_timed(
                         strategy.name, strategy.version, symbol, session.open_ts, session.index
                     )
                     decisions[identity] = None
-                    if local + 1 == len(source):
+                    if local + 1 == len(source) or modeled_decision_ts is None:
                         decisions[identity] = Disposition.NO_NEXT_SESSION
                     else:
-                        queued.append((identity, local, session.close_ts))
+                        queued.append((identity, local, modeled_decision_ts))
         for q in tuple(queued):
             if q[0].decision_index + 1 <= session.index:
                 decisions[q[0]] = Disposition.NO_NEXT_SESSION

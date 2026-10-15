@@ -3,10 +3,11 @@
 from bisect import bisect_right
 from collections import Counter
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from fractions import Fraction
+from itertools import pairwise
 from types import MappingProxyType
 
 from icarus.engine.timing import Precision as Precision
@@ -32,6 +33,16 @@ class SelectionPolicy(StrEnum):
     LATEST_AVAILABLE_OBSERVED = "latest_available_observed"
 
 
+class BenchmarkMode(StrEnum):
+    EXACT_OBSERVED_SESSION_CLOSE = "EXACT_OBSERVED_SESSION_CLOSE"
+    DESCRIPTIVE_CANDLE_PROXY = "DESCRIPTIVE_CANDLE_PROXY"
+
+
+class AvailabilityBasis(StrEnum):
+    MODELED_INTERVAL_END = "MODELED_INTERVAL_END"
+    MODELED_NEXT_SESSION_OPEN = "MODELED_NEXT_SESSION_OPEN"
+
+
 class RefusalReason(StrEnum):
     MISSING_EXECUTION_TIME = "missing_execution_time"
     UNRESOLVED_PRECISION = "unresolved_precision"
@@ -44,6 +55,17 @@ class RefusalReason(StrEnum):
     INCOMPATIBLE_IDENTITY = "incompatible_fixture_identity"
     DUPLICATE_OBSERVATION = "duplicate_or_conflicting_observation"
     QUANTITY_COVERAGE_MISMATCH = "quantity_coverage_mismatch"
+
+
+class CandleRefusalReason(StrEnum):
+    MISSING_CANDLE = "missing_candle"
+    OVERLAPPING_CANDLES = "overlapping_or_duplicate_candles"
+    INCOMPATIBLE_IDENTITY = "incompatible_fixture_identity"
+    QUARANTINED = "quarantined_candle"
+    UNRESOLVED_PRECISION = "unresolved_precision"
+    MULTI_INTERVAL = "stock_leg_spans_multiple_benchmark_intervals"
+    QUANTITY_COVERAGE_MISMATCH = "quantity_coverage_mismatch"
+    STALE_MARK = "stale_mark"
 
 
 def _text(name: str, value: str) -> None:
@@ -68,6 +90,8 @@ class MatchingPolicy:
     policy_id: str
     selection: SelectionPolicy
     max_age: timedelta
+    mode: BenchmarkMode = BenchmarkMode.EXACT_OBSERVED_SESSION_CLOSE
+    availability_model: str | None = None
 
     def __post_init__(self) -> None:
         _text("policy_id", self.policy_id)
@@ -79,6 +103,13 @@ class MatchingPolicy:
             raise ValueError("max_age cannot be negative")
         if self.selection is SelectionPolicy.EXACT and self.max_age != timedelta(0):
             raise ValueError("exact selection requires zero max_age")
+        if not isinstance(self.mode, BenchmarkMode):
+            raise TypeError("benchmark mode must be typed")
+        if self.mode is BenchmarkMode.EXACT_OBSERVED_SESSION_CLOSE:
+            if self.availability_model is not None:
+                raise ValueError("strict matching has no modeled availability")
+        elif self.availability_model != "MODELED_NEXT_SESSION_OPEN_V1":
+            raise ValueError("descriptive matching requires the sealed availability model")
 
 
 DEFAULT_MATCHING_POLICY = MatchingPolicy(POLICY, SelectionPolicy.EXACT, timedelta(0))
@@ -181,6 +212,233 @@ class BenchmarkObservation:
             raise ValueError("observation cannot be available before its event")
         if type(self.price) is not Fraction or self.price <= 0:
             raise ValueError("fixture price must be a positive exact Fraction")
+
+
+@dataclass(frozen=True, slots=True)
+class BenchmarkCandle:
+    """One captured interval; modeled availability is not raw publication evidence."""
+
+    source: FixtureIdentity
+    record_id: str
+    revision: str
+    session_index: int
+    interval_start_ts: datetime
+    interval_end_ts: datetime
+    open: Fraction
+    high: Fraction
+    low: Fraction
+    close: Fraction
+    raw_available_ts: datetime | None
+    modeled_available_ts: datetime
+    availability_basis: AvailabilityBasis
+    quarantined: bool = False
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.source, FixtureIdentity):
+            raise TypeError("benchmark candle requires a typed fixture identity")
+        _text("record_id", self.record_id)
+        _text("revision", self.revision)
+        if self.revision != self.source.benchmark_version:
+            raise ValueError("candle revision differs from its source identity")
+        if type(self.session_index) is not int or self.session_index < 0:
+            raise ValueError("session_index must be a nonnegative exact integer")
+        _utc("interval_start_ts", self.interval_start_ts)
+        _utc("interval_end_ts", self.interval_end_ts)
+        _utc("modeled_available_ts", self.modeled_available_ts)
+        if self.raw_available_ts is not None:
+            _utc("raw_available_ts", self.raw_available_ts)
+        if self.interval_end_ts <= self.interval_start_ts:
+            raise ValueError("candle interval must be ordered")
+        if self.interval_end_ts - self.interval_start_ts != timedelta(minutes=15):
+            raise ValueError("benchmark candle interval must be exactly 15 minutes")
+        if self.modeled_available_ts != self.interval_end_ts:
+            raise ValueError("benchmark candle modeled availability must equal interval end")
+        if not isinstance(self.availability_basis, AvailabilityBasis):
+            raise TypeError("availability basis must be typed")
+        if self.availability_basis is not AvailabilityBasis.MODELED_INTERVAL_END:
+            raise ValueError("benchmark candles use modeled interval-end availability")
+        if type(self.quarantined) is not bool:
+            raise TypeError("quarantined must be bool")
+        prices = (self.open, self.high, self.low, self.close)
+        if any(type(value) is not Fraction or value <= 0 for value in prices):
+            raise ValueError("candle OHLC must be positive exact Fractions")
+        if not self.low <= min(self.open, self.close) <= max(self.open, self.close) <= self.high:
+            raise ValueError("candle OHLC range is inconsistent")
+
+
+@dataclass(frozen=True, slots=True)
+class CapturedReturnInterval:
+    lower: Fraction
+    upper: Fraction
+
+    def __post_init__(self) -> None:
+        if type(self.lower) is not Fraction or type(self.upper) is not Fraction:
+            raise TypeError("captured return bounds must be exact Fractions")
+        if self.lower > self.upper:
+            raise ValueError("captured return interval must be ordered")
+
+
+@dataclass(frozen=True, slots=True)
+class CandleLegMatch:
+    leg_id: str
+    candle_record_id: str | None
+    interval_start_ts: datetime | None
+    interval_end_ts: datetime | None
+    raw_available_ts: datetime | None
+    modeled_available_ts: datetime | None
+    availability_basis: AvailabilityBasis | None
+    low: Fraction | None
+    high: Fraction | None
+    refusal: CandleRefusalReason | None
+
+
+@dataclass(frozen=True, slots=True)
+class CandleBenchmarkMatch:
+    return_interval: CapturedReturnInterval | None
+    matched_exit_quantity: int
+    legs: tuple[CandleLegMatch, ...]
+    trade_refusals: tuple[CandleRefusalReason, ...]
+    mode: BenchmarkMode = BenchmarkMode.DESCRIPTIVE_CANDLE_PROXY
+    promotion_eligible: bool = False
+
+
+def _candle_leg(
+    name: str,
+    timing: Timing,
+    candles: tuple[BenchmarkCandle, ...],
+    expected: FixtureIdentity,
+) -> CandleLegMatch:
+    if timing.precision is Precision.EVENT_RESOLVED and timing.event_ts is not None:
+        selected = tuple(
+            row for row in candles if row.interval_start_ts <= timing.event_ts < row.interval_end_ts
+        )
+    elif (
+        timing.precision is Precision.BAR_RESOLVED
+        and timing.interval_start is not None
+        and timing.interval_end is not None
+    ):
+        selected = tuple(
+            row
+            for row in candles
+            if row.interval_start_ts == timing.interval_start
+            and row.interval_end_ts == timing.interval_end
+        )
+        if not selected and any(
+            row.interval_start_ts < timing.interval_end
+            and timing.interval_start < row.interval_end_ts
+            for row in candles
+        ):
+            return CandleLegMatch(
+                name,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                CandleRefusalReason.MULTI_INTERVAL,
+            )
+    else:
+        return CandleLegMatch(
+            name,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            CandleRefusalReason.UNRESOLVED_PRECISION,
+        )
+    if len(selected) != 1:
+        reason = (
+            CandleRefusalReason.OVERLAPPING_CANDLES
+            if len(selected) > 1
+            else CandleRefusalReason.MISSING_CANDLE
+        )
+        return CandleLegMatch(name, None, None, None, None, None, None, None, None, reason)
+    row = selected[0]
+    refusal = (
+        CandleRefusalReason.INCOMPATIBLE_IDENTITY
+        if row.source != expected
+        else CandleRefusalReason.QUARANTINED
+        if row.quarantined
+        else None
+    )
+    return CandleLegMatch(
+        name,
+        row.record_id,
+        row.interval_start_ts,
+        row.interval_end_ts,
+        row.raw_available_ts,
+        row.modeled_available_ts,
+        row.availability_basis,
+        None if refusal else row.low,
+        None if refusal else row.high,
+        refusal,
+    )
+
+
+def match_candle_benchmark(
+    trade: SyntheticTrade,
+    candles: tuple[BenchmarkCandle, ...],
+    expected: FixtureIdentity,
+) -> CandleBenchmarkMatch:
+    """Describe captured candle ranges for one fully covered liquidation schedule."""
+    if not isinstance(trade, SyntheticTrade) or not isinstance(expected, FixtureIdentity):
+        raise TypeError("trade/expected must be typed declarations")
+    if type(candles) is not tuple or any(not isinstance(row, BenchmarkCandle) for row in candles):
+        raise TypeError("candles must be an immutable typed tuple")
+    ordered = sorted(candles, key=lambda row: (row.interval_start_ts, row.interval_end_ts))
+    overlap = len({row.record_id for row in candles}) != len(candles) or any(
+        right.interval_start_ts < left.interval_end_ts for left, right in pairwise(ordered)
+    )
+    entry = _candle_leg("entry", trade.entry_timing, candles, expected)
+    exits = tuple(
+        replace(
+            _candle_leg(f"exit/{fragment.fragment_id}", fragment.timing, candles, expected),
+            low=None,
+            high=None,
+            refusal=CandleRefusalReason.STALE_MARK,
+        )
+        if fragment.status is not FragmentStatus.EXECUTED
+        else _candle_leg(f"exit/{fragment.fragment_id}", fragment.timing, candles, expected)
+        for fragment in trade.exits
+    )
+    covered = sum(
+        fragment.quantity
+        for fragment, leg in zip(trade.exits, exits, strict=True)
+        if fragment.status is FragmentStatus.EXECUTED and leg.refusal is None
+    )
+    refusals: list[CandleRefusalReason] = []
+    if overlap:
+        refusals.append(CandleRefusalReason.OVERLAPPING_CANDLES)
+    if sum(fragment.quantity for fragment in trade.exits) != trade.original_quantity:
+        refusals.append(CandleRefusalReason.QUANTITY_COVERAGE_MISMATCH)
+    interval = None
+    if not refusals and entry.refusal is None and all(leg.refusal is None for leg in exits):
+        assert entry.low is not None and entry.high is not None
+        lower = sum(
+            (
+                Fraction(fragment.quantity, trade.original_quantity) * (leg.low / entry.high - 1)
+                for fragment, leg in zip(trade.exits, exits, strict=True)
+                if leg.low is not None
+            ),
+            Fraction(0),
+        )
+        upper = sum(
+            (
+                Fraction(fragment.quantity, trade.original_quantity) * (leg.high / entry.low - 1)
+                for fragment, leg in zip(trade.exits, exits, strict=True)
+                if leg.high is not None
+            ),
+            Fraction(0),
+        )
+        interval = CapturedReturnInterval(lower, upper)
+    return CandleBenchmarkMatch(interval, covered, (entry, *exits), tuple(refusals))
 
 
 @dataclass(frozen=True, slots=True)
@@ -370,8 +628,15 @@ __all__ = [
     "DEFAULT_MATCHING_POLICY",
     "POLICY",
     "SCOPE",
+    "AvailabilityBasis",
+    "BenchmarkCandle",
     "BenchmarkMatch",
+    "BenchmarkMode",
     "BenchmarkObservation",
+    "CandleBenchmarkMatch",
+    "CandleLegMatch",
+    "CandleRefusalReason",
+    "CapturedReturnInterval",
     "ExitFragment",
     "FixtureIdentity",
     "FragmentStatus",
@@ -385,4 +650,5 @@ __all__ = [
     "SyntheticTrade",
     "Timing",
     "match_benchmark",
+    "match_candle_benchmark",
 ]

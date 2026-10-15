@@ -18,6 +18,12 @@ import numpy as np
 
 from icarus.common.calendar import IST
 from icarus.common.config import LOCKBOX_START
+from icarus.engine.benchmark_match import (
+    AvailabilityBasis,
+    BenchmarkCandle,
+    BenchmarkMode,
+    FixtureIdentity,
+)
 from icarus.engine.data_readiness import ARTIFACT_ROLES, BundlePreflight
 from icarus.engine.fills import SimBar
 from icarus.engine.source_pair import (
@@ -26,6 +32,7 @@ from icarus.engine.source_pair import (
     validate_source_pair_identities,
 )
 from icarus.engine.timed_simulation import (
+    DecisionAvailability,
     OpeningLiquidity,
     Refinement,
     ReplayBar,
@@ -85,6 +92,9 @@ class AssembledTimedInputs:
     nifty: tuple[NiftyObservation, ...]
     data_qualified: bool
     nifty_source: SourceDeclaration | None = None
+    benchmark_mode: BenchmarkMode = BenchmarkMode.EXACT_OBSERVED_SESSION_CLOSE
+    benchmark_candles: tuple[BenchmarkCandle, ...] = ()
+    benchmark_identity: FixtureIdentity | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -497,11 +507,24 @@ def _typed_rows(raw: bytes, fields: set[str], code: str) -> tuple[dict[str, Any]
 
 
 def assemble_timed_inputs(
-    preflight: BundlePreflight, source_pair: PairQualification | None = None
+    preflight: BundlePreflight,
+    source_pair: PairQualification | None = None,
+    *,
+    benchmark_mode: BenchmarkMode = BenchmarkMode.EXACT_OBSERVED_SESSION_CLOSE,
+    availability_model: str | None = None,
 ) -> AssembledTimedInputs:
     """Decode all seven captured artifacts and build one causally aligned engine input."""
-    if not isinstance(preflight, BundlePreflight) or not preflight.software_verified:
+    if (
+        not isinstance(preflight, BundlePreflight)
+        or not preflight.software_verified
+        or not isinstance(benchmark_mode, BenchmarkMode)
+    ):
         raise InputUnavailable("PREFLIGHT_REQUIRED")
+    if benchmark_mode is BenchmarkMode.DESCRIPTIVE_CANDLE_PROXY:
+        if availability_model != "MODELED_NEXT_SESSION_OPEN_V1":
+            raise InputUnavailable("AVAILABILITY_MODEL")
+    elif availability_model is not None:
+        raise InputUnavailable("AVAILABILITY_MODEL")
     payloads = {item.role: item.payload for item in preflight.artifacts}
     if tuple(payloads) != ARTIFACT_ROLES:
         raise InputUnavailable("ARTIFACT_ROLES")
@@ -536,8 +559,20 @@ def assemble_timed_inputs(
         if (
             metadata.get("format") != "jsonl"
             or type(metadata.get("schema_version")) is not int
-            or metadata["schema_version"] != 1
-            or metadata.get("parser_version") != "icarus-real-data-v1"
+            or metadata["schema_version"]
+            != (
+                2
+                if role == "nifty_observation"
+                and benchmark_mode is BenchmarkMode.DESCRIPTIVE_CANDLE_PROXY
+                else 1
+            )
+            or metadata.get("parser_version")
+            != (
+                "icarus-benchmark-candle-v2"
+                if role == "nifty_observation"
+                and benchmark_mode is BenchmarkMode.DESCRIPTIVE_CANDLE_PROXY
+                else "icarus-real-data-v1"
+            )
             or type(metadata.get("source_revision")) is not str
             or not metadata["source_revision"]
             or (
@@ -547,7 +582,7 @@ def assemble_timed_inputs(
             )
             != role_identity[role]
             or metadata.get("projection_policy")
-            != ("EXACT_OBSERVED_SESSION_CLOSE" if role == "nifty_observation" else "NONE")
+            != (benchmark_mode.value if role == "nifty_observation" else "NONE")
         ):
             raise InputUnavailable(f"{role.upper()}_METADATA")
         start = _utc(metadata.get("coverage_start"))
@@ -637,7 +672,24 @@ def assemble_timed_inputs(
     actions = _typed_rows(payloads["corporate_action"], action_fields, "ACTION_SCHEMA")
     m15 = _typed_rows(payloads["m15_stock"], m15_fields, "M15_SCHEMA")
     liquidity = _typed_rows(payloads["opening_liquidity"], liquidity_fields, "LIQUIDITY_SCHEMA")
-    nifty = parse_nifty_jsonl(payloads["nifty_observation"])
+    nifty = (
+        parse_nifty_jsonl(payloads["nifty_observation"])
+        if benchmark_mode is BenchmarkMode.EXACT_OBSERVED_SESSION_CLOSE
+        else ()
+    )
+    nifty_artifact = artifacts["nifty_observation"]
+    benchmark_identity = FixtureIdentity(
+        "NIFTY 50",
+        _text(nifty_artifact.metadata["source_revision"]),
+        "PRICE_INDEX",
+        _text(nifty_artifact.metadata["vendor"]),
+        nifty_artifact.sha256,
+    )
+    benchmark_candles = (
+        parse_benchmark_candle_jsonl(payloads["nifty_observation"], benchmark_identity)
+        if benchmark_mode is BenchmarkMode.DESCRIPTIVE_CANDLE_PROXY
+        else ()
+    )
     row_sets = {
         "daily_stock": daily,
         "pit_universe": pit,
@@ -670,15 +722,25 @@ def assemble_timed_inputs(
         for row in calendar
     ):
         raise InputUnavailable("SESSION_CALENDAR_REVISION")
-    if any(
+    if benchmark_mode is BenchmarkMode.EXACT_OBSERVED_SESSION_CLOSE and any(
         row.revision != artifacts["nifty_observation"].metadata["source_revision"] for row in nifty
     ):
         raise InputUnavailable("NIFTY_OBSERVATION_REVISION")
-    if any(
+    if benchmark_mode is BenchmarkMode.EXACT_OBSERVED_SESSION_CLOSE and any(
         not (coverage["nifty_observation"][0] <= row.event_ts <= coverage["nifty_observation"][1])
         for row in nifty
     ):
         raise InputUnavailable("NIFTY_OBSERVATION_COVERAGE")
+    if benchmark_mode is BenchmarkMode.DESCRIPTIVE_CANDLE_PROXY and any(
+        not (
+            coverage["nifty_observation"][0]
+            <= row.interval_start_ts
+            < row.interval_end_ts
+            <= coverage["nifty_observation"][1]
+        )
+        for row in benchmark_candles
+    ):
+        raise InputUnavailable("NIFTY_CANDLE_COVERAGE")
     if any(
         row.open_ts is not None
         and not (coverage["session_calendar"][0] <= row.open_ts <= coverage["session_calendar"][1])
@@ -699,6 +761,16 @@ def assemble_timed_inputs(
     session_by_index = {
         row.source_index: row for row in sessions_raw if row.source_index is not None
     }
+    for candle in benchmark_candles:
+        candle_session = session_by_index.get(candle.session_index)
+        if (
+            candle_session is None
+            or candle_session.open_ts is None
+            or candle_session.close_ts is None
+            or candle.interval_start_ts < candle_session.open_ts
+            or candle.interval_end_ts > candle_session.close_ts
+        ):
+            raise InputUnavailable("NIFTY_CANDLE_SESSION")
     revision_by_symbol = {row["symbol"]: row["revision"] for row in actions}
     daily_map: dict[tuple[int, str], dict[str, Any]] = {}
     for row in daily:
@@ -826,11 +898,26 @@ def assemble_timed_inputs(
         if row["state"] == "INACTIVE_ABSENT"
     )
     refinements = tuple(Refinement(symbol, tuple(rows_by_symbol[symbol])) for symbol in symbols)
+    decision_availability = (
+        tuple(
+            DecisionAvailability(
+                session.index,
+                None,
+                None if offset + 1 == len(sessions) else sessions[offset + 1].open_ts,
+                AvailabilityBasis.MODELED_NEXT_SESSION_OPEN,
+            )
+            for offset, session in enumerate(sessions)
+        )
+        if benchmark_mode is BenchmarkMode.DESCRIPTIVE_CANDLE_PROXY
+        else ()
+    )
     digest = timed_fixture_digest(
         sessions,
         refinements,
         inactive,
         None if source_pair is None else source_pair.document_sha256,
+        decision_availability=decision_availability,
+        availability_model=availability_model,
     )
     bound = replace(source, sha256=digest)
     sessions = tuple(replace(row, source=bound) for row in sessions)
@@ -868,40 +955,44 @@ def assemble_timed_inputs(
         tradable[symbol] = np.array(
             [pit_map[(index, symbol)] for index in source_indices], dtype=np.bool_
         )
-    benchmark_rows: list[tuple[float, float]] = []
-    nifty_by_event: dict[datetime, list[NiftyObservation]] = {}
-    for observation in nifty:
-        nifty_by_event.setdefault(observation.event_ts, []).append(observation)
-    for fixture_session in sessions:
-        if not (
-            coverage["nifty_observation"][0]
-            <= fixture_session.close_ts
-            <= coverage["nifty_observation"][1]
-        ):
-            benchmark_rows.append((np.nan, np.nan))
-            continue
-        opens = tuple(
-            row
-            for row in nifty_by_event.get(fixture_session.open_ts, ())
-            if row.observed and row.available_ts <= fixture_session.open_ts
+    benchmark = None
+    if benchmark_mode is BenchmarkMode.EXACT_OBSERVED_SESSION_CLOSE:
+        benchmark_rows: list[tuple[float, float]] = []
+        nifty_by_event: dict[datetime, list[NiftyObservation]] = {}
+        for observation in nifty:
+            nifty_by_event.setdefault(observation.event_ts, []).append(observation)
+        for fixture_session in sessions:
+            if not (
+                coverage["nifty_observation"][0]
+                <= fixture_session.close_ts
+                <= coverage["nifty_observation"][1]
+            ):
+                benchmark_rows.append((np.nan, np.nan))
+                continue
+            opens = tuple(
+                row
+                for row in nifty_by_event.get(fixture_session.open_ts, ())
+                if row.observed and row.available_ts <= fixture_session.open_ts
+            )
+            closes = tuple(
+                row
+                for row in nifty_by_event.get(fixture_session.close_ts, ())
+                if row.observed and row.available_ts <= fixture_session.close_ts
+            )
+            if len(opens) > 1 or len(closes) != 1:
+                raise InputUnavailable("NIFTY_DAILY_PROJECTION_UNAVAILABLE")
+            benchmark_rows.append(
+                (float(opens[0].price) if opens else np.nan, float(closes[0].price))
+            )
+        benchmark_values = np.array(benchmark_rows)
+        benchmark = Bars(
+            axis,
+            benchmark_values[:, 0],
+            np.full(len(axis), np.nan),
+            np.full(len(axis), np.nan),
+            benchmark_values[:, 1],
+            np.full(len(axis), np.nan),
         )
-        closes = tuple(
-            row
-            for row in nifty_by_event.get(fixture_session.close_ts, ())
-            if row.observed and row.available_ts <= fixture_session.close_ts
-        )
-        if len(opens) > 1 or len(closes) != 1:
-            raise InputUnavailable("NIFTY_DAILY_PROJECTION_UNAVAILABLE")
-        benchmark_rows.append((float(opens[0].price) if opens else np.nan, float(closes[0].price)))
-    benchmark_values = np.array(benchmark_rows)
-    benchmark = Bars(
-        axis,
-        benchmark_values[:, 0],
-        np.full(len(axis), np.nan),
-        np.full(len(axis), np.nan),
-        benchmark_values[:, 1],
-        np.full(len(axis), np.nan),
-    )
     panel = Panel.build(bar_columns, tradable, benchmark=benchmark)
     bound_pair = (
         None
@@ -916,7 +1007,15 @@ def assemble_timed_inputs(
     )
     return AssembledTimedInputs(
         panel,
-        TimedFixture(sessions, refinements, bound, inactive, bound_pair),
+        TimedFixture(
+            sessions,
+            refinements,
+            bound,
+            inactive,
+            bound_pair,
+            decision_availability,
+            availability_model,
+        ),
         source_indices,
         nifty,
         False,
@@ -925,6 +1024,9 @@ def assemble_timed_inputs(
             _text(artifacts["nifty_observation"].metadata["source_revision"]),
             artifacts["nifty_observation"].sha256,
         ),
+        benchmark_mode,
+        benchmark_candles,
+        benchmark_identity,
     )
 
 
@@ -1046,4 +1148,82 @@ def parse_nifty_jsonl(raw: bytes) -> tuple[NiftyObservation, ...]:
                 key[0], key[1], event, available, row["observed"], Fraction(numerator, denominator)
             )
         )
+    return tuple(answer)
+
+
+def parse_benchmark_candle_jsonl(
+    raw: bytes, expected: FixtureIdentity
+) -> tuple[BenchmarkCandle, ...]:
+    wanted = {
+        "schema_version",
+        "record_id",
+        "revision",
+        "source_index",
+        "instrument",
+        "venue",
+        "price_basis",
+        "interval_start_ts",
+        "interval_end_ts",
+        "open_numerator",
+        "open_denominator",
+        "high_numerator",
+        "high_denominator",
+        "low_numerator",
+        "low_denominator",
+        "close_numerator",
+        "close_denominator",
+        "raw_available_ts",
+        "modeled_available_ts",
+        "availability_basis",
+        "quarantined",
+    }
+    answer: list[BenchmarkCandle] = []
+    for row in _records(raw):
+        if (
+            set(row) != wanted
+            or type(row["schema_version"]) is not int
+            or row["schema_version"] != 2
+        ):
+            raise InputUnavailable("NIFTY_CANDLE_SCHEMA")
+        if (row["instrument"], row["venue"], row["price_basis"]) != (
+            "NIFTY 50",
+            "NSE",
+            "PRICE_INDEX",
+        ):
+            raise InputUnavailable("NIFTY_CANDLE_IDENTITY")
+        prices: list[Fraction] = []
+        for name in ("open", "high", "low", "close"):
+            numerator, denominator = row[f"{name}_numerator"], row[f"{name}_denominator"]
+            if (
+                type(numerator) is not int
+                or type(denominator) is not int
+                or numerator <= 0
+                or denominator <= 0
+            ):
+                raise InputUnavailable("NIFTY_CANDLE_PRICE")
+            prices.append(Fraction(numerator, denominator))
+        try:
+            opened, high, low, closed = prices
+            answer.append(
+                BenchmarkCandle(
+                    expected,
+                    _text(row["record_id"]),
+                    _text(row["revision"]),
+                    row["source_index"],
+                    _utc(row["interval_start_ts"]),
+                    _utc(row["interval_end_ts"]),
+                    opened,
+                    high,
+                    low,
+                    closed,
+                    None if row["raw_available_ts"] is None else _utc(row["raw_available_ts"]),
+                    _utc(row["modeled_available_ts"]),
+                    AvailabilityBasis(row["availability_basis"]),
+                    row["quarantined"],
+                )
+            )
+        except (TypeError, ValueError) as exc:
+            raise InputUnavailable("NIFTY_CANDLE_VALUE") from exc
+    if len({row.record_id for row in answer}) != len(answer):
+        raise InputUnavailable("NIFTY_CANDLE_DUPLICATE")
     return tuple(answer)

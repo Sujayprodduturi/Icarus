@@ -17,7 +17,7 @@ from uuid import NAMESPACE_URL, uuid5
 
 import yaml
 
-from icarus.engine.benchmark_match import MatchingPolicy, SelectionPolicy
+from icarus.engine.benchmark_match import BenchmarkMode, MatchingPolicy, SelectionPolicy
 from icarus.engine.data_readiness import BundlePreflight, preflight_bundle
 
 if TYPE_CHECKING:
@@ -170,16 +170,20 @@ def parse_qualification_certificate(raw: bytes) -> QualificationCertificate:
 
 def parse_matching_policy(raw: bytes) -> MatchingPolicy:
     value = _strict_object(raw, "MATCHING_POLICY_JSON")
-    if set(value) != {
+    base_fields = {
         "schema_version",
         "policy_id",
         "selection",
         "max_age_seconds",
         "registered_at",
         "source_binding",
-    }:
+    }
+    descriptive_fields = base_fields | {"mode", "availability_model"}
+    if set(value) not in (base_fields, descriptive_fields):
         raise TimedCliError("MATCHING_POLICY_SCHEMA")
-    if type(value["schema_version"]) is not int or value["schema_version"] != 1:
+    if type(value["schema_version"]) is not int or value["schema_version"] not in (1, 2):
+        raise TimedCliError("MATCHING_POLICY_SCHEMA")
+    if (value["schema_version"] == 1) != (set(value) == base_fields):
         raise TimedCliError("MATCHING_POLICY_SCHEMA")
     age = value["max_age_seconds"]
     if type(age) is not int or age < 0:
@@ -188,8 +192,13 @@ def parse_matching_policy(raw: bytes) -> MatchingPolicy:
     _text(value["source_binding"], "MATCHING_POLICY_SOURCE")
     try:
         selection = SelectionPolicy(value["selection"])
+        mode = BenchmarkMode(value.get("mode", BenchmarkMode.EXACT_OBSERVED_SESSION_CLOSE.value))
         return MatchingPolicy(
-            _text(value["policy_id"], "MATCHING_POLICY_ID"), selection, timedelta(seconds=age)
+            _text(value["policy_id"], "MATCHING_POLICY_ID"),
+            selection,
+            timedelta(seconds=age),
+            mode,
+            value.get("availability_model"),
         )
     except (TypeError, ValueError) as exc:
         raise TimedCliError("MATCHING_POLICY_SCHEMA") from exc
@@ -575,16 +584,28 @@ def main(argv: list[str] | None = None) -> int:
     try:
         runner = GuardedTimedRunner(PostgresTrialLedger(engine))
         evaluator = TimedCatalogueEvaluator(cards, goal, matching_policy)
+
+        def decode() -> CataloguePayload:
+            if matching_policy.mode is BenchmarkMode.EXACT_OBSERVED_SESSION_CLOSE:
+                assembled = (
+                    assemble_timed_inputs(preflight)
+                    if source_pair is None
+                    else assemble_timed_inputs(preflight, source_pair)
+                )
+            else:
+                assembled = assemble_timed_inputs(
+                    preflight,
+                    source_pair,
+                    benchmark_mode=matching_policy.mode,
+                    availability_model=matching_policy.availability_model,
+                )
+            return CataloguePayload.from_assembled(assembled, cards)
+
         results = runner.run(
             authorization,
             binding,
             plans,
-            lambda: CataloguePayload.from_assembled(
-                assemble_timed_inputs(preflight)
-                if source_pair is None
-                else assemble_timed_inputs(preflight, source_pair),
-                cards,
-            ),
+            decode,
             evaluator.evaluate,
         )
         report = {
@@ -595,6 +616,8 @@ def main(argv: list[str] | None = None) -> int:
             "scope": "PRE_TAX_DESCRIPTIVE_NOT_PROMOTION_OR_ALPHA",
             "qualification_id": certificate.qualification_id,
             "matching_policy_id": matching_policy.policy_id,
+            "benchmark_mode": matching_policy.mode.value,
+            "promotion_eligible": False,
             "qualification_evidence": "HASH_BOUND_EXTERNAL_ATTESTATIONS_NOT_VENDOR_AUTHENTICATION",
             "results": [
                 {

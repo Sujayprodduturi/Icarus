@@ -7,11 +7,18 @@ import json
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from fractions import Fraction
 from typing import Any
 
 import numpy as np
 import pytest
 
+from icarus.engine.benchmark_match import (
+    AvailabilityBasis,
+    BenchmarkCandle,
+    BenchmarkMode,
+    FixtureIdentity,
+)
 from icarus.engine.data_readiness import BundlePreflight, CapturedArtifact
 from icarus.engine.fills import SimBar
 from icarus.engine.timed_runner import (
@@ -23,11 +30,13 @@ from icarus.engine.timed_runner import (
     RunAuthorization,
     RunnerError,
     assemble_timed_inputs,
+    parse_benchmark_candle_jsonl,
     parse_calendar_jsonl,
     parse_nifty_jsonl,
     parse_run_authorization_json,
 )
 from icarus.engine.timed_simulation import (
+    DecisionAvailability,
     OpeningLiquidity,
     Refinement,
     ReplayBar,
@@ -35,6 +44,7 @@ from icarus.engine.timed_simulation import (
     SourceDeclaration,
     TimedFixture,
     index_timed_fixture,
+    timed_fixture_digest,
 )
 from icarus.state.trial_ledger import (
     EvaluationReservation,
@@ -47,6 +57,129 @@ from icarus.state.trial_ledger import (
 
 def _lines(*rows: dict[str, object]) -> bytes:
     return b"".join(json.dumps(row, separators=(",", ":")).encode() + b"\n" for row in rows)
+
+
+def _benchmark_identity() -> FixtureIdentity:
+    return FixtureIdentity("NIFTY 50", "r1", "PRICE_INDEX", "invented-index", "b" * 64)
+
+
+def _benchmark_candle_row() -> dict[str, object]:
+    return {
+        "schema_version": 2,
+        "record_id": "nifty-m15-1",
+        "revision": "r1",
+        "source_index": 0,
+        "instrument": "NIFTY 50",
+        "venue": "NSE",
+        "price_basis": "PRICE_INDEX",
+        "interval_start_ts": "2020-01-01T03:45:00.000000Z",
+        "interval_end_ts": "2020-01-01T04:00:00.000000Z",
+        "open_numerator": 100,
+        "open_denominator": 1,
+        "high_numerator": 110,
+        "high_denominator": 1,
+        "low_numerator": 90,
+        "low_denominator": 1,
+        "close_numerator": 105,
+        "close_denominator": 1,
+        "raw_available_ts": None,
+        "modeled_available_ts": "2020-01-01T04:00:00.000000Z",
+        "availability_basis": "MODELED_INTERVAL_END",
+        "quarantined": False,
+    }
+
+
+def test_descriptive_contract_keeps_unknown_raw_time_and_exact_positive_ohlc() -> None:
+    source = FixtureIdentity("NIFTY 50", "r1", "PRICE_INDEX", "invented-index", "b" * 64)
+    start = datetime(2020, 1, 3, 3, 45, tzinfo=UTC)
+    candle = BenchmarkCandle(
+        source,
+        "nifty-m15-1",
+        "r1",
+        7,
+        start,
+        start + timedelta(minutes=15),
+        Fraction(100),
+        Fraction(110),
+        Fraction(90),
+        Fraction(105),
+        None,
+        start + timedelta(minutes=15),
+        AvailabilityBasis.MODELED_INTERVAL_END,
+    )
+    assert candle.raw_available_ts is None
+    assert candle.modeled_available_ts == candle.interval_end_ts
+    assert BenchmarkMode.EXACT_OBSERVED_SESSION_CLOSE.value == "EXACT_OBSERVED_SESSION_CLOSE"
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "reason"),
+    [
+        ("schema_version", 2.0, "NIFTY_CANDLE_SCHEMA"),
+        ("schema_version", True, "NIFTY_CANDLE_SCHEMA"),
+        ("source_index", True, "NIFTY_CANDLE_VALUE"),
+        ("source_index", -1, "NIFTY_CANDLE_VALUE"),
+    ],
+)
+def test_benchmark_candle_parser_rejects_inexact_schema_and_index(
+    field: str, value: object, reason: str
+) -> None:
+    row = _benchmark_candle_row()
+    row[field] = value
+    with pytest.raises(InputUnavailable, match=reason):
+        parse_benchmark_candle_jsonl(_lines(row), _benchmark_identity())
+
+
+def test_benchmark_candle_parser_rejects_non_m15_interval() -> None:
+    row = _benchmark_candle_row()
+    row["interval_end_ts"] = "2020-01-01T04:15:00.000000Z"
+    row["modeled_available_ts"] = row["interval_end_ts"]
+    with pytest.raises(InputUnavailable, match="NIFTY_CANDLE_VALUE"):
+        parse_benchmark_candle_jsonl(_lines(row), _benchmark_identity())
+
+
+def test_descriptive_availability_is_digest_bound_without_changing_strict_digest() -> None:
+    source = SourceDeclaration("invented", "r1", "0" * 64)
+    opened = datetime(2020, 1, 2, 3, 45, tzinfo=UTC)
+    sessions = (
+        Session(10, opened, opened + timedelta(minutes=15), source),
+        Session(11, opened + timedelta(days=1), opened + timedelta(days=1, minutes=15), source),
+    )
+    bar = ReplayBar(
+        10,
+        SimBar(
+            opened,
+            *(Decimal(value) for value in ("100", "101", "99", "100", "1000")),
+        ),
+        opened + timedelta(minutes=15),
+        OpeningLiquidity(Decimal("900"), opened - timedelta(seconds=1), source),
+        source,
+    )
+    refinements = (Refinement("AAA", (bar,)),)
+    strict = timed_fixture_digest(sessions, refinements)
+    schedule = (
+        DecisionAvailability(
+            10,
+            None,
+            sessions[1].open_ts,
+            AvailabilityBasis.MODELED_NEXT_SESSION_OPEN,
+        ),
+        DecisionAvailability(11, None, None, AvailabilityBasis.MODELED_NEXT_SESSION_OPEN),
+    )
+    descriptive = timed_fixture_digest(
+        sessions,
+        refinements,
+        decision_availability=schedule,
+        availability_model="MODELED_NEXT_SESSION_OPEN_V1",
+    )
+    mutated = timed_fixture_digest(
+        sessions,
+        refinements,
+        decision_availability=(replace(schedule[0], modeled_available_ts=None), schedule[1]),
+        availability_model="MODELED_NEXT_SESSION_OPEN_V1",
+    )
+    assert strict == "032c89638dcd3679fe9d7cbf84b2d8d1910dce5b95f253ea4d940bbf0de12c90"
+    assert descriptive != strict and mutated != descriptive
 
 
 def _captured(role: str, payload: bytes) -> CapturedArtifact:

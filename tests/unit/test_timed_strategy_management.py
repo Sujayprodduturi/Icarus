@@ -11,6 +11,7 @@ import pytest
 
 from icarus.common.config import load_goal
 from icarus.common.types import OrderSide
+from icarus.engine.benchmark_match import AvailabilityBasis
 from icarus.engine.costmodel import CostModel
 from icarus.engine.fills import FillModel, Intent, SimBar
 from icarus.engine.portfolio import PortfolioSimulator
@@ -19,6 +20,7 @@ from icarus.engine.signaltest import SignalSimulator
 from icarus.engine.simcore import RebalanceStatus
 from icarus.engine.timed_execution import ExitCause
 from icarus.engine.timed_simulation import (
+    DecisionAvailability,
     OpeningLiquidity,
     Refinement,
     ReplayBar,
@@ -88,6 +90,45 @@ def fixture(symbols: tuple[str, ...], *, days: int = 4, source_start: int = 252)
         for item in refinements
     )
     return TimedFixture(sessions, refinements, bound)
+
+
+def descriptive_fixture(value: TimedFixture) -> TimedFixture:
+    schedule = tuple(
+        DecisionAvailability(
+            session.index,
+            None,
+            None if offset + 1 == len(value.sessions) else value.sessions[offset + 1].open_ts,
+            AvailabilityBasis.MODELED_NEXT_SESSION_OPEN,
+        )
+        for offset, session in enumerate(value.sessions)
+    )
+    digest = timed_fixture_digest(
+        value.sessions,
+        value.refinements,
+        value.inactive,
+        decision_availability=schedule,
+        availability_model="MODELED_NEXT_SESSION_OPEN_V1",
+    )
+    source = replace(value.source, sha256=digest)
+    sessions = tuple(replace(session, source=source) for session in value.sessions)
+    refinements = tuple(
+        Refinement(
+            item.symbol,
+            tuple(
+                replace(row, source=source, opening=bound_opening(row, source)) for row in item.bars
+            ),
+        )
+        for item in value.refinements
+    )
+    return TimedFixture(
+        sessions,
+        refinements,
+        source,
+        value.inactive,
+        value.pair_qualification,
+        schedule,
+        "MODELED_NEXT_SESSION_OPEN_V1",
+    )
 
 
 def priced_fixture(closes: np.ndarray[Any, np.dtype[np.float64]]) -> TimedFixture:
@@ -341,6 +382,80 @@ def test_opposite_decision_uses_close_then_sticky_next_session_open(mode: str) -
     assert result.management_exit_events[0].decision_ts == value.sessions[1].close_ts
     assert result.trades[0].exits[0].source_index == 254
     assert result.trades[0].exits[0].cause is ExitCause.OPPOSITE_SIGNAL
+
+
+@pytest.mark.parametrize("mode", ["signal", "portfolio"])
+def test_modeled_next_open_skips_open_bar_for_entry_and_opposite_exit(mode: str) -> None:
+    value = descriptive_fixture(fixture(("S0",)))
+    result = run(
+        mode,
+        value,
+        card("donchian_55_20"),
+        {"S0": np.array([1.0, 0.0, 0.0, 0.0])},
+        exits={"S0": np.array([0.0, 1.0, 0.0, 0.0])},
+    )
+    trade = result.trades[0]
+    assert result.valid
+    assert trade.signal_id.decision_index == value.sessions[0].index
+    assert trade.decision_available_ts == value.sessions[1].open_ts
+    assert trade.entry.raw_bar_ts == value.sessions[1].open_ts + STEP
+    assert result.management_exit_events[0].decision_ts == value.sessions[2].open_ts
+    assert trade.exits[0].raw_bar_ts == value.sessions[2].open_ts + STEP
+
+
+@pytest.mark.parametrize("mode", ["signal", "portfolio"])
+def test_modeled_availability_does_not_delay_active_stop(mode: str) -> None:
+    value = descriptive_fixture(
+        change(fixture(("S0",)), "S0", 4, open="94", high="94", low="93", close="94")
+    )
+    result = run(
+        mode,
+        value,
+        card("donchian_55_20"),
+        {"S0": np.array([1.0, 0.0, 0.0, 0.0])},
+        exits={"S0": np.array([0.0, 1.0, 0.0, 0.0])},
+    )
+    assert result.valid
+    assert result.trades[0].exits[0].cause is ExitCause.STOP
+    assert result.trades[0].exits[0].raw_bar_ts == value.sessions[2].open_ts
+
+
+@pytest.mark.parametrize("mode", ["signal", "portfolio"])
+@pytest.mark.parametrize("days", [64, 65])
+def test_modeled_rebalance_waits_for_successor_and_terminal_is_unavailable(
+    mode: str, days: int
+) -> None:
+    symbols = tuple(f"S{i:02d}" for i in range(31))
+    value = descriptive_fixture(fixture(symbols, days=days))
+    signals = {symbol: np.zeros(days) for symbol in symbols}
+    for index, symbol in enumerate(symbols):
+        signals[symbol][0] = float(index < 30)
+        signals[symbol][63] = float(index > 0)
+    ranks = {symbol: np.full(days, float(31 - index)) for index, symbol in enumerate(symbols)}
+    pulses = np.zeros(days, dtype=np.bool_)
+    pulses[[0, 63]] = True
+    result = run(
+        mode,
+        value,
+        card("defensive_low_vol_252_q63"),
+        signals,
+        ranks=ranks,
+        pulses=pulses,
+        capital=Decimal("100000"),
+    )
+    assert result.valid
+    assert all(item.entry.raw_bar_ts > item.decision_available_ts for item in result.trades)
+    events = [item for item in result.management_exit_events if item.decision_index == 315]
+    if days == 64:
+        assert not events
+        assert not any(item.signal_id.decision_index == 315 for item in result.trades)
+        assert value.decision_availability[-1].modeled_available_ts is None
+    else:
+        assert events and events[0].decision_ts == value.sessions[64].open_ts
+        exits = [
+            leg for item in result.trades for leg in item.exits if leg.cause is ExitCause.REBALANCE
+        ]
+        assert exits and all(leg.raw_bar_ts > value.sessions[64].open_ts for leg in exits)
 
 
 @pytest.mark.parametrize("mode", ["signal", "portfolio"])

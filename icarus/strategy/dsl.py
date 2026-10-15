@@ -417,6 +417,7 @@ class Primitive:
     requires_feed: str | None = None
     intermittent: bool = False
     needs_panel: bool = False
+    require_benchmark: bool = False
     requires_lt: tuple[tuple[str, str], ...] = ()
     """Parameter pairs ``(a, b)`` that must satisfy ``a < b``, checked when the strategy is read.
 
@@ -483,6 +484,8 @@ class Primitive:
     """
 
     def __post_init__(self) -> None:
+        if type(self.require_benchmark) is not bool:
+            raise DslError("require_benchmark must be bool")
         object.__setattr__(self, "scale_free", self._resolve_scale_free())
         object.__setattr__(self, "market_wide", self._resolve_market_wide())
         self._check_requires_lt()

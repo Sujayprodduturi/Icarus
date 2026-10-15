@@ -4,6 +4,7 @@ import json
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from fractions import Fraction
 from pathlib import Path
 from typing import Any, cast
 
@@ -20,7 +21,12 @@ from scripts.synthetic_strategy_demo import invented_panel
 
 from icarus.common.config import load_goal
 from icarus.engine.backtest import Window
-from icarus.engine.benchmark_match import MatchingPolicy, SelectionPolicy
+from icarus.engine.benchmark_match import (
+    BenchmarkMode,
+    CapturedReturnInterval,
+    MatchingPolicy,
+    SelectionPolicy,
+)
 from icarus.engine.data_readiness import BundlePreflight
 from icarus.engine.fills import SimBar
 from icarus.engine.timed_evaluation import (
@@ -30,6 +36,7 @@ from icarus.engine.timed_evaluation import (
     TimedCatalogueEvaluator,
     _slice_fixture,
     build_evaluation_plans,
+    descriptive_stock_comparison,
     load_strategy_catalogue,
 )
 from icarus.engine.timed_runner import AssembledTimedInputs
@@ -43,6 +50,67 @@ from icarus.engine.timed_simulation import (
     index_timed_fixture,
     timed_fixture_digest,
 )
+
+
+def test_descriptive_stock_comparison_uses_actual_quantity_costs_and_exact_bounds() -> None:
+    result = descriptive_stock_comparison(
+        Fraction(100),
+        2,
+        ((1, Fraction(125)), (1, Fraction(95))),
+        Fraction(4),
+        CapturedReturnInterval(Fraction(-1, 22), Fraction(3, 20)),
+    )
+    assert result.stock_return == Fraction(2, 25)
+    assert result.excess_lower == Fraction(-7, 100)
+    assert result.excess_upper == Fraction(69, 550)
+
+
+@pytest.mark.parametrize(
+    "primitive",
+    [
+        "benchmark_return",
+        "index_above_ma",
+        "relative_strength",
+        "beta_to",
+        "correlation_to",
+        "newly_registered_benchmark_consumer",
+    ],
+)
+def test_descriptive_payload_refuses_every_registered_benchmark_consumer_before_columns(
+    primitive: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import icarus.engine.timed_evaluation as evaluation
+    from icarus.strategy.library import default_registry
+
+    registry = default_registry()
+    if primitive == "newly_registered_benchmark_consumer":
+        registry.register(
+            replace(
+                next(item for item in registry if item.name == "benchmark_return"), name=primitive
+            )
+        )
+    monkeypatch.setattr(evaluation, "default_registry", lambda: registry)
+    panel = invented_panel()
+    goal = load_goal()
+    card = load_strategy_catalogue((Path("strategies/baseline_buy_and_hold.yaml"),), goal)[0]
+
+    class BenchmarkCard:
+        name = "benchmark-card"
+
+        @staticmethod
+        def primitives_used() -> frozenset[str]:
+            return frozenset({primitive})
+
+    assembled = replace(
+        _assembled(panel, _fixture(panel)),
+        panel=replace(panel, benchmark=None),
+        benchmark_mode=BenchmarkMode.DESCRIPTIVE_CANDLE_PROXY,
+    )
+    with pytest.raises(ValueError, match=rf"refuses benchmark consumers.*{primitive}"):
+        CataloguePayload.from_assembled(
+            assembled,
+            (replace(card, candidate=cast(Any, BenchmarkCard())),),
+        )
 
 
 def _fixture(panel: Any) -> TimedFixture:

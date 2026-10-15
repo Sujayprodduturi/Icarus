@@ -101,7 +101,7 @@ class _Engine:
         self.disposed = True
 
 
-def _build_packet(root: Path) -> tuple[list[str], Path]:
+def _build_packet(root: Path, *, descriptive: bool = False) -> tuple[list[str], Path]:
     bundle = root / "bundle"
     external = root / "external"
     bundle.mkdir()
@@ -126,7 +126,9 @@ def _build_packet(root: Path) -> tuple[list[str], Path]:
                 "session_date": str(day),
                 "state": "special" if is_open else "closed",
                 "open_ts": _z(at) if is_open else None,
-                "close_ts": _z(at + timedelta(minutes=15)) if is_open else None,
+                "close_ts": _z(at + timedelta(minutes=30 if descriptive else 15))
+                if is_open
+                else None,
             }
         )
         source_index += int(is_open)
@@ -160,7 +162,7 @@ def _build_packet(root: Path) -> tuple[list[str], Path]:
                     "high": None if inactive else values[1],
                     "low": None if inactive else values[2],
                     "close": None if inactive else values[3],
-                    "volume": None if inactive else "1000000",
+                    "volume": None if inactive else ("2000000" if descriptive else "1000000"),
                     "tradable": not inactive,
                     "state": "INACTIVE_ABSENT" if inactive else "OBSERVED",
                     "reason": "PRE_LISTING" if inactive else "",
@@ -181,36 +183,38 @@ def _build_packet(root: Path) -> tuple[list[str], Path]:
             )
             if inactive:
                 continue
-            m15.append(
-                {
-                    "schema_version": 1,
-                    "record_id": f"m-{i}-{j}",
-                    "revision": "r1",
-                    "source_index": i,
-                    "symbol": symbol,
-                    "event_ts": _z(session_open),
-                    "end_ts": _z(session_open + timedelta(minutes=15)),
-                    "open": values[0],
-                    "high": values[1],
-                    "low": values[2],
-                    "close": values[3],
-                    "volume": "1000000",
-                    "adjustment_basis": "BACK_ADJUSTED",
-                }
-            )
-            liquidity.append(
-                {
-                    "schema_version": 1,
-                    "record_id": f"l-{i}-{j}",
-                    "revision": "r1",
-                    "source_index": i,
-                    "symbol": symbol,
-                    "event_ts": _z(session_open),
-                    "available_ts": _z(session_open - timedelta(seconds=1)),
-                    "quantity": "1000000",
-                    "method": "PRIOR_OBSERVED_QUANTITY_V1",
-                }
-            )
+            for bar_offset in range(2 if descriptive else 1):
+                event_ts = session_open + timedelta(minutes=15 * bar_offset)
+                m15.append(
+                    {
+                        "schema_version": 1,
+                        "record_id": f"m-{i}-{j}-{bar_offset}",
+                        "revision": "r1",
+                        "source_index": i,
+                        "symbol": symbol,
+                        "event_ts": _z(event_ts),
+                        "end_ts": _z(event_ts + timedelta(minutes=15)),
+                        "open": values[0],
+                        "high": values[1],
+                        "low": values[2],
+                        "close": values[3],
+                        "volume": "1000000",
+                        "adjustment_basis": "BACK_ADJUSTED",
+                    }
+                )
+                liquidity.append(
+                    {
+                        "schema_version": 1,
+                        "record_id": f"l-{i}-{j}-{bar_offset}",
+                        "revision": "r1",
+                        "source_index": i,
+                        "symbol": symbol,
+                        "event_ts": _z(event_ts),
+                        "available_ts": _z(event_ts - timedelta(seconds=1)),
+                        "quantity": "1000000",
+                        "method": "PRIOR_OBSERVED_QUANTITY_V1",
+                    }
+                )
     actions = [
         {
             "schema_version": 1,
@@ -243,6 +247,34 @@ def _build_packet(root: Path) -> tuple[list[str], Path]:
         for i, session_open in enumerate(opens)
         for side in ("open", "close")
     ]
+    if descriptive:
+        nifty = [
+            {
+                "schema_version": 2,
+                "record_id": f"n-{i}-{bar_offset}",
+                "revision": "r1",
+                "source_index": i,
+                "instrument": "NIFTY 50",
+                "venue": "NSE",
+                "price_basis": "PRICE_INDEX",
+                "interval_start_ts": _z(session_open + timedelta(minutes=15 * bar_offset)),
+                "interval_end_ts": _z(session_open + timedelta(minutes=15 * (bar_offset + 1))),
+                "open_numerator": 100000 + i,
+                "open_denominator": 10,
+                "high_numerator": 100020 + i,
+                "high_denominator": 10,
+                "low_numerator": 99980 + i,
+                "low_denominator": 10,
+                "close_numerator": 100010 + i,
+                "close_denominator": 10,
+                "raw_available_ts": None,
+                "modeled_available_ts": _z(session_open + timedelta(minutes=15 * (bar_offset + 1))),
+                "availability_basis": "MODELED_INTERVAL_END",
+                "quarantined": False,
+            }
+            for i, session_open in enumerate(opens)
+            for bar_offset in range(2)
+        ]
     rows = {
         "daily_stock": daily,
         "pit_universe": pit,
@@ -257,7 +289,11 @@ def _build_packet(root: Path) -> tuple[list[str], Path]:
         "pit_universe": ("CASH_EQUITY", "POINT_IN_TIME_MEMBERSHIP", "NONE"),
         "corporate_action": ("CASH_EQUITY", "BACK_ADJUSTED", "NONE"),
         "m15_stock": ("CASH_EQUITY", "BACK_ADJUSTED", "NONE"),
-        "nifty_observation": ("NIFTY 50", "PRICE_INDEX", "EXACT_OBSERVED_SESSION_CLOSE"),
+        "nifty_observation": (
+            "NIFTY 50",
+            "PRICE_INDEX",
+            "DESCRIPTIVE_CANDLE_PROXY" if descriptive else "EXACT_OBSERVED_SESSION_CLOSE",
+        ),
         "session_calendar": ("CASH_EQUITY", "EXCHANGE_SESSION", "NONE"),
         "opening_liquidity": ("CASH_EQUITY", "PRIOR_OBSERVED_QUANTITY", "NONE"),
     }
@@ -275,7 +311,7 @@ def _build_packet(root: Path) -> tuple[list[str], Path]:
         coverage_end = (
             "2014-12-31T18:29:59Z"
             if role == "session_calendar"
-            else _z(opens[-1] + timedelta(minutes=15))
+            else _z(opens[-1] + timedelta(minutes=30 if descriptive else 15))
         )
         artifacts.append(
             {
@@ -284,8 +320,12 @@ def _build_packet(root: Path) -> tuple[list[str], Path]:
                 "size": len(raw),
                 "sha256": hashlib.sha256(raw).hexdigest(),
                 "format": "jsonl",
-                "schema_version": 1,
-                "parser_version": "icarus-real-data-v1",
+                "schema_version": 2 if descriptive and role == "nifty_observation" else 1,
+                "parser_version": (
+                    "icarus-benchmark-candle-v2"
+                    if descriptive and role == "nifty_observation"
+                    else "icarus-real-data-v1"
+                ),
                 "vendor": (
                     "INDEPENDENT_VENDOR_M15" if role == "m15_stock" else "INVENTED_CLI_FIXTURE"
                 ),
@@ -307,12 +347,20 @@ def _build_packet(root: Path) -> tuple[list[str], Path]:
     matching_raw = _dump(
         matching,
         {
-            "schema_version": 1,
+            "schema_version": 2 if descriptive else 1,
             "policy_id": "invented-asof-v1",
             "selection": "latest_available_observed",
             "max_age_seconds": 86400,
             "registered_at": "2026-10-13T00:00:00Z",
             "source_binding": "invented-cli-r1",
+            **(
+                {
+                    "mode": "DESCRIPTIVE_CANDLE_PROXY",
+                    "availability_model": "MODELED_NEXT_SESSION_OPEN_V1",
+                }
+                if descriptive
+                else {}
+            ),
         },
     )
     source_policy = external / "source-policy.json"
@@ -540,6 +588,62 @@ def test_full_invented_cli_reserves_all_twenty_one_before_decode(
     with pytest.raises(RuntimeError, match="OUTPUT_EXISTS"):
         main(argv)
     assert len(ledger.reservations) == before
+
+
+def test_descriptive_candle_cli_runs_all_twenty_one_plans_after_reservation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    argv, out = _build_packet(tmp_path, descriptive=True)
+    ledger = _RecordingLedger()
+    engine = _Engine()
+    monkeypatch.setattr("sqlalchemy.create_engine", lambda *_: engine)
+    monkeypatch.setattr("icarus.state.trial_ledger.PostgresTrialLedger", lambda _: ledger)
+    import icarus.engine.timed_runner as timed_runner
+
+    original = timed_runner.assemble_timed_inputs
+
+    def observed_decode(*args: object, **kwargs: object) -> object:
+        ledger.events.append("decode")
+        return original(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(timed_runner, "assemble_timed_inputs", observed_decode)
+    assert main(argv) == 0
+    assert ledger.events[:21] == ["reserve"] * 21 and ledger.events[21] == "decode"
+    report = json.loads(out.read_text())
+    assert report["benchmark_mode"] == "DESCRIPTIVE_CANDLE_PROXY"
+    assert report["promotion_eligible"] is False
+    assert len(report["results"]) == 21
+    outcomes = [outcome for result in report["results"] for outcome in result["outcomes"]]
+    runs = [*outcomes, *(fold for outcome in outcomes for fold in outcome.get("folds", []))]
+    trades = [trade for run in runs for trade in run.get("trades", [])]
+    assert trades
+    assert all(trade["entry"]["ts"] > trade["decision_available_ts"] for trade in trades)
+    assert sum(run.get("rebalance_events", 0) for run in runs) > 0
+    assert any(leg["cause"] == "opposite_signal" for trade in trades for leg in trade["exits"])
+    assert any(leg["cause"] == "rebalance" for trade in trades for leg in trade["exits"])
+    benchmark_rows = [row for run in runs for row in run.get("benchmark", [])]
+    assert benchmark_rows
+    assert all(row["benchmark_mode"] == "DESCRIPTIVE_CANDLE_PROXY" for row in benchmark_rows)
+    assert all(row["promotion_eligible"] is False for row in benchmark_rows)
+    required_interpretation = {
+        "captured_bounds_scope": "CAPTURED_RECORDS_ONLY_NOT_GUARANTEED_MARKET_PRICE_BOUNDS",
+        "stock_return_basis": "NET_MODELED_TRADING_COSTS_BEFORE_TAX",
+        "benchmark_return_basis": "GROSS_NIFTY_50_PRICE_INDEX",
+        "availability_interpretation": (
+            "MODELED_STOCK_DECISION_AVAILABILITY_VS_RAW_PUBLICATION_REVISION_UNCERTAINTY"
+        ),
+        "raw_timestamp_interpretation": "PRESERVED_WHEN_PROVIDED_OTHERWISE_UNKNOWN",
+    }
+    assert all(row["interpretation"] == required_interpretation for row in benchmark_rows)
+    for run in (item for item in runs if "benchmark" in item):
+        rows = run["benchmark"]
+        assert run["benchmark_comparable_count"] == sum(
+            row["captured_candle_price_return_interval"] is not None for row in rows
+        )
+        assert run["benchmark_unavailable_count"] == sum(
+            row["captured_candle_price_return_interval"] is None for row in rows
+        )
+        assert run["descriptive_cost_basis"] == required_interpretation
 
 
 def test_default_cli_is_metadata_only_without_database_or_price_decode(
