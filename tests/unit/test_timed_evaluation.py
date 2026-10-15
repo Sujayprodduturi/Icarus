@@ -226,7 +226,17 @@ def test_paired_evaluator_refuses_projection_mutated_after_assembly(
 
     panel = invented_panel()
     if mutation == "benchmark":
-        panel = replace(panel, benchmark=panel.bars[0])
+        source = panel.bars[0]
+        benchmark = replace(
+            source,
+            ts=source.ts.copy(),
+            open=source.open.copy(),
+            high=source.high.copy(),
+            low=source.low.copy(),
+            close=source.close.copy(),
+            volume=source.volume.copy(),
+        )
+        panel = replace(panel, benchmark=benchmark)
     fixture = _fixture(panel)
     pair = BoundPairQualification(
         parse_source_pair_qualification(_raw()),
@@ -261,7 +271,10 @@ def test_paired_evaluator_refuses_projection_mutated_after_assembly(
         panel.bars[0].close[10] += 0.01
     else:
         assert panel.benchmark is not None
+        stock_close = panel.bars[0].close[10]
+        assert panel.benchmark.close is not panel.bars[0].close
         panel.benchmark.close[10] += 0.01
+        assert panel.bars[0].close[10] == stock_close
     monkeypatch.setattr(
         "icarus.engine.timed_evaluation._clock_windows",
         lambda *_: (Window(0, 300, 305, 500, 5),),

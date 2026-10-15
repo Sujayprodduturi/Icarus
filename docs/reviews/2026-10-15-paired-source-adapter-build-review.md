@@ -3,6 +3,9 @@
 Status: **PRECOMMIT SOFTWARE CHECKS PASS; POSTCOMMIT FAULT PROOF PENDING**,
 under operator approval D56. Source qualification and actual strategy evaluation
 remain held.
+The reviewed source is committed locally as
+`bb52837aef3ef756b8682445c31319285d26faf1`; temporary fault checks must restore
+this exact candidate before publication.
 Approved scope: [paired-source adapter](../plans/2026-10-15-paired-source-adapter-proposal.md).
 
 ## Required behavior
@@ -69,13 +72,30 @@ Other verified review corrections include removing a trust boolean, requiring
 closed supported volume/opening rules, rejecting relative price conversions,
 sealing daily axes and benchmark arrays, verifying the full projection before
 slicing, rechecking captured document bytes, and covering full sessions with
-dated security mappings. All remain subject to final code/security review and
-postcommit semantic fault tests, not a substituted test-only approval.
+dated security mappings. These passed final code/security review; postcommit
+semantic fault checks are still required before the completion claim.
 The final candidate also checks vendor/revision identities against captured
 metadata and validates both daily and M15 candles independently before allowing
 different closing conventions. Relative action-factor conversion is unsupported.
 Lineage/reviewer declarations remain external attestations, not software proof
 of the vendor's historical truth or a replacement for source qualification.
+
+## Prior hosted failure corrected locally
+
+## Postcommit proof checkpoint
+
+The first harness attempt correctly stopped on a zero-match CRLF anchor before
+counting that case; reviewed product bytes were restored. Cases M01–M11 were
+then caught by their intended tests. M12 exposed a real test weakness: the
+benchmark fixture aliased a stock Bars object, so a benchmark mutation also
+changed stock data and masked an omitted benchmark seal. That first M12 result
+is retained as **not caught**, not converted into a PASS.
+
+The test-only correction copies every benchmark array and verifies a benchmark
+mutation leaves stock close unchanged. Root's simplification pass and formal
+review are GO; both corrected daily/benchmark checks pass. Product hashes remain
+unchanged. Commit this test correction before continuing M12–M14; final restored
+positives and overall postcommit verdict remain pending at this checkpoint.
 
 ## Prior hosted failure corrected locally
 
