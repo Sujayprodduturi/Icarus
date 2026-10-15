@@ -398,36 +398,41 @@ def test_qualified_pair_preserves_distinct_daily_close_and_m15_fill(
     fixture = make(m)
     daily = panel(fixture)
     daily.bars[0].close[1] = 101.0
-    pair = parse_source_pair_qualification(_raw())
-    pair = BoundPairQualification(
-        pair, daily_projection_digest(daily, tuple(s.index for s in fixture.sessions))
+    pair_qualification = parse_source_pair_qualification(_raw())
+    bound_pair = BoundPairQualification(
+        pair_qualification,
+        daily_projection_digest(daily, tuple(s.index for s in fixture.sessions)),
     )
     digest = m.timed_fixture_digest(
         fixture.sessions,
         fixture.refinements,
         fixture.inactive,
-        pair.qualification.document_sha256,
+        bound_pair.qualification.document_sha256,
     )
-    source = replace(fixture.source, sha256=digest)
+    source_declaration = replace(fixture.source, sha256=digest)
     fixture = replace(
         fixture,
-        sessions=tuple(replace(row, source=source) for row in fixture.sessions),
+        sessions=tuple(replace(row, source=source_declaration) for row in fixture.sessions),
         refinements=tuple(
             m.Refinement(
                 item.symbol,
                 tuple(
                     replace(
                         row,
-                        source=source,
-                        opening=replace(row.opening, source=source),
+                        source=source_declaration,
+                        opening=(
+                            None
+                            if row.opening is None
+                            else replace(row.opening, source=source_declaration)
+                        ),
                     )
                     for row in item.bars
                 ),
             )
             for item in fixture.refinements
         ),
-        source=source,
-        pair_qualification=pair,
+        source=source_declaration,
+        pair_qualification=bound_pair,
     )
     run = simulate(m, mode, fixture, {"S0": [1, 0, 0, 0]}, daily=daily)
     assert run.valid and run.trades[0].entry.price == Decimal("100.05")

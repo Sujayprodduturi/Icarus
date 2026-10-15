@@ -226,15 +226,15 @@ def test_paired_evaluator_refuses_projection_mutated_after_assembly(
 
     panel = invented_panel()
     if mutation == "benchmark":
-        source = panel.bars[0]
+        source_bars = panel.bars[0]
         benchmark = replace(
-            source,
-            ts=source.ts.copy(),
-            open=source.open.copy(),
-            high=source.high.copy(),
-            low=source.low.copy(),
-            close=source.close.copy(),
-            volume=source.volume.copy(),
+            source_bars,
+            ts=source_bars.ts.copy(),
+            open=source_bars.open.copy(),
+            high=source_bars.high.copy(),
+            low=source_bars.low.copy(),
+            close=source_bars.close.copy(),
+            volume=source_bars.volume.copy(),
         )
         panel = replace(panel, benchmark=benchmark)
     fixture = _fixture(panel)
@@ -245,21 +245,29 @@ def test_paired_evaluator_refuses_projection_mutated_after_assembly(
     digest = timed_fixture_digest(
         fixture.sessions, fixture.refinements, fixture.inactive, pair.qualification.document_sha256
     )
-    source = replace(fixture.source, sha256=digest)
+    source_declaration = replace(fixture.source, sha256=digest)
     fixture = replace(
         fixture,
-        sessions=tuple(replace(row, source=source) for row in fixture.sessions),
+        sessions=tuple(replace(row, source=source_declaration) for row in fixture.sessions),
         refinements=tuple(
             Refinement(
                 item.symbol,
                 tuple(
-                    replace(row, source=source, opening=replace(row.opening, source=source))
+                    replace(
+                        row,
+                        source=source_declaration,
+                        opening=(
+                            None
+                            if row.opening is None
+                            else replace(row.opening, source=source_declaration)
+                        ),
+                    )
                     for row in item.bars
                 ),
             )
             for item in fixture.refinements
         ),
-        source=source,
+        source=source_declaration,
         pair_qualification=pair,
     )
     goal = load_goal()
