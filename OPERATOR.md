@@ -477,6 +477,12 @@ Dated decisions that are not code and not in `goal.yaml`, so they have nowhere e
 |---|---|---|
 | D59 | **Continue resolving price differences and missing stock histories with independent reviewers, keeping all provider questions unsent.** Continue bounded source-data QA, public primary-source evidence, reviewed retrieval preparation and necessary fixes toward a qualified real-data strategy input. Do not replace historical membership with current survivors, infer provider adjustments from fitted price ratios, waive archive-use restrictions, change risk/statistical thresholds or consume 2023+ prices. Any new collection remains in the isolated operator-side acquisition path with no credentials or broker access in research. Existing source qualification and actual-study authorization gates remain in force; no provider message or purchase is authorized. | operator, direct instruction on 2026-10-16 |
 
+### 2026-10-16 — build the seven-strategy daily pilot
+
+| # | decision | who |
+|---|---|---|
+| D60 | **Build the reviewed seven-strategy daily pilot runner with reviewers, keep provider questions unsent, and continue toward real-data testing.** This authorizes the invented-fixture runner/ledger integration and supersedes the earlier choice to defer that software build until source-use resolution. It does not itself qualify a real-data bundle, activate the actual trial ledger, authorize actual strategy evaluation, settle retention/source-use terms, enable inference, consume the lockbox, send a provider message, purchase data or enable broker operations. | operator, direct instruction on 2026-10-16 |
+
 ## 7c. Deferred by decision — not forgotten
 
 Things consciously postponed. **Each names the condition that reopens it.** A deferral without a

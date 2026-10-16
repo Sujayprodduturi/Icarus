@@ -697,6 +697,27 @@ def _plan(card: str, mode: str, capital: int | None) -> EvaluationPlan:
     )
 
 
+def test_signal_plan_accepts_only_exact_descriptive_singleton_or_full_plus_fold() -> None:
+    at = datetime(2022, 12, 26, tzinfo=UTC)
+    item = EvaluationReservation(
+        0,
+        TrialKind.DESCRIPTIVE_PILOT,
+        None,
+        252,
+        257,
+        at,
+        at + timedelta(days=4),
+        "daily_descriptive_pilot_v1",
+    )
+    plan = EvaluationPlan("daily", 1, "a" * 64, "signal", None, (item,))
+    assert plan.evaluations == (item,)
+
+    with pytest.raises(ValueError, match="signal plan"):
+        EvaluationPlan(
+            "mixed", 1, "b" * 64, "signal", None, (item, _plan("x", "signal", None).evaluations[0])
+        )
+
+
 def test_guarded_runner_reserves_every_mode_and_capital_before_decoding() -> None:
     events: list[str] = []
     ledger = _Ledger(events)

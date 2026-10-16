@@ -1,0 +1,183 @@
+{
+  "schema_version": 1,
+  "status": "PROPOSAL_METADATA_ONLY_NOT_DATA_QUALIFIED_NOT_RUN_AUTHORIZED",
+  "as_of": "2026-10-16",
+  "price_bytes_decoded": false,
+  "trial_reserved": false,
+  "runtime_built": false,
+  "intended_actual_evaluation_set": {
+    "set_id": "daily-descriptive-signal-seven-v1",
+    "surface": "SignalSimulator",
+    "evaluation_count": 7,
+    "one_evaluation_per_frozen_card": true,
+    "portfolio_simulator_separate_evaluations": 0,
+    "portfolio_mechanics_may_be_reused_internally": true,
+    "reservation_rule": "reserve the complete seven-card set before actual-study price decode; do not reserve a reduced subset",
+    "unsupported_preledger_rule": "report refusal before reservation and do not decode actual-study prices"
+  },
+  "pilot": {
+    "decision_dates": [
+      "2022-12-26",
+      "2022-12-27",
+      "2022-12-28",
+      "2022-12-29",
+      "2022-12-30"
+    ],
+    "required_source_interval": {
+      "start": "2021-12-21",
+      "end": "2022-12-30",
+      "session_count": 257,
+      "reason": "252 prior reviewed sessions before the first decision plus the five decision sessions"
+    },
+    "complete_next_bar_decision_dates": [
+      "2022-12-26",
+      "2022-12-27",
+      "2022-12-28",
+      "2022-12-29"
+    ],
+    "terminal_decision_disposition": {
+      "date": "2022-12-30",
+      "reason": "NO_NEXT_BAR_WITHIN_PRE_2023_BUNDLE",
+      "may_open_2023_01_02": false
+    }
+  },
+  "calendar": {
+    "path": "var/calendar-reconciliation/2026-10-15/calendar-2021-2022-evidence-certificate.json",
+    "sha256": "4d7902c85909cba50b00dfccd6c0d3b1051225ba547e33bc010b56ad0e683c91",
+    "source_session_count_2021_2022": 496,
+    "included_statuses": [
+      "REGULAR_SESSION_BASELINE",
+      "SPECIAL_SESSION",
+      "EXCEPTION_WITH_INTRADAY_HALT"
+    ],
+    "calendar_qualified": false,
+    "status": "BOUNDED_EVIDENCE_CERTIFICATE_PENDING_INDEPENDENT_REVIEW"
+  },
+  "warmup_policy": {
+    "definition": "conservative engine longest_lookback: maximum integer literal across entry, rank and exit",
+    "implementation_anchor": "icarus/engine/backtest.py:124",
+    "november_29_limit": {
+      "start": "2022-11-29",
+      "rows_through_first_decision": 20,
+      "prior_sessions_before_first_decision": 19,
+      "purpose": "20-session inclusive liquidity screen only",
+      "full_strategy_warmup": false
+    }
+  },
+  "cards": [
+    {
+      "path": "strategies/baseline_buy_and_hold.yaml",
+      "sha256": "b1bded2f21c1817adced9d4e789ae79f5e9058e433827276d0d1e434c1fd721e",
+      "name": "baseline_buy_and_hold",
+      "version": 2,
+      "timeframe": "1d",
+      "longest_lookback_sessions": 252,
+      "first_required_session": "2021-12-21",
+      "anchor": "strategies/baseline_buy_and_hold.yaml:40",
+      "driver": "rank_by roc(252)"
+    },
+    {
+      "path": "strategies/defensive_low_vol_252_q63.yaml",
+      "sha256": "5fa59770122b26c1c8a16c835a6da0f5e9ad5801a774667b993ce7b79faab5de",
+      "name": "defensive_low_vol_252_q63",
+      "version": 1,
+      "timeframe": "1d",
+      "longest_lookback_sessions": 252,
+      "first_required_session": "2021-12-21",
+      "anchor": "strategies/defensive_low_vol_252_q63.yaml:8",
+      "driver": "entry and rank realized_vol(252); rebalance(63) is shorter"
+    },
+    {
+      "path": "strategies/donchian_55_20.yaml",
+      "sha256": "3214826be9dce200ca0696b9577f57bf0fb5a944131cd43b3000984a8d3bfcc0",
+      "name": "donchian_55_20",
+      "version": 1,
+      "timeframe": "1d",
+      "longest_lookback_sessions": 55,
+      "first_required_session": "2022-10-06",
+      "anchor": "strategies/donchian_55_20.yaml:6",
+      "driver": "entry Donchian(55); opposite exit Donchian(20) is shorter"
+    },
+    {
+      "path": "strategies/donlevey_sweep_reclaim.yaml",
+      "sha256": "a39f9d507b16550b1bcf4a4997abd1ba73643fcf8b52b2aec4ea036a3bdfb295",
+      "name": "donlevey_sweep_reclaim",
+      "version": 2,
+      "timeframe": "1d",
+      "longest_lookback_sessions": 200,
+      "first_required_session": "2022-03-07",
+      "anchor": "strategies/donlevey_sweep_reclaim.yaml:36",
+      "driver": "entry sma(200); roc(20), time stop(20), ATR(14), sweep(5) and reclaim(3) are shorter"
+    },
+    {
+      "path": "strategies/uptrend_pullback_3.yaml",
+      "sha256": "3c32817984012706e8c2e9fc1e7c6a10ce13f2fd249ea45ee0c390e7a8eb4880",
+      "name": "short_term_reversal_uptrend",
+      "version": 1,
+      "timeframe": "1d",
+      "longest_lookback_sessions": 200,
+      "first_required_session": "2022-03-07",
+      "anchor": "strategies/uptrend_pullback_3.yaml:14",
+      "driver": "entry sma(200); ATR(14) and time stop(5) are shorter"
+    },
+    {
+      "path": "strategies/xs_momentum_20.yaml",
+      "sha256": "8905d1162d1fea9d2194e0a39312e2512b726b24db4b06f5d20fc5533614d725",
+      "name": "xs_momentum_20",
+      "version": 2,
+      "timeframe": "1d",
+      "longest_lookback_sessions": 20,
+      "first_required_session": "2022-11-28",
+      "anchor": "strategies/xs_momentum_20.yaml:30",
+      "driver": "entry/rank roc(20) and time stop(20)"
+    },
+    {
+      "path": "strategies/xs_momentum_252_skip21.yaml",
+      "sha256": "814023ec6f40f245f68cdd82e010f56883601faeed0d24e6dffe2e4b6643fcec",
+      "name": "xs_momentum_252_21",
+      "version": 1,
+      "timeframe": "1d",
+      "longest_lookback_sessions": 252,
+      "first_required_session": "2021-12-21",
+      "anchor": "strategies/xs_momentum_252_skip21.yaml:12",
+      "driver": "entry/rank roc_skip(n=252, skip=21); time stop(63) is shorter"
+    }
+  ],
+  "universe": {
+    "requested_labels": 693,
+    "labels_must_be_retained": true,
+    "benchmark_is_separate": true,
+    "liquidity_screen_path": "var/kite-qualification/2026-10-15/pilot-universe-qa/output/conditional-screen.json",
+    "liquidity_screen_sha256": "e273f6c96c1cdab0edc685d7b689543b6eeba4503e147c90a0202a4696b46d3b",
+    "goal_yaml_sha256": "c886aca6b198257486d0daefc484f818458e60fa32a5aa861b95d1413282fa0c",
+    "class_policy": {
+      "LIQUIDBEES": "CLASS_INELIGIBLE_FIXED_INCOME",
+      "BANKBEES": "retain counted daily eligibility disposition; no blanket ETF ban",
+      "NIFTYBEES": "retain counted daily eligibility disposition; no blanket ETF ban"
+    }
+  },
+  "source_bundle": {
+    "existing_sealed_sources_only": true,
+    "new_acquisition_authorized": false,
+    "full_interval_manifest_sha256": null,
+    "admission": "BLOCKED_PENDING_FULL_INTERVAL_HASH_SCHEMA_CALENDAR_ACTION_PIT_AND_SOURCE_USE_REVIEW",
+    "qualification_qa_decode": "D55_BOUNDED_SOURCE_QA_ONLY_NO_STRATEGY_NO_LEDGER",
+    "actual_study_decode": "ONLY_AFTER_COMPLETE_SEVEN_CARD_TRIAL_RESERVATION_AND_RUN_AUTHORIZATION"
+  },
+  "source_use": {
+    "status": "UNRESOLVED_BLOCKER",
+    "terms_url": "https://www.nseindia.com/static/nse-terms-of-use",
+    "copyright_url": "https://www.nseindia.com/static/nse-copyright",
+    "data_policy_url": "https://www.nseindia.com/static/market-data/nse-data-policy",
+    "research_data_list_url": "https://nsearchives.nseindia.com/web/sites/default/files/inline-files/Data%20list%20under%20NSE%20Data%20Sharing%20Policy%20for%20Research%20and%20Analysis_20250728.pdf",
+    "assessment": "The research list identifies daily OHLC and bhavcopy archives as first-basket research data, but the general website terms expressly prohibit use of website data for simulation and automated collection. The copyright personal-use permission does not itself override that specific restriction. No applicable specific-area agreement or exception is pinned.",
+    "contact_or_purchase_authorized": false
+  },
+  "unsupported_dispositions": {
+    "benchmark_dependent_primitive_with_nifty_none": "REFUSE_BEFORE_TRIAL_RESERVATION",
+    "benchmark_return": "UNAVAILABLE",
+    "pre_tax_alpha": "UNAVAILABLE",
+    "exact_intraday_execution_time": "UNAVAILABLE_DAILY_MODEL_ONLY",
+    "promotion_or_statistical_inference": "OUT_OF_SCOPE"
+  }
+}

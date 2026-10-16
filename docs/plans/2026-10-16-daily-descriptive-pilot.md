@@ -1,6 +1,8 @@
 # Daily descriptive pilot proposal — 2026-10-16
 
-**Status:** proposal only under D3/D59. No price byte was decoded, no runtime was built, no trial was reserved, and no actual evaluation is authorized. Implementation waits for independent review and completion of the current missing-history collector unit.
+**2026-10-16 build amendment (D60):** The operator now authorizes this software build with reviewers and invented fixtures. The collector milestone and independent design review are complete. The old source-use-before-invented-build ordering below is superseded; actual data admission and evaluation remain held. The implementation uses the existing seven-reservation-before-decode barrier: reservations are separate durable transactions, and a partial failure marks prior reservations failed before any price decode. This is not one database transaction across seven cards. A new native descriptive-pilot ledger kind records one evaluation per card without inventing folds; old validation-study geometry remains unchanged. See [implementation plan](2026-10-16-daily-pilot-implementation.md).
+
+**Original proposal status:** designed under D3/D59; no actual evaluation is authorized. Current implementation is proceeding under D60.
 
 ## Purpose and boundary
 
@@ -48,9 +50,9 @@ The NSE research-data list identifies daily OHLC and bhavcopy archives as first-
 
 1. Finish and review the already authorized missing-history collector unit; do not couple this plan to a new acquisition.
 2. Independently review this proposal and warm-up inventory, including the 257-session derivation, source-use assessment, all-label policy and daily execution model.
-3. Resolve a source choice with an applicable right for simulation. Current NSE website evidence does not supply it. No offline runner/report build begins merely because the collector or software proposal is complete.
+3. Before actual evaluation, resolve a source choice with an applicable right for simulation. Current NSE website evidence does not supply it. Under D60, invented-fixture software work proceeds while this source-use question remains open.
 4. Under the existing D55 authorization, bounded source-QA may decode the exact pre-2023 daily bundle solely to qualify its full manifest, schema, calendar, actions, PIT identity/class and 693-label counts. This is data-plane QA: no strategy evaluation, trial, or metric-bearing output. Any missing item blocks admission.
-5. After the collector, source-use resolution, and independent plan review, an offline build may use invented fixtures to add the seven-SignalSimulator runner/report integration. It must reuse existing engines and the actual ledger barrier; no new statistic or promotion path.
-6. Obtain separate actual-run authorization. Applicability/refusal checks run before the ledger. If all seven frozen cards remain supported, atomically reserve the complete seven-card evaluation set in the existing actual trial ledger **before actual-study price decoding or metric-bearing output**; a reservation/decode/report failure remains counted and fail-closed.
+5. After the collector and independent plan review, build the seven-SignalSimulator runner/report integration with invented fixtures under D60. Reuse existing engines and the counted-ledger barrier; no new statistic or promotion path.
+6. Obtain separate actual-run authorization. Applicability/refusal checks run before the ledger. If all seven frozen cards remain supported, reserve every card in the existing counted ledger **before actual-study price decoding or metric-bearing output**. Partial reservation failure preserves failed counted attempts and releases no result. Completed immutable terminals remain completed if later report publication fails; no partial operator report may be published.
 
 Until all six gates pass: `DATA_QUALIFIED=false`, `RUN_AUTHORIZED=false`, no strategy price decode, no trial, and no descriptive result. D55 source-QA decoding remains a separate bounded qualification activity and cannot release a strategy result.

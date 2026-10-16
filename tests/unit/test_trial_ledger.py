@@ -88,6 +88,82 @@ def signal_batch() -> TrialBatchReservation:
     )
 
 
+def descriptive_batch() -> TrialBatchReservation:
+    start = datetime(2022, 12, 26, tzinfo=UTC)
+    return TrialBatchReservation(
+        run_group_id=UUID("22222222-2222-4222-8222-222222222222"),
+        origin=TrialOrigin.OPERATOR,
+        strategy_name="daily-pilot-probe",
+        strategy_version=1,
+        strategy_sha256="d" * 64,
+        panel_sha256="e" * 64,
+        config_sha256="f" * 64,
+        primitives=("close",),
+        evaluations=(
+            EvaluationReservation(
+                ordinal=0,
+                kind=TrialKind.DESCRIPTIVE_PILOT,
+                fold_index=None,
+                start_index=252,
+                end_index_exclusive=257,
+                start_ts=start,
+                end_ts=datetime(2022, 12, 30, tzinfo=UTC),
+                reset_identity="daily_descriptive_pilot_v1",
+            ),
+        ),
+    )
+
+
+def test_descriptive_pilot_is_exactly_one_counted_signal_evaluation() -> None:
+    batch = descriptive_batch()
+    assert batch.evaluations[0].kind is TrialKind.DESCRIPTIVE_PILOT
+    assert canonical_reservation_sha256(batch) == canonical_reservation_sha256(batch)
+
+    with pytest.raises(ValueError, match="exactly one"):
+        replace(
+            batch,
+            evaluations=(batch.evaluations[0], replace(batch.evaluations[0], ordinal=1)),
+        )
+    with pytest.raises(ValueError, match="reset identity"):
+        replace(
+            batch,
+            evaluations=(replace(batch.evaluations[0], reset_identity="other"),),
+        )
+    with pytest.raises(ValueError, match="ordinal"):
+        replace(batch, evaluations=(replace(batch.evaluations[0], ordinal=1),))
+
+
+def test_old_signal_without_fold_still_rejects() -> None:
+    batch = signal_batch()
+    with pytest.raises(ValueError, match="at least one fold"):
+        replace(batch, evaluations=(batch.evaluations[0],))
+
+
+def test_descriptive_pilot_refuses_legacy_source_and_missing_span() -> None:
+    batch = descriptive_batch()
+    with pytest.raises(ValueError, match="native evidence"):
+        replace(
+            batch,
+            source="legacy_json_v1",
+            strategy_sha256=None,
+            panel_sha256=None,
+            config_sha256=None,
+        )
+    with pytest.raises(ValueError, match="native trial evaluations require exact span"):
+        replace(
+            batch,
+            evaluations=(
+                replace(
+                    batch.evaluations[0],
+                    start_index=None,
+                    end_index_exclusive=None,
+                    start_ts=None,
+                    end_ts=None,
+                ),
+            ),
+        )
+
+
 def test_signal_batch_hash_is_stable_and_binds_every_evaluation() -> None:
     batch = signal_batch()
     assert canonical_reservation_sha256(batch) == canonical_reservation_sha256(batch)

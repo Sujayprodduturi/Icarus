@@ -65,6 +65,7 @@ class TrialKind(StrEnum):
     PORTFOLIO = "portfolio"
     SIGNAL_FULL = "signal_full"
     SIGNAL_FOLD = "signal_fold"
+    DESCRIPTIVE_PILOT = "descriptive_pilot"
 
 
 class TrialTerminalState(StrEnum):
@@ -217,6 +218,19 @@ class TrialBatchReservation:
 
     def _validate_geometry(self) -> None:
         kinds = {item.kind for item in self.evaluations}
+        if kinds == {TrialKind.DESCRIPTIVE_PILOT}:
+            if self.source != "native":
+                raise ValueError("descriptive pilot evaluations require native evidence")
+            if len(self.evaluations) != 1:
+                raise ValueError("a descriptive pilot batch contains exactly one evaluation")
+            item = self.evaluations[0]
+            if (
+                item.fold_index is not None
+                or item.start_index is None
+                or item.reset_identity != "daily_descriptive_pilot_v1"
+            ):
+                raise ValueError("descriptive pilot evaluation has invalid fold/reset identity")
+            return
         if kinds == {TrialKind.PORTFOLIO}:
             if len(self.evaluations) != 1:
                 raise ValueError("a portfolio batch contains exactly one evaluation")

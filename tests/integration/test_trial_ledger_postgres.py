@@ -15,6 +15,7 @@ from collections.abc import Iterator
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, cast
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -194,6 +195,83 @@ def _results() -> tuple[TrialEvaluationResult, ...]:
     )
 
 
+def _descriptive_batch(run_group_id: uuid.UUID | None = None) -> TrialBatchReservation:
+    start = datetime(2022, 12, 26, tzinfo=UTC)
+    return TrialBatchReservation(
+        run_group_id=run_group_id or uuid.uuid4(),
+        origin=TrialOrigin.OPERATOR,
+        strategy_name="daily-pilot-probe",
+        strategy_version=1,
+        strategy_sha256="d" * 64,
+        panel_sha256="e" * 64,
+        config_sha256="f" * 64,
+        primitives=("close",),
+        evaluations=(
+            EvaluationReservation(
+                0,
+                TrialKind.DESCRIPTIVE_PILOT,
+                None,
+                252,
+                257,
+                start,
+                start + timedelta(days=4),
+                "daily_descriptive_pilot_v1",
+            ),
+        ),
+    )
+
+
+def _insert_native_batch(
+    conn: Any,
+    run_group_id: uuid.UUID,
+    expected: int,
+    *,
+    source: str = "native",
+    strategy_sha256: str | None = "e" * 64,
+) -> None:
+    conn.execute(
+        text(
+            "INSERT INTO trial_batches "
+            "(run_group_id,reservation_sha256,origin,source,strategy_name,strategy_version,"
+            "strategy_sha256,panel_sha256,config_sha256,primitives,expected_evaluations) "
+            "VALUES (:run_group_id,:digest,'operator',:source,'direct-shape',1,:strategy_digest,"
+            ":digest,:digest,'[]'::jsonb,:expected)"
+        ),
+        {
+            "run_group_id": run_group_id,
+            "digest": "e" * 64,
+            "expected": expected,
+            "source": source,
+            "strategy_digest": strategy_sha256,
+        },
+    )
+
+
+def _insert_evaluation(
+    conn: Any, run_group_id: uuid.UUID, ordinal: int, kind: str, reset: str
+) -> uuid.UUID:
+    evaluation_id = uuid.uuid4()
+    start = datetime(2022, 12, 26, tzinfo=UTC)
+    conn.execute(
+        text(
+            "INSERT INTO trial_evaluations "
+            "(evaluation_id,run_group_id,ordinal,kind,fold_index,start_index,"
+            "end_index_exclusive,start_ts,end_ts,reset_identity) VALUES "
+            "(:evaluation_id,:run_group_id,:ordinal,:kind,NULL,252,257,:start,:end,:reset)"
+        ),
+        {
+            "evaluation_id": evaluation_id,
+            "run_group_id": run_group_id,
+            "ordinal": ordinal,
+            "kind": kind,
+            "start": start,
+            "end": start + timedelta(days=4),
+            "reset": reset,
+        },
+    )
+    return evaluation_id
+
+
 def test_reservation_retry_recovers_but_never_reauthorizes(
     isolated_trial_db: tuple[Engine, str, str],
 ) -> None:
@@ -211,6 +289,179 @@ def test_reservation_retry_recovers_but_never_reauthorizes(
     assert retry.authorization is TrialReservationAuthorization.RECOVERY_ONLY
     assert first.evaluation_ids == retry.evaluation_ids
     assert ledger.lifetime_count() == 3
+
+
+def test_descriptive_pilot_is_one_counted_native_evaluation(
+    isolated_trial_db: tuple[Engine, str, str],
+) -> None:
+    engine, _, _ = isolated_trial_db
+    ledger = PostgresTrialLedger(engine)
+    ledger.import_legacy_and_activate(_legacy_empty())
+    receipt = ledger.reserve(_descriptive_batch())
+    retry = ledger.reserve(_descriptive_batch(receipt.run_group_id))
+
+    assert receipt.lifetime_trial_count == 1
+    assert retry.authorization is TrialReservationAuthorization.RECOVERY_ONLY
+    assert retry.evaluation_ids == receipt.evaluation_ids
+    with engine.connect() as conn:
+        stored = conn.execute(
+            text(
+                "SELECT kind,ordinal,fold_index,start_index,end_index_exclusive,reset_identity "
+                "FROM trial_evaluations WHERE run_group_id=:group_id"
+            ),
+            {"group_id": receipt.run_group_id},
+        ).one()
+    assert tuple(stored) == ("descriptive_pilot", 0, None, 252, 257, "daily_descriptive_pilot_v1")
+    terminal = ledger.complete(
+        receipt,
+        (
+            TrialEvaluationResult(
+                0,
+                TrialKind.DESCRIPTIVE_PILOT,
+                None,
+                None,
+                5,
+                {"pilot_sessions": 5},
+            ),
+        ),
+    )
+    assert terminal.state.value == "completed"
+    assert ledger.lifetime_count() == 1
+
+
+@pytest.mark.parametrize("shape", ["signal_without_fold", "mixed_pilot_and_signal"])
+def test_direct_sql_rejects_invalid_native_kind_geometry(
+    isolated_trial_db: tuple[Engine, str, str], shape: str
+) -> None:
+    engine, _, _ = isolated_trial_db
+    PostgresTrialLedger(engine).import_legacy_and_activate(_legacy_empty())
+    run_group_id = uuid.uuid4()
+    with pytest.raises(DatabaseError), engine.begin() as conn:
+        _insert_native_batch(conn, run_group_id, 1 if shape == "signal_without_fold" else 2)
+        if shape == "mixed_pilot_and_signal":
+            _insert_evaluation(
+                conn,
+                run_group_id,
+                0,
+                "descriptive_pilot",
+                "daily_descriptive_pilot_v1",
+            )
+            _insert_evaluation(
+                conn,
+                run_group_id,
+                1,
+                "signal_full",
+                "continuous_full_development_v1",
+            )
+        else:
+            _insert_evaluation(
+                conn,
+                run_group_id,
+                0,
+                "signal_full",
+                "continuous_full_development_v1",
+            )
+
+
+@pytest.mark.parametrize("kind", ["signal_full", "descriptive_pilot"])
+@pytest.mark.parametrize("sharpe_field", ["oos_sharpe", "oos_sharpe_after_tax"])
+def test_direct_sql_rejects_sharpe_for_nonportfolio_result(
+    isolated_trial_db: tuple[Engine, str, str],
+    kind: str,
+    sharpe_field: str,
+) -> None:
+    engine, _, _ = isolated_trial_db
+    ledger = PostgresTrialLedger(engine)
+    ledger.import_legacy_and_activate(_legacy_empty())
+    receipt = ledger.reserve(_descriptive_batch() if kind == "descriptive_pilot" else _batch())
+    with pytest.raises(DatabaseError, match="signal trial result cannot contain Sharpe"):
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO trial_results "
+                    f"(evaluation_id,result_sha256,{sharpe_field},observation_count,payload) "
+                    "VALUES (:evaluation_id,:digest,1.0,5,'{}'::jsonb)"
+                ),
+                {"evaluation_id": receipt.evaluation_ids[0], "digest": "a" * 64},
+            )
+
+
+@pytest.mark.parametrize(
+    "shape",
+    ["reset", "null_span", "ordinal", "fold", "count", "legacy", "native_hash"],
+)
+def test_direct_sql_rejects_malformed_descriptive_pilot(
+    isolated_trial_db: tuple[Engine, str, str], shape: str
+) -> None:
+    engine, _, _ = isolated_trial_db
+    ledger = PostgresTrialLedger(engine)
+    ledger.import_legacy_and_activate(_legacy_empty())
+    group_id = uuid.uuid4()
+    values: dict[str, Any] = {
+        "evaluation_id": uuid.uuid4(),
+        "group_id": group_id,
+        "ordinal": 1 if shape == "ordinal" else 0,
+        "fold": 0 if shape == "fold" else None,
+        "start_index": None if shape == "null_span" else 252,
+        "end_index": None if shape == "null_span" else 257,
+        "start": None if shape == "null_span" else datetime(2022, 12, 26, tzinfo=UTC),
+        "end": None if shape == "null_span" else datetime(2022, 12, 30, tzinfo=UTC),
+        "reset": "wrong" if shape == "reset" else "daily_descriptive_pilot_v1",
+    }
+    with pytest.raises(DatabaseError), engine.begin() as conn:
+        _insert_native_batch(
+            conn,
+            group_id,
+            2 if shape == "count" else 1,
+            source="legacy_json_v1" if shape == "legacy" else "native",
+            strategy_sha256=None if shape == "native_hash" else "e" * 64,
+        )
+        conn.execute(
+            text(
+                "INSERT INTO trial_evaluations "
+                "(evaluation_id,run_group_id,ordinal,kind,fold_index,start_index,"
+                "end_index_exclusive,start_ts,end_ts,reset_identity) VALUES "
+                "(:evaluation_id,:group_id,:ordinal,'descriptive_pilot',:fold,:start_index,"
+                ":end_index,:start,:end,:reset)"
+            ),
+            values,
+        )
+        if shape == "count":
+            _insert_evaluation(conn, group_id, 1, "descriptive_pilot", "daily_descriptive_pilot_v1")
+    assert ledger.lifetime_count() == 0
+
+
+def test_native_portfolio_singleton_still_accepts_both_sharpe_fields(
+    isolated_trial_db: tuple[Engine, str, str],
+) -> None:
+    engine, _, _ = isolated_trial_db
+    ledger = PostgresTrialLedger(engine)
+    ledger.import_legacy_and_activate(_legacy_empty())
+    pilot = _descriptive_batch()
+    portfolio = replace(
+        pilot,
+        evaluations=(
+            replace(
+                pilot.evaluations[0],
+                kind=TrialKind.PORTFOLIO,
+                reset_identity="walk_forward_portfolio_v1",
+            ),
+        ),
+    )
+    receipt = ledger.reserve(portfolio)
+    ledger.complete(
+        receipt,
+        (TrialEvaluationResult(0, TrialKind.PORTFOLIO, Decimal("1"), Decimal("0.5"), 5, {}),),
+    )
+    with engine.connect() as conn:
+        row = conn.execute(
+            text(
+                "SELECT oos_sharpe,oos_sharpe_after_tax FROM trial_results WHERE evaluation_id=:id"
+            ),
+            {"id": receipt.evaluation_ids[0]},
+        ).one()
+    assert tuple(row) == (Decimal("1"), Decimal("0.5"))
+    assert ledger.lifetime_count() == 1
 
 
 def test_reservation_commit_ack_loss_recovers_count_without_authorization(
@@ -726,6 +977,59 @@ def test_process_killed_before_commit_leaves_no_counted_rows(
             == 0
         )
     assert ledger.lifetime_count() == 0
+
+
+@pytest.mark.parametrize("pilot_present", [True, False])
+def test_pilot_migration_downgrade_preserves_history(
+    isolated_trial_db: tuple[Engine, str, str],
+    repo_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    pilot_present: bool,
+) -> None:
+    engine, scoped_dsn, _ = isolated_trial_db
+    ledger = PostgresTrialLedger(engine)
+    ledger.import_legacy_and_activate(_legacy_empty())
+    ledger.reserve(_descriptive_batch() if pilot_present else _batch())
+    with engine.connect() as conn:
+        before = conn.execute(text("SELECT * FROM trial_evaluations ORDER BY ordinal")).all()
+        before_batches = conn.execute(text("SELECT * FROM trial_batches")).all()
+        before_activation = conn.execute(text("SELECT * FROM trial_ledger_activation")).all()
+    monkeypatch.setenv("ICARUS_PG_DSN", scoped_dsn)
+    config = Config(str(repo_root / "alembic.ini"))
+    if pilot_present:
+        with pytest.raises(
+            RuntimeError, match="refuses to discard descriptive pilot trial history"
+        ):
+            command.downgrade(config, "20261008_trial_ledger")
+    else:
+        command.downgrade(config, "20261008_trial_ledger")
+    with engine.connect() as conn:
+        assert (
+            conn.execute(text("SELECT * FROM trial_evaluations ORDER BY ordinal")).all() == before
+        )
+        assert conn.execute(text("SELECT * FROM trial_batches")).all() == before_batches
+        assert (
+            conn.execute(text("SELECT * FROM trial_ledger_activation")).all() == before_activation
+        )
+        version = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+        constraint = conn.execute(
+            text(
+                "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
+                "WHERE conname='ck_trial_evaluation_kind' "
+                "AND conrelid='trial_evaluations'::regclass"
+            )
+        ).scalar_one()
+        cardinality = conn.execute(
+            text("SELECT pg_get_functiondef('icarus_trial_batch_cardinality()'::regprocedure)")
+        ).scalar_one()
+        result_guard = conn.execute(
+            text("SELECT pg_get_functiondef('icarus_trial_result_insert_guard()'::regprocedure)")
+        ).scalar_one()
+    assert version == ("20261016_descriptive_pilot" if pilot_present else "20261008_trial_ledger")
+    assert ("descriptive_pilot" in constraint) is pilot_present
+    assert ("trial batch kind geometry mismatch" in cardinality) is pilot_present
+    assert ("signal trial result cannot contain Sharpe" in result_guard) is pilot_present
+    assert ledger.lifetime_count() == (1 if pilot_present else 3)
 
 
 def test_downgrade_refuses_to_destroy_activated_history(

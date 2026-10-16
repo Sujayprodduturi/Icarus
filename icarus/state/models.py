@@ -216,7 +216,8 @@ class TrialEvaluation(Base):
         UniqueConstraint("run_group_id", "ordinal", name="uq_trial_evaluation_ordinal"),
         CheckConstraint("ordinal >= 0", name="ck_trial_evaluation_ordinal"),
         CheckConstraint(
-            "kind IN ('portfolio','signal_full','signal_fold')", name="ck_trial_evaluation_kind"
+            "kind IN ('portfolio','signal_full','signal_fold','descriptive_pilot')",
+            name="ck_trial_evaluation_kind",
         ),
         CheckConstraint(
             "(start_index IS NULL AND end_index_exclusive IS NULL "

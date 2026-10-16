@@ -211,8 +211,13 @@ class EvaluationPlan:
         kinds = {item.kind for item in self.evaluations}
         if self.mode == "portfolio" and kinds != {TrialKind.PORTFOLIO}:
             raise ValueError("portfolio plan requires portfolio geometry")
-        if self.mode == "signal" and TrialKind.SIGNAL_FULL not in kinds:
-            raise ValueError("signal plan requires full-span and fold geometry")
+        if self.mode == "signal" and not (
+            (kinds == {TrialKind.DESCRIPTIVE_PILOT} and len(self.evaluations) == 1)
+            or kinds == {TrialKind.SIGNAL_FULL, TrialKind.SIGNAL_FOLD}
+        ):
+            raise ValueError(
+                "signal plan requires descriptive singleton or full-span and fold geometry"
+            )
 
 
 @dataclass(frozen=True, slots=True)
