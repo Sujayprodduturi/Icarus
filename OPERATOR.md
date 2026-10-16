@@ -471,6 +471,12 @@ Dated decisions that are not code and not in `goal.yaml`, so they have nowhere e
 | D57 | **Continue remaining data reconciliation and obtain independent benchmark-method review until real-data readiness.** The operator explicitly asks to keep working toward being able to run the strategies on real data. Continue bounded offline metadata/data QA, dated company/action/session reconciliation and primary-source evidence collection; review an honest candle-compatible benchmark method without fabricating exact event/publication facts. Prior safety, source qualification, trial-ledger and lockbox requirements remain controlling. No external vendor message, purchase, live broker operation, numeric gate relaxation, or source certification by assumption is granted by this instruction. Actual strategy evaluation remains distinct from readiness and requires the existing qualified package and run authorization. | operator, direct instruction on 2026-10-15 |
 | D58 | **Keep the prepared Zerodha questions unsent.** The operator explicitly declined sending the source-adjustment and local-retention questions. Continue authorized local reconciliation and published-source research. This does not supply missing provider facts or waive source qualification, and no external message may be sent under this decision. | operator, direct asynchronous answer on 2026-10-15 |
 
+### 2026-10-16 — resolve concrete price and historical coverage gaps
+
+| # | decision | who |
+|---|---|---|
+| D59 | **Continue resolving price differences and missing stock histories with independent reviewers, keeping all provider questions unsent.** Continue bounded source-data QA, public primary-source evidence, reviewed retrieval preparation and necessary fixes toward a qualified real-data strategy input. Do not replace historical membership with current survivors, infer provider adjustments from fitted price ratios, waive archive-use restrictions, change risk/statistical thresholds or consume 2023+ prices. Any new collection remains in the isolated operator-side acquisition path with no credentials or broker access in research. Existing source qualification and actual-study authorization gates remain in force; no provider message or purchase is authorized. | operator, direct instruction on 2026-10-16 |
+
 ## 7c. Deferred by decision — not forgotten
 
 Things consciously postponed. **Each names the condition that reopens it.** A deferral without a

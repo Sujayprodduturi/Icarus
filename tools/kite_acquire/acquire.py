@@ -31,6 +31,9 @@ TOKEN_PATTERN: Final = re.compile(r"^[A-Za-z0-9_-]{3,256}$")
 # https://kite.trade/forum/discussion/16124/historical-15-minute-ohlc-data-availability-pricing-and-api-limits-for-equity-stocks
 DAILY_CHUNK_DAYS: Final = 365
 M15_CHUNK_DAYS: Final = 90
+BOUNDED_HISTORY_START: Final = date(2022, 11, 29)
+BOUNDED_HISTORY_END: Final = date(2022, 12, 30)
+SERIES_CANDIDATE_CLASSIFICATION: Final = "CURRENT_SERIES_RETRIEVAL_CANDIDATES_NOT_IDENTITY_PROOF"
 
 
 class AuthFailure(RuntimeError):
@@ -89,6 +92,16 @@ class Archive:
     manifest_path: Path
 
 
+@dataclass(frozen=True)
+class LegacyTokenRoute:
+    requested_label: str
+    historical_tradingsymbol: str
+    instrument_token: int
+    nse_series: str
+    nse_isin: str
+    evidence_url: str
+
+
 Transport = Callable[[Request], bytes]
 
 
@@ -127,6 +140,131 @@ def validate_symbol_file(path: Path) -> list[str]:
     return symbols
 
 
+def validate_bounded_history_dates(start_value: str, end_value: str) -> tuple[date, date]:
+    try:
+        start = date.fromisoformat(start_value)
+        end = date.fromisoformat(end_value)
+    except ValueError:
+        raise ValueError("invalid bounded history range") from None
+    if (start, end) != (BOUNDED_HISTORY_START, BOUNDED_HISTORY_END):
+        raise ValueError("bounded history range must be exactly 2022-11-29 through 2022-12-30")
+    return start, end
+
+
+def validate_optional_history_dates(
+    start_value: str | None, end_value: str | None
+) -> tuple[date, date] | None:
+    if start_value is None and end_value is None:
+        return None
+    if start_value is None or end_value is None:
+        raise ValueError("history start and end must be supplied together")
+    try:
+        start = date.fromisoformat(start_value)
+        end = date.fromisoformat(end_value)
+    except ValueError:
+        raise ValueError("invalid history range") from None
+    if start > end or end >= date(2023, 1, 1):
+        raise ValueError("invalid history range")
+    return start, end
+
+
+def legacy_manifest_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def validate_legacy_token_file(path: Path, expected_sha256: str) -> list[LegacyTokenRoute]:
+    if re.fullmatch(r"[0-9a-fA-F]{64}", expected_sha256) is None:
+        raise ValueError("invalid expected legacy manifest digest")
+    raw = path.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != expected_sha256.lower():
+        raise ValueError("legacy manifest digest mismatch")
+    try:
+        manifest = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise ValueError("malformed legacy token manifest") from None
+    top_keys = {"schema_version", "status", "as_of_date", "scope", "routes", "limits"}
+    if not isinstance(manifest, dict) or set(manifest) != top_keys:
+        raise ValueError("malformed legacy token manifest")
+    if (
+        manifest["schema_version"] != 1
+        or manifest["status"] != "EXPLICIT_LEGACY_TOKEN_CANDIDATES_NOT_IDENTITY_PROOF"
+        or manifest["as_of_date"] != "2026-10-16"
+        or manifest["scope"] != "metadata routing for the bounded 2022 pilot and its warmup only"
+        or not isinstance(manifest["routes"], list)
+        or not manifest["routes"]
+        or not isinstance(manifest["limits"], list)
+        or not manifest["limits"]
+        or any(not isinstance(item, str) or not item for item in manifest["limits"])
+    ):
+        raise ValueError("malformed legacy token manifest")
+    route_keys = {
+        "requested_label",
+        "historical_tradingsymbol",
+        "historical_instrument_token",
+        "provider_evidence_date",
+        "provider_evidence_url",
+        "provider_evidence_observation",
+        "nse_2022_12_30_series",
+        "nse_2022_12_30_isin",
+        "pilot_disposition",
+        "route_status",
+        "identity_status",
+        "token_continuity",
+    }
+    routes: list[LegacyTokenRoute] = []
+    labels: set[str] = set()
+    tokens: set[int] = set()
+    for item in manifest["routes"]:
+        if not isinstance(item, dict) or set(item) != route_keys:
+            raise ValueError("malformed legacy token route")
+        label = item["requested_label"]
+        historical_symbol = item["historical_tradingsymbol"]
+        token = item["historical_instrument_token"]
+        evidence_date = item["provider_evidence_date"]
+        evidence_url = item["provider_evidence_url"]
+        observation = item["provider_evidence_observation"]
+        nse_series = item["nse_2022_12_30_series"]
+        nse_isin = item["nse_2022_12_30_isin"]
+        dispositions = item["pilot_disposition"]
+        parsed_url = urllib.parse.urlsplit(evidence_url) if isinstance(evidence_url, str) else None
+        if (
+            not isinstance(label, str)
+            or re.fullmatch(r"[A-Z0-9&.-]{1,64}", label) is None
+            or historical_symbol != label
+            or isinstance(token, bool)
+            or not isinstance(token, int)
+            or token <= 0
+            or not isinstance(evidence_date, str)
+            or re.fullmatch(r"[0-9]{4}-[0-9]{2}", evidence_date) is None
+            or parsed_url is None
+            or parsed_url.scheme != "https"
+            or parsed_url.netloc != "kite.trade"
+            or not parsed_url.path.startswith("/forum/")
+            or not isinstance(observation, str)
+            or not observation.strip()
+            or nse_series != "EQ"
+            or not isinstance(nse_isin, str)
+            or re.fullmatch(r"[A-Z0-9]{12}", nse_isin) is None
+            or not isinstance(dispositions, list)
+            or len(dispositions) != 5
+            or any(
+                value not in {"CONDITIONAL_QUALIFIES", "BELOW_TURNOVER"} for value in dispositions
+            )
+            or item["route_status"] != "COLLECTION_CANDIDATE_ONLY"
+            or item["identity_status"] != "UNKNOWN"
+            or item["token_continuity"] != "UNKNOWN"
+        ):
+            raise ValueError("malformed legacy token route")
+        if label in labels or token in tokens:
+            raise ValueError("duplicate legacy token route")
+        labels.add(label)
+        tokens.add(token)
+        routes.append(
+            LegacyTokenRoute(label, historical_symbol, token, nse_series, nse_isin, evidence_url)
+        )
+    return routes
+
+
 def validate_provenance(path: Path, symbols_path: Path) -> dict[str, Any]:
     try:
         provenance: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
@@ -146,6 +284,96 @@ def validate_provenance(path: Path, symbols_path: Path) -> dict[str, Any]:
     ):
         raise ValueError("malformed request-list provenance")
     return provenance
+
+
+def validate_series_route_evidence(
+    provenance: Mapping[str, Any],
+    symbols: Sequence[str],
+    evidence_path: Path | None,
+    expected_evidence_sha256: str | None,
+) -> tuple[str, dict[str, int]] | None:
+    series_symbols = {symbol for symbol in symbols if symbol.endswith("-BE")}
+    classification = provenance.get("classification")
+    if not series_symbols:
+        if (
+            classification == SERIES_CANDIDATE_CLASSIFICATION
+            or evidence_path is not None
+            or expected_evidence_sha256 is not None
+        ):
+            raise ValueError("series route evidence classification has no BE candidate")
+        return None
+    if classification != SERIES_CANDIDATE_CLASSIFICATION:
+        raise ValueError("BE candidate requires hash-pinned series route evidence")
+    if evidence_path is None or expected_evidence_sha256 is None:
+        raise ValueError("BE candidate requires hash-pinned series route evidence")
+    if any(symbol != "NIFTY50" and symbol not in series_symbols for symbol in symbols):
+        raise ValueError("series route evidence classification contains an ordinary symbol")
+    member = provenance.get("decoded_member")
+    if not isinstance(member, dict):
+        raise ValueError("malformed series route evidence provenance")
+    expected_sha256 = member.get("sha256")
+    if (
+        not isinstance(expected_sha256, str)
+        or re.fullmatch(r"[0-9a-f]{64}", expected_sha256) is None
+        or re.fullmatch(r"[0-9a-fA-F]{64}", expected_evidence_sha256) is None
+        or expected_sha256 != expected_evidence_sha256.lower()
+    ):
+        raise ValueError("malformed series route evidence provenance")
+    try:
+        raw = evidence_path.read_bytes()
+        evidence = json.loads(raw)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        raise ValueError("malformed series route evidence") from None
+    if hashlib.sha256(raw).hexdigest() != expected_sha256:
+        raise ValueError("series route evidence hash mismatch")
+    if (
+        not isinstance(evidence, dict)
+        or evidence.get("schema_version") != 1
+        or evidence.get("status") != "CURRENT_SERIES_RETRIEVAL_CANDIDATES_ONLY"
+        or not isinstance(evidence.get("routes"), list)
+    ):
+        raise ValueError("malformed series route evidence")
+    evidence_tokens: dict[str, int] = {}
+    for route in evidence["routes"]:
+        if not isinstance(route, dict):
+            raise ValueError("malformed series route evidence")
+        retrieval_symbol = route.get("retrieval_symbol")
+        current_token = route.get("current_instrument_token")
+        if (
+            not isinstance(retrieval_symbol, str)
+            or not retrieval_symbol.endswith("-BE")
+            or isinstance(current_token, bool)
+            or not isinstance(current_token, int)
+            or current_token <= 0
+            or route.get("current_exchange") != "NSE"
+            or route.get("current_series") != "BE"
+            or route.get("current_instrument_type") != "EQ"
+            or route.get("nse_2022_12_30_series") != "EQ"
+            or route.get("route_status") != "COLLECTION_CANDIDATE_ONLY"
+            or route.get("series_continuity") != "UNKNOWN"
+            or route.get("token_continuity") != "UNKNOWN"
+        ):
+            raise ValueError("malformed series route evidence")
+        if retrieval_symbol in evidence_tokens:
+            raise ValueError("duplicate series route evidence")
+        evidence_tokens[retrieval_symbol] = current_token
+    if set(evidence_tokens) != series_symbols:
+        raise ValueError("series route evidence does not match requested BE candidates")
+    return expected_sha256, evidence_tokens
+
+
+def _validate_legacy_tokens_not_current(
+    rows: list[dict[str, str]], routes: Sequence[LegacyTokenRoute]
+) -> None:
+    try:
+        current_tokens = {int(row["instrument_token"]) for row in rows}
+    except (KeyError, TypeError, ValueError):
+        raise SchemaFailure("malformed instrument token in fresh current master") from None
+    reused = sorted(
+        route.instrument_token for route in routes if route.instrument_token in current_tokens
+    )
+    if reused:
+        raise SchemaFailure(f"legacy token present in current master: {reused}")
 
 
 def _canonical(request: Mapping[str, object]) -> bytes:
@@ -409,6 +637,23 @@ class KiteClient:
         if existing is not None:
             return existing
         payload = self._send(Request("GET", "/instruments/NSE", self._headers))
+        self._validate_instrument_master(payload)
+        return archive_response(self._root, request_record, payload, "success")
+
+    def fresh_instruments(self) -> Archive:
+        retrieved_at = datetime.now(UTC).isoformat()
+        request_record = {
+            "kind": "instruments",
+            "exchange": "NSE",
+            "purpose": "legacy-token-reuse-check",
+            "retrieval_attempted_at_utc": retrieved_at,
+        }
+        payload = self._send(Request("GET", "/instruments/NSE", self._headers))
+        self._validate_instrument_master(payload)
+        return archive_response(self._root, request_record, payload, "success")
+
+    @staticmethod
+    def _validate_instrument_master(payload: bytes) -> None:
         lines = payload.decode("utf-8").splitlines()
         if not lines:
             raise SchemaFailure("empty instrument master")
@@ -418,7 +663,6 @@ class KiteClient:
             raise SchemaFailure("instrument master columns missing")
         if rows and not required.issubset(rows[0]):
             raise SchemaFailure("instrument master columns missing")
-        return archive_response(self._root, request_record, payload, "success")
 
     def historical(
         self, instrument_token: int, interval: str, start: datetime, end: datetime
@@ -610,23 +854,111 @@ def _chunks(start: date, end: date, interval: str) -> list[tuple[datetime, datet
     return output
 
 
+def _quarantined_report_row(
+    *,
+    symbol: str,
+    retrieval_kind: str,
+    identity_status: str,
+    instrument_token: int,
+    interval: str,
+    chunk_start: datetime,
+    chunk_end: datetime,
+    metadata: Mapping[str, Any],
+) -> dict[str, object]:
+    row: dict[str, object] = {
+        "symbol": symbol,
+        "retrieval_kind": retrieval_kind,
+        "identity_status": identity_status,
+        "instrument_token": instrument_token,
+        "interval": interval,
+        "requested_from": chunk_start.astimezone(IST).date().isoformat(),
+        "requested_to": chunk_end.astimezone(IST).date().isoformat(),
+        "result": metadata["result"],
+        "request_identity_sha256": metadata["request_identity_sha256"],
+        "provider_bytes_sha256": metadata["provider_bytes_sha256"],
+    }
+    if metadata["result"] == "rejected":
+        row["validation_reason"] = metadata["validation_reason"]
+    else:
+        row.update(cast(Mapping[str, object], metadata["coverage"]))
+    return row
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Isolated Kite historical acquisition")
     parser.add_argument("--mode", choices=("probe", "download"), default="probe")
     parser.add_argument("--symbols-file", type=Path)
     parser.add_argument("--provenance", type=Path)
+    parser.add_argument("--history-start")
+    parser.add_argument("--history-end")
+    parser.add_argument("--legacy-token-file", type=Path)
+    parser.add_argument("--legacy-token-sha256")
+    parser.add_argument("--series-route-evidence-file", type=Path)
+    parser.add_argument("--series-route-evidence-sha256")
     parser.add_argument("--export", type=Path, default=Path("/export"))
     parser.add_argument("--proxy", default="http://kite-proxy:8080")
     parser.add_argument("--run-id")
     args = parser.parse_args(argv)
-    if args.mode == "download" and (args.symbols_file is None or args.provenance is None):
-        parser.error("download requires --symbols-file and --provenance")
-    symbols = (
-        ["INFY", "NIFTY50"] if args.mode == "probe" else validate_symbol_file(args.symbols_file)
-    )
-    provenance = (
-        None if args.mode == "probe" else validate_provenance(args.provenance, args.symbols_file)
-    )
+    if args.mode == "download":
+        if args.symbols_file is None or args.provenance is None:
+            parser.error("download requires --symbols-file and --provenance")
+        requested_history_dates = validate_optional_history_dates(
+            args.history_start, args.history_end
+        )
+        symbols = validate_symbol_file(args.symbols_file)
+        provenance = validate_provenance(args.provenance, args.symbols_file)
+        series_evidence = validate_series_route_evidence(
+            provenance,
+            symbols,
+            args.series_route_evidence_file,
+            args.series_route_evidence_sha256,
+        )
+        series_evidence_sha256 = None if series_evidence is None else series_evidence[0]
+        series_evidence_tokens = {} if series_evidence is None else series_evidence[1]
+        if (args.legacy_token_file is None) != (args.legacy_token_sha256 is None):
+            parser.error("legacy token file and reviewed SHA-256 must be supplied together")
+        legacy_routes = (
+            []
+            if args.legacy_token_file is None
+            else validate_legacy_token_file(args.legacy_token_file, args.legacy_token_sha256)
+        )
+        if {route.requested_label for route in legacy_routes}.intersection(symbols):
+            raise ValueError("duplicate requested label across routes")
+        if series_evidence_sha256 is not None or legacy_routes:
+            if requested_history_dates is None:
+                raise ValueError(
+                    "candidate routes require bounded history range 2022-11-29 through 2022-12-30"
+                )
+            history_start, history_end = validate_bounded_history_dates(
+                args.history_start, args.history_end
+            )
+        elif requested_history_dates is None:
+            history_start = None
+            history_end = None
+        else:
+            history_start, history_end = requested_history_dates
+    else:
+        if any(
+            value is not None
+            for value in (
+                args.symbols_file,
+                args.provenance,
+                args.history_start,
+                args.history_end,
+                args.legacy_token_file,
+                args.legacy_token_sha256,
+                args.series_route_evidence_file,
+                args.series_route_evidence_sha256,
+            )
+        ):
+            parser.error("probe mode does not accept download inputs")
+        symbols = ["INFY", "NIFTY50"]
+        provenance = None
+        series_evidence_sha256 = None
+        series_evidence_tokens = {}
+        legacy_routes = []
+        history_start = None
+        history_end = None
     run_id = args.run_id or datetime.now(UTC).strftime("%Y%m%dT%H%M%S.%fZ")
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", run_id):
         parser.error("run id contains unsafe characters")
@@ -642,6 +974,26 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "decoded_member": provenance["decoded_member"],
             }
         )
+        if history_start is not None and history_end is not None:
+            identity["history_start"] = history_start.isoformat()
+            identity["history_end"] = history_end.isoformat()
+    if series_evidence_sha256 is not None:
+        identity["series_route_evidence_sha256"] = series_evidence_sha256
+    if legacy_routes:
+        identity["legacy_token_manifest_sha256"] = args.legacy_token_sha256.lower()
+        identity["legacy_routes"] = [
+            {
+                "requested_label": route.requested_label,
+                "historical_tradingsymbol": route.historical_tradingsymbol,
+                "instrument_token": route.instrument_token,
+                "nse_series": route.nse_series,
+                "nse_isin": route.nse_isin,
+                "evidence_url": route.evidence_url,
+                "identity_status": "QUARANTINED_IDENTITY_UNPROVED",
+            }
+            for route in legacy_routes
+        ]
+        identity["fresh_master_required"] = True
     _bind_run(run_root, identity)
     if not sys.stdin.isatty():
         raise RuntimeError("interactive terminal required for hidden credential prompts")
@@ -654,11 +1006,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     transport = urllib_transport(args.proxy)
     access_token = create_session(api_key, api_secret, request_token, transport)
     client = KiteClient(api_key, access_token, run_root, transport=transport)
-    master = client.instruments().raw_path.read_text(encoding="utf-8").splitlines()
+    master_archive = client.fresh_instruments() if legacy_routes else client.instruments()
+    master = master_archive.raw_path.read_text(encoding="utf-8").splitlines()
     rows = list(csv.DictReader(master))
+    if legacy_routes:
+        _validate_legacy_tokens_not_current(rows, legacy_routes)
+    for symbol, expected_token in series_evidence_tokens.items():
+        if _resolve(rows, symbol) != expected_token:
+            raise SchemaFailure(f"series evidence token mismatch: {symbol}")
     unresolved: list[str] = []
     coverage: list[dict[str, object]] = []
     rejected_chunks: list[dict[str, object]] = []
+    quarantined_routes: list[dict[str, object]] = []
     accepted_count = 0
     empty_count = 0
     if args.mode == "download":
@@ -675,28 +1034,46 @@ def main(argv: Sequence[str] | None = None) -> int:
             probe_metadata = load_checkpoint(probe_archive.manifest_path)
             if probe_metadata["result"] != "success" or probe_metadata["coverage"]["count"] == 0:
                 raise SchemaFailure(f"required 2022 probe returned empty: {probe_symbol}")
-    ranges = [
-        (date(2011, 1, 1), date(2022, 12, 31), "day"),
-        (date(2015, 1, 1), date(2022, 12, 31), "15minute"),
-    ]
+    ranges = (
+        [
+            (date(2011, 1, 1), date(2022, 12, 31), "day"),
+            (date(2015, 1, 1), date(2022, 12, 31), "15minute"),
+        ]
+        if history_start is None or history_end is None
+        else [(history_start, history_end, "day"), (history_start, history_end, "15minute")]
+    )
+    selected = (
+        ranges
+        if args.mode == "download"
+        else [
+            (date(2011, 1, 3), date(2011, 1, 7), "day"),
+            (date(2015, 1, 1), date(2015, 1, 31), "15minute"),
+            (date(2022, 12, 26), date(2022, 12, 30), "15minute"),
+        ]
+    )
     for symbol in symbols:
         token = _resolve(rows, symbol)
         if token is None:
             unresolved.append(symbol)
             continue
-        selected = (
-            ranges
-            if args.mode == "download"
-            else [
-                (date(2011, 1, 3), date(2011, 1, 7), "day"),
-                (date(2015, 1, 1), date(2015, 1, 31), "15minute"),
-                (date(2022, 12, 26), date(2022, 12, 30), "15minute"),
-            ]
-        )
         for start, end, interval in selected:
             for chunk_start, chunk_end in _chunks(start, end, interval):
                 archive = client.historical(token, interval, chunk_start, chunk_end)
                 metadata = load_checkpoint(archive.manifest_path)
+                if series_evidence_sha256 is not None and symbol != "NIFTY50":
+                    quarantined_routes.append(
+                        _quarantined_report_row(
+                            symbol=symbol,
+                            retrieval_kind="current_series_candidate",
+                            identity_status="QUARANTINED_SERIES_IDENTITY_UNPROVED",
+                            instrument_token=token,
+                            interval=interval,
+                            chunk_start=chunk_start,
+                            chunk_end=chunk_end,
+                            metadata=metadata,
+                        )
+                    )
+                    continue
                 if metadata["result"] == "rejected":
                     rejected_chunks.append(
                         {
@@ -708,16 +1085,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                             "validation_reason": metadata["validation_reason"],
                             "provider_bytes_sha256": metadata["provider_bytes_sha256"],
                         }
-                    )
-                    print(
-                        json.dumps(
-                            {
-                                "symbol": symbol,
-                                "interval": interval,
-                                "result": "rejected",
-                                "reason": metadata["validation_reason"],
-                            }
-                        )
                     )
                     continue
                 if metadata["result"] == "success":
@@ -733,24 +1100,35 @@ def main(argv: Sequence[str] | None = None) -> int:
                         **metadata["coverage"],
                     }
                 )
-                print(
-                    json.dumps(
-                        {
-                            "symbol": symbol,
-                            "interval": interval,
-                            "from": chunk_start.astimezone(IST).date().isoformat(),
-                            "to": chunk_end.astimezone(IST).date().isoformat(),
-                            "result": metadata["result"],
-                            "bytes": metadata["provider_bytes_size"],
-                        }
+    for route in legacy_routes:
+        for start, end, interval in ranges:
+            for chunk_start, chunk_end in _chunks(start, end, interval):
+                archive = client.historical(
+                    route.instrument_token, interval, chunk_start, chunk_end
+                )
+                metadata = load_checkpoint(archive.manifest_path)
+                quarantined_routes.append(
+                    _quarantined_report_row(
+                        symbol=route.requested_label,
+                        retrieval_kind="legacy_token_candidate",
+                        identity_status="QUARANTINED_IDENTITY_UNPROVED",
+                        instrument_token=route.instrument_token,
+                        interval=interval,
+                        chunk_start=chunk_start,
+                        chunk_end=chunk_end,
+                        metadata=metadata,
                     )
                 )
+    quarantined_rejections = sum(row["result"] == "rejected" for row in quarantined_routes)
+    master_metadata = load_checkpoint(master_archive.manifest_path)
     report = {
         "mode": args.mode,
         "requested_symbols": symbols,
+        "legacy_requested_labels": [route.requested_label for route in legacy_routes],
         "unresolved_symbols": unresolved,
         "coverage": coverage,
         "rejected_chunks": rejected_chunks,
+        "quarantined_routes": quarantined_routes,
         "counts": {
             "requested_symbols": len(symbols),
             "resolved_symbols": len(symbols) - len(unresolved),
@@ -758,10 +1136,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             "accepted_chunks": accepted_count,
             "empty_chunks": empty_count,
             "rejected_chunks": len(rejected_chunks),
-            "requested_chunks": accepted_count + empty_count + len(rejected_chunks),
+            "quarantined_chunks": len(quarantined_routes),
+            "requested_chunks": (
+                accepted_count + empty_count + len(rejected_chunks) + len(quarantined_routes)
+            ),
         },
         "staging_status": (
-            "COMPLETED_WITH_REJECTIONS" if rejected_chunks else "COMPLETED_UNQUALIFIED"
+            "COMPLETED_WITH_REJECTIONS"
+            if rejected_chunks or quarantined_rejections
+            else "COMPLETED_UNQUALIFIED"
         ),
         "source_qualified": False,
         "request_list": (
@@ -773,13 +1156,22 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "source_panel": provenance["source"],
                 "decoded_member": provenance["decoded_member"],
                 "classification": provenance["classification"],
+                "series_route_evidence_sha256": series_evidence_sha256,
+            }
+        ),
+        "fresh_master": (
+            None
+            if not legacy_routes
+            else {
+                "request_identity_sha256": master_metadata["request_identity_sha256"],
+                "provider_bytes_sha256": master_metadata["provider_bytes_sha256"],
             }
         ),
         "note": "archive acquisition only; source qualification remains separate",
     }
     _atomic_write(run_root / "report.json", (json.dumps(report, indent=2) + "\n").encode())
     print(json.dumps({"mode": args.mode, "requested": len(symbols), "unresolved": len(unresolved)}))
-    return 3 if rejected_chunks else 0
+    return 3 if rejected_chunks or quarantined_rejections else 0
 
 
 def entrypoint() -> int:

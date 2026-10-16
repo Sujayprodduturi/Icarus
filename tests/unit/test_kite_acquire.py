@@ -1,29 +1,202 @@
 from __future__ import annotations
 
+import csv
+import getpass
 import hashlib
 import json
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import pytest
+import tools.kite_acquire.acquire as acquire
 from tools.kite_acquire.acquire import (
     AuthFailure,
     KiteClient,
+    LegacyTokenRoute,
     Request,
     SchemaFailure,
     _chunks,
     _resolve,
     _validate_historical,
+    _validate_legacy_tokens_not_current,
     archive_response,
+    legacy_manifest_sha256,
     load_checkpoint,
     parse_callback_token,
     urllib_transport,
+    validate_legacy_token_file,
     validate_provenance,
     validate_range,
     validate_symbol_file,
 )
 from tools.kite_acquire.proxy import proxy_decision
+
+LEGACY_EVIDENCE_URL = "https://kite.trade/forum/discussion/comment/9169/"
+
+
+def _legacy_route(token: object = 340481) -> dict[str, object]:
+    return {
+        "requested_label": "HDFC",
+        "historical_tradingsymbol": "HDFC",
+        "historical_instrument_token": token,
+        "provider_evidence_date": "2017-11",
+        "provider_evidence_url": LEGACY_EVIDENCE_URL,
+        "provider_evidence_observation": "The forum record publishes HDFC;340481.",
+        "nse_2022_12_30_series": "EQ",
+        "nse_2022_12_30_isin": "INE001A01036",
+        "pilot_disposition": ["CONDITIONAL_QUALIFIES"] * 5,
+        "route_status": "COLLECTION_CANDIDATE_ONLY",
+        "identity_status": "UNKNOWN",
+        "token_continuity": "UNKNOWN",
+    }
+
+
+def _write_legacy_manifest(tmp_path: Path, token: object = 340481) -> Path:
+    path = tmp_path / "legacy.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "status": "EXPLICIT_LEGACY_TOKEN_CANDIDATES_NOT_IDENTITY_PROOF",
+                "as_of_date": "2026-10-16",
+                "scope": "metadata routing for the bounded 2022 pilot and its warmup only",
+                "routes": [_legacy_route(token)],
+                "limits": ["candidate only"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def _write_download_inputs(
+    tmp_path: Path,
+    symbols: list[str],
+    *,
+    classification: str = "REQUESTED_NOT_CERTIFIED_PIT",
+) -> tuple[Path, Path]:
+    symbols_path = tmp_path / "symbols.txt"
+    symbols_path.write_text("\n".join(symbols) + "\n", encoding="utf-8")
+    provenance_path = tmp_path / "provenance.json"
+    decoded_member: dict[str, object] = {"name": "symbols.npy", "sha256": "b" * 64}
+    if classification == "CURRENT_SERIES_RETRIEVAL_CANDIDATES_NOT_IDENTITY_PROOF":
+        evidence_path = tmp_path / "series-evidence.json"
+        evidence_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "status": "CURRENT_SERIES_RETRIEVAL_CANDIDATES_ONLY",
+                    "as_of_date": "2026-10-16",
+                    "routes": [
+                        {
+                            "requested_label": "HFCL",
+                            "retrieval_symbol": "HFCL-BE",
+                            "current_instrument_token": 5620225,
+                            "current_exchange_token": 21954,
+                            "current_exchange": "NSE",
+                            "current_series": "BE",
+                            "current_instrument_type": "EQ",
+                            "current_isin": "INE548A01028",
+                            "nse_2022_12_30_symbol": "HFCL",
+                            "nse_2022_12_30_series": "EQ",
+                            "nse_2022_12_30_isin": "INE548A01028",
+                            "route_status": "COLLECTION_CANDIDATE_ONLY",
+                            "series_continuity": "UNKNOWN",
+                            "token_continuity": "UNKNOWN",
+                        }
+                    ],
+                    "source": {"path": "receipt.json", "sha256": "c" * 64},
+                    "limits": ["candidate only"],
+                }
+            ),
+            encoding="utf-8",
+        )
+        decoded_member = {
+            "path": evidence_path.name,
+            "sha256": hashlib.sha256(evidence_path.read_bytes()).hexdigest(),
+            "status": "CURRENT_SERIES_RETRIEVAL_CANDIDATES_ONLY",
+        }
+    provenance_path.write_text(
+        json.dumps(
+            {
+                "output": {"sha256": hashlib.sha256(symbols_path.read_bytes()).hexdigest()},
+                "classification": classification,
+                "source": {"path": "panel.npz", "sha256": "a" * 64},
+                "decoded_member": decoded_member,
+            }
+        ),
+        encoding="utf-8",
+    )
+    return symbols_path, provenance_path
+
+
+def _main_args(
+    tmp_path: Path,
+    symbols_path: Path,
+    provenance_path: Path,
+    *,
+    run_id: str,
+) -> list[str]:
+    return [
+        "--mode",
+        "download",
+        "--symbols-file",
+        str(symbols_path),
+        "--provenance",
+        str(provenance_path),
+        "--export",
+        str(tmp_path / "export"),
+        "--run-id",
+        run_id,
+        "--history-start",
+        "2022-11-29",
+        "--history-end",
+        "2022-12-30",
+    ]
+
+
+def _instrument_master(*, collision: bool = False, include_be: bool = False) -> bytes:
+    header = (
+        "instrument_token,exchange_token,tradingsymbol,name,last_price,expiry,strike,"
+        "tick_size,lot_size,instrument_type,segment,exchange\n"
+    )
+    rows = [
+        "408065,1594,INFY,Infosys,0,,0,0.05,1,EQ,NSE,NSE",
+        "256265,1001,NIFTY 50,NIFTY 50,0,,0,0.05,1,EQ,INDICES,NSE",
+    ]
+    if collision:
+        rows.append("340481,1329,SOMEOTHER,Some Other,0,,0,0.05,1,EQ,NSE,NSE")
+    if include_be:
+        rows.append("5620225,21954,HFCL-BE,HFCL,0,,0,0.05,1,EQ,NSE,NSE")
+    return (header + "\n".join(rows) + "\n").encode()
+
+
+def _valid_candles() -> bytes:
+    return (
+        b'{"status":"success","data":{"candles":[["2022-12-28T09:15:00+05:30",100,110,90,105,10]]}}'
+    )
+
+
+class _InteractiveInput:
+    @staticmethod
+    def isatty() -> bool:
+        return True
+
+
+class _NonInteractiveInput:
+    @staticmethod
+    def isatty() -> bool:
+        return False
+
+
+def _install_fake_auth(monkeypatch: pytest.MonkeyPatch, transport: Any) -> None:
+    answers = iter(("api-key", "api-secret", "request-token"))
+    monkeypatch.setattr(sys, "stdin", _InteractiveInput())
+    monkeypatch.setattr(getpass, "getpass", lambda _: next(answers))
+    monkeypatch.setattr(acquire, "create_session", lambda *_: "access-token")
+    monkeypatch.setattr(acquire, "urllib_transport", lambda _: transport)
 
 
 def test_proxy_accepts_only_kite_connect_tunnel() -> None:
@@ -127,6 +300,387 @@ def test_request_list_provenance_detects_tampering(tmp_path: Path) -> None:
     symbols.write_text("INFY\n", encoding="utf-8")
     with pytest.raises(ValueError, match="NIFTY50"):
         validate_symbol_file(symbols)
+
+
+def test_legacy_manifest_requires_caller_reviewed_digest(tmp_path: Path) -> None:
+    path = _write_legacy_manifest(tmp_path)
+    reviewed = legacy_manifest_sha256(path)
+    assert validate_legacy_token_file(path, reviewed) == [
+        LegacyTokenRoute("HDFC", "HDFC", 340481, "EQ", "INE001A01036", LEGACY_EVIDENCE_URL)
+    ]
+    path = _write_legacy_manifest(tmp_path, 341249)
+    with pytest.raises(ValueError, match="digest"):
+        validate_legacy_token_file(path, reviewed)
+
+
+@pytest.mark.parametrize("token", [True, 0, -1, "340481"])
+def test_legacy_manifest_rejects_invalid_token(tmp_path: Path, token: object) -> None:
+    path = _write_legacy_manifest(tmp_path, token)
+    digest = legacy_manifest_sha256(path)
+    with pytest.raises(ValueError):
+        validate_legacy_token_file(path, digest)
+
+
+def test_legacy_token_collision_guard_checks_every_current_master_row() -> None:
+    rows = list(csv.DictReader(_instrument_master(collision=True).decode().splitlines()))
+    route = LegacyTokenRoute("HDFC", "HDFC", 340481, "EQ", "INE001A01036", LEGACY_EVIDENCE_URL)
+    with pytest.raises(SchemaFailure, match="legacy token present in current master"):
+        _validate_legacy_tokens_not_current(rows, [route])
+
+
+@pytest.mark.parametrize(
+    ("start", "end"),
+    [("2022-11-28", "2022-12-30"), ("2022-11-29", "2022-12-31")],
+)
+def test_invalid_download_range_fails_before_credentials_or_transport(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    start: str,
+    end: str,
+) -> None:
+    symbols, provenance = _write_download_inputs(tmp_path, ["NIFTY50"])
+    manifest = _write_legacy_manifest(tmp_path)
+    args = _main_args(tmp_path, symbols, provenance, run_id=f"bad-range-{start[-2:]}-{end[-2:]}")
+    args.extend(
+        [
+            "--legacy-token-file",
+            str(manifest),
+            "--legacy-token-sha256",
+            legacy_manifest_sha256(manifest),
+        ]
+    )
+    args[args.index("--history-start") + 1] = start
+    args[args.index("--history-end") + 1] = end
+    monkeypatch.setattr(
+        getpass,
+        "getpass",
+        lambda _: (_ for _ in ()).throw(AssertionError("credential prompt reached")),
+    )
+    monkeypatch.setattr(
+        acquire,
+        "urllib_transport",
+        lambda _: (_ for _ in ()).throw(AssertionError("transport created")),
+    )
+    with pytest.raises(ValueError, match="bounded history range"):
+        acquire.main(args)
+
+
+def test_ordinary_download_without_range_preserves_original_run_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    symbols, provenance = _write_download_inputs(tmp_path, ["NIFTY50"])
+    args = _main_args(tmp_path, symbols, provenance, run_id="ordinary-default")
+    del args[args.index("--history-start") :]
+    monkeypatch.setattr(sys, "stdin", _NonInteractiveInput())
+    with pytest.raises(RuntimeError, match="interactive terminal"):
+        acquire.main(args)
+    identity = json.loads(
+        (tmp_path / "export" / "download" / "ordinary-default" / "request-identity.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert set(identity) == {
+        "mode",
+        "symbols",
+        "symbols_sha256",
+        "provenance_sha256",
+        "classification",
+        "source_panel",
+        "decoded_member",
+    }
+    with pytest.raises(RuntimeError, match="interactive terminal"):
+        acquire.main(args)
+
+
+def test_wrong_legacy_digest_fails_before_credentials_or_transport(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    symbols, provenance = _write_download_inputs(tmp_path, ["NIFTY50"])
+    manifest = _write_legacy_manifest(tmp_path)
+    args = _main_args(tmp_path, symbols, provenance, run_id="bad-digest")
+    args.extend(["--legacy-token-file", str(manifest), "--legacy-token-sha256", "0" * 64])
+    monkeypatch.setattr(
+        getpass,
+        "getpass",
+        lambda _: (_ for _ in ()).throw(AssertionError("credential prompt reached")),
+    )
+    monkeypatch.setattr(
+        acquire,
+        "urllib_transport",
+        lambda _: (_ for _ in ()).throw(AssertionError("transport created")),
+    )
+    with pytest.raises(ValueError, match="digest"):
+        acquire.main(args)
+
+
+def test_legacy_label_duplicated_in_symbol_request_fails_before_credentials_or_transport(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    symbols, provenance = _write_download_inputs(tmp_path, ["HDFC", "NIFTY50"])
+    manifest = _write_legacy_manifest(tmp_path)
+    args = _main_args(tmp_path, symbols, provenance, run_id="duplicate-route-label")
+    args.extend(
+        [
+            "--legacy-token-file",
+            str(manifest),
+            "--legacy-token-sha256",
+            legacy_manifest_sha256(manifest),
+        ]
+    )
+    monkeypatch.setattr(
+        getpass,
+        "getpass",
+        lambda _: (_ for _ in ()).throw(AssertionError("credential prompt reached")),
+    )
+    monkeypatch.setattr(
+        acquire,
+        "urllib_transport",
+        lambda _: (_ for _ in ()).throw(AssertionError("transport created")),
+    )
+    with pytest.raises(ValueError, match="duplicate requested label across routes"):
+        acquire.main(args)
+
+
+def test_legacy_collision_uses_fresh_master_and_makes_zero_historical_calls(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    symbols, provenance = _write_download_inputs(tmp_path, ["NIFTY50"])
+    manifest = _write_legacy_manifest(tmp_path)
+    args = _main_args(tmp_path, symbols, provenance, run_id="collision")
+    args.extend(
+        [
+            "--legacy-token-file",
+            str(manifest),
+            "--legacy-token-sha256",
+            legacy_manifest_sha256(manifest),
+        ]
+    )
+    run_root = tmp_path / "export" / "download" / "collision"
+    KiteClient(
+        "key",
+        "token",
+        run_root,
+        transport=lambda _: _instrument_master(),
+        sleeper=lambda _: None,
+    ).instruments()
+    calls: list[Request] = []
+
+    def transport(request: Request) -> bytes:
+        calls.append(request)
+        if request.path == "/instruments/NSE":
+            return _instrument_master(collision=True)
+        raise AssertionError("historical transport reached after collision")
+
+    _install_fake_auth(monkeypatch, transport)
+    with pytest.raises(SchemaFailure, match="legacy token present in current master"):
+        acquire.main(args)
+    assert [request.path for request in calls] == ["/instruments/NSE"]
+    master_manifests = list(run_root.rglob("manifest.json"))
+    assert len(master_manifests) == 2
+
+
+def test_resume_refuses_changed_legacy_route_before_credentials_or_transport(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    symbols, provenance = _write_download_inputs(tmp_path, ["NIFTY50"])
+    manifest = _write_legacy_manifest(tmp_path)
+    args = _main_args(tmp_path, symbols, provenance, run_id="route-drift")
+    args.extend(
+        [
+            "--legacy-token-file",
+            str(manifest),
+            "--legacy-token-sha256",
+            legacy_manifest_sha256(manifest),
+        ]
+    )
+    monkeypatch.setattr(sys, "stdin", _NonInteractiveInput())
+    with pytest.raises(RuntimeError, match="interactive terminal"):
+        acquire.main(args)
+    changed = _write_legacy_manifest(tmp_path, 341249)
+    args[-1] = legacy_manifest_sha256(changed)
+    monkeypatch.setattr(
+        getpass,
+        "getpass",
+        lambda _: (_ for _ in ()).throw(AssertionError("credential prompt reached")),
+    )
+    monkeypatch.setattr(
+        acquire,
+        "urllib_transport",
+        lambda _: (_ for _ in ()).throw(AssertionError("transport created")),
+    )
+    with pytest.raises(ValueError, match="different acquisition inputs"):
+        acquire.main(args)
+
+
+@pytest.mark.parametrize(
+    ("second_payload", "second_result", "expected_exit"),
+    [
+        (b'{"status":"success","data":{"candles":[]}}', "empty", 0),
+        (
+            b'{"status":"success","data":{"candles":[["2022-12-28T09:15:00+05:30",100,90,110,105,10]]}}',
+            "rejected",
+            3,
+        ),
+    ],
+)
+def test_resumed_legacy_results_stay_outside_accepted_coverage(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    second_payload: bytes,
+    second_result: str,
+    expected_exit: int,
+) -> None:
+    symbols, provenance = _write_download_inputs(tmp_path, ["NIFTY50"])
+    manifest = _write_legacy_manifest(tmp_path)
+    run_id = "legacy-resume"
+    args = _main_args(tmp_path, symbols, provenance, run_id=run_id)
+    args.extend(
+        [
+            "--legacy-token-file",
+            str(manifest),
+            "--legacy-token-sha256",
+            legacy_manifest_sha256(manifest),
+        ]
+    )
+    run_root = tmp_path / "export" / "download" / run_id
+    start = datetime(2022, 11, 29, tzinfo=acquire.IST).astimezone(UTC)
+    end = datetime(2022, 12, 30, 23, 59, 59, tzinfo=acquire.IST).astimezone(UTC)
+    seed_payloads = iter((_valid_candles(), second_payload))
+    seed = KiteClient(
+        "key", "token", run_root, transport=lambda _: next(seed_payloads), sleeper=lambda _: None
+    )
+    seed.historical(340481, "day", start, end)
+    seed.historical(340481, "15minute", start, end)
+    calls: list[Request] = []
+
+    def transport(request: Request) -> bytes:
+        calls.append(request)
+        if request.path == "/instruments/NSE":
+            return _instrument_master()
+        if "/historical/340481/" in request.path:
+            raise AssertionError("cached legacy response was transported again")
+        return _valid_candles()
+
+    _install_fake_auth(monkeypatch, transport)
+    assert acquire.main(args) == expected_exit
+    report = json.loads((run_root / "report.json").read_text(encoding="utf-8"))
+    assert {row["result"] for row in report["quarantined_routes"]} == {
+        "success",
+        second_result,
+    }
+    assert {row["identity_status"] for row in report["quarantined_routes"]} == {
+        "QUARANTINED_IDENTITY_UNPROVED"
+    }
+    assert all(row.get("symbol") != "HDFC" for row in report["coverage"])
+    assert report["counts"]["accepted_chunks"] == 2
+    assert report["counts"]["empty_chunks"] == 0
+    assert report["counts"]["quarantined_chunks"] == 2
+    assert report["counts"]["requested_chunks"] == 4
+    assert report["source_qualified"] is False
+
+
+def test_be_candidate_requires_hash_pinned_series_evidence_before_credentials(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    symbols, provenance = _write_download_inputs(tmp_path, ["HFCL-BE", "NIFTY50"])
+    args = _main_args(tmp_path, symbols, provenance, run_id="missing-be-evidence")
+    monkeypatch.setattr(
+        getpass,
+        "getpass",
+        lambda _: (_ for _ in ()).throw(AssertionError("credential prompt reached")),
+    )
+    with pytest.raises(ValueError, match="series route evidence"):
+        acquire.main(args)
+
+
+def test_be_candidate_success_is_quarantined_not_ordinary_coverage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    symbols, provenance = _write_download_inputs(
+        tmp_path,
+        ["HFCL-BE", "NIFTY50"],
+        classification="CURRENT_SERIES_RETRIEVAL_CANDIDATES_NOT_IDENTITY_PROOF",
+    )
+    args = _main_args(tmp_path, symbols, provenance, run_id="be-quarantine")
+    original_evidence = tmp_path / "series-evidence.json"
+    staged = tmp_path / "staged" / "series-route-evidence-be-quarantine.json"
+    staged.parent.mkdir()
+    original_evidence.replace(staged)
+    evidence_sha256 = hashlib.sha256(staged.read_bytes()).hexdigest()
+    args.extend(
+        [
+            "--series-route-evidence-file",
+            str(staged),
+            "--series-route-evidence-sha256",
+            evidence_sha256,
+        ]
+    )
+
+    def transport(request: Request) -> bytes:
+        if request.path == "/instruments/NSE":
+            return _instrument_master(include_be=True)
+        return _valid_candles()
+
+    _install_fake_auth(monkeypatch, transport)
+    assert acquire.main(args) == 0
+    report = json.loads(
+        (tmp_path / "export" / "download" / "be-quarantine" / "report.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert {row["symbol"] for row in report["quarantined_routes"]} == {"HFCL-BE"}
+    assert {row["identity_status"] for row in report["quarantined_routes"]} == {
+        "QUARANTINED_SERIES_IDENTITY_UNPROVED"
+    }
+    assert all(row["symbol"] == "NIFTY50" for row in report["coverage"])
+    assert report["counts"]["accepted_chunks"] == 2
+    assert report["counts"]["requested_chunks"] == 4
+
+
+def test_be_candidate_master_token_mismatch_makes_zero_historical_calls(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    symbols, provenance = _write_download_inputs(
+        tmp_path,
+        ["HFCL-BE", "NIFTY50"],
+        classification="CURRENT_SERIES_RETRIEVAL_CANDIDATES_NOT_IDENTITY_PROOF",
+    )
+    args = _main_args(tmp_path, symbols, provenance, run_id="be-token-mismatch")
+    evidence = tmp_path / "series-evidence.json"
+    args.extend(
+        [
+            "--series-route-evidence-file",
+            str(evidence),
+            "--series-route-evidence-sha256",
+            hashlib.sha256(evidence.read_bytes()).hexdigest(),
+        ]
+    )
+    calls: list[Request] = []
+
+    def transport(request: Request) -> bytes:
+        calls.append(request)
+        if request.path == "/instruments/NSE":
+            return _instrument_master(include_be=True).replace(b"5620225,", b"5620226,")
+        raise AssertionError("historical transport reached after series-token mismatch")
+
+    _install_fake_auth(monkeypatch, transport)
+    with pytest.raises(SchemaFailure, match="series evidence token mismatch"):
+        acquire.main(args)
+    assert [request.path for request in calls] == ["/instruments/NSE"]
+
+
+def test_launcher_passes_bounded_dates_and_reviewed_legacy_digest() -> None:
+    script = Path("scripts/start_kite_acquisition.ps1").read_text(encoding="utf-8")
+    assert "[string]$HistoryStart" in script
+    assert "[string]$HistoryEnd" in script
+    assert "[string]$LegacyTokenFile" in script
+    assert "[string]$LegacyTokenSha256" in script
+    assert "[string]$SeriesRouteEvidenceFile" in script
+    assert "[string]$SeriesRouteEvidenceSha256" in script
+    assert '"--history-start", $HistoryStart, "--history-end", $HistoryEnd' in script
+    assert '"--legacy-token-file", "/export/$legacyName"' in script
+    assert '"--legacy-token-sha256", $expectedLegacyHash' in script
+    assert '"--series-route-evidence-file", "/export/$seriesEvidenceName"' in script
 
 
 def test_callback_parser_accepts_only_local_callback_or_bare_token() -> None:
