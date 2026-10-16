@@ -399,6 +399,7 @@ def test_wrong_legacy_digest_fails_before_credentials_or_transport(
     manifest = _write_legacy_manifest(tmp_path)
     args = _main_args(tmp_path, symbols, provenance, run_id="bad-digest")
     args.extend(["--legacy-token-file", str(manifest), "--legacy-token-sha256", "0" * 64])
+    monkeypatch.setattr(sys, "stdin", _InteractiveInput())
     monkeypatch.setattr(
         getpass,
         "getpass",
@@ -427,6 +428,7 @@ def test_legacy_label_duplicated_in_symbol_request_fails_before_credentials_or_t
             legacy_manifest_sha256(manifest),
         ]
     )
+    monkeypatch.setattr(sys, "stdin", _InteractiveInput())
     monkeypatch.setattr(
         getpass,
         "getpass",
