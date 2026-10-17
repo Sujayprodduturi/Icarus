@@ -482,6 +482,7 @@ Dated decisions that are not code and not in `goal.yaml`, so they have nowhere e
 | # | decision | who |
 |---|---|---|
 | D60 | **Build the reviewed seven-strategy daily pilot runner with reviewers, keep provider questions unsent, and continue toward real-data testing.** This authorizes the invented-fixture runner/ledger integration and supersedes the earlier choice to defer that software build until source-use resolution. It does not itself qualify a real-data bundle, activate the actual trial ledger, authorize actual strategy evaluation, settle retention/source-use terms, enable inference, consume the lockbox, send a provider message, purchase data or enable broker operations. | operator, direct instruction on 2026-10-16 |
+| D61 | **Qualify the saved real daily data with reviewers, verify GitHub checks, keep provider questions unsent, and continue toward running all seven strategies on real data.** This continues bounded offline source QA and necessary reviewed admission fixes. Retain every requested label, distinguish source fidelity from research eligibility, bind dated action/identity/calendar evidence and preserve failures. It does not supply missing source-use rights, waive existing admission/actual-run gates, authorize a purchase or provider message, enable broker operations or consume 2023+ prices. | operator, direct instruction on 2026-10-17 |
 
 ## 7c. Deferred by decision — not forgotten
 

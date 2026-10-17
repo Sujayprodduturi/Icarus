@@ -25,6 +25,16 @@ import numpy.typing as npt
 from icarus.common.config import GoalConfig
 from icarus.engine.backtest import slice_panel
 from icarus.engine.costmodel import CostModel
+from icarus.engine.daily_pilot_admission import (
+    ACTION_SOURCE_MANIFEST_SHA256,
+    ACTION_UNRESOLVED_LOOKBACK,
+    EXPECTED_UNRESOLVED_ACTIONS,
+    FIXED_INCOME_DISPOSITION,
+    POINT_IN_TIME_IDENTITY_SHA256,
+    UnresolvedAction,
+    admit_source_screen_status,
+    guard_unresolved_action_lookback,
+)
 from icarus.engine.fills import FillModel
 from icarus.engine.runner import evaluate_once
 from icarus.engine.signaltest import SignalMissingReason, SignalRunResult, SignalSimulator
@@ -54,22 +64,23 @@ SOURCE_END = date(2022, 12, 30)
 SOURCE_SESSION_COUNT = 257
 PILOT_START_INDEX = 252
 REQUESTED_LABEL_COUNT = 693
-FIXED_INCOME_DISPOSITION = "CLASS_INELIGIBLE_FIXED_INCOME"
 RESET_IDENTITY = "daily_descriptive_pilot_v1"
 SOURCE_INVENTORY_SHA256 = "191008c1b34c4a9b88285c0758d1725b8dca65555e96d16bbcbd09f313d10a7a"
 REQUESTED_LABELS_SHA256 = "a88632590be0f8344e962e0b27179516e977161e113c59e9ef2f5d9748c25fd3"
 CALENDAR_SHA256 = "4d7902c85909cba50b00dfccd6c0d3b1051225ba547e33bc010b56ad0e683c91"
 SESSION_IDENTITIES_SHA256 = "061958ca5e9606bc0e5ec79db8b347d7dcaee2bc62924d01475e33821da0956d"
 LABEL_IDENTITIES_SHA256 = "0cb9acc3eeb45ebdbf5443467d326c6f87f038c58957f7a7ff015390f9894790"
-DISPOSITION_STATUSES = frozenset(
+RAW_DISPOSITION_STATUSES = frozenset(
     {
         "ELIGIBLE",
         "BELOW_CLOSE",
         "BELOW_TURNOVER",
         "MISSING_WINDOW",
+        "CONDITIONAL_QUALIFIES",
         FIXED_INCOME_DISPOSITION,
     }
 )
+DISPOSITION_STATUSES = RAW_DISPOSITION_STATUSES | {ACTION_UNRESOLVED_LOOKBACK}
 EXPECTED_CARDS = (
     (
         "baseline_buy_and_hold",
@@ -138,18 +149,34 @@ def _digest_json(value: object) -> str:
 class LabelDisposition:
     label: str
     pilot_statuses: tuple[str, ...]
+    raw_screen_statuses: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
+        if not self.raw_screen_statuses:
+            object.__setattr__(self, "raw_screen_statuses", self.pilot_statuses)
         if (
             not self.label
             or type(self.pilot_statuses) is not tuple
             or len(self.pilot_statuses) != 5
+            or type(self.raw_screen_statuses) is not tuple
+            or len(self.raw_screen_statuses) != 5
         ):
             raise ValueError("each requested label needs five daily pilot dispositions")
-        if any(type(value) is not str or not value for value in self.pilot_statuses):
+        if any(
+            type(value) is not str or not value
+            for value in (*self.pilot_statuses, *self.raw_screen_statuses)
+        ):
             raise ValueError("daily pilot dispositions must be nonempty strings")
-        if not set(self.pilot_statuses).issubset(DISPOSITION_STATUSES):
+        if not set(self.pilot_statuses).issubset(DISPOSITION_STATUSES) or not set(
+            self.raw_screen_statuses
+        ).issubset(RAW_DISPOSITION_STATUSES):
             raise ValueError("daily pilot disposition uses an unreviewed status")
+        if any(
+            effective != admit_source_screen_status(self.label, raw)
+            and effective != ACTION_UNRESOLVED_LOOKBACK
+            for effective, raw in zip(self.pilot_statuses, self.raw_screen_statuses, strict=True)
+        ):
+            raise ValueError("only the action guard may override a raw screen status")
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,6 +198,9 @@ class DailyPilotAdmission:
     evidence_binding_sha256: str | None
     session_dates: tuple[date, ...]
     dispositions: tuple[LabelDisposition, ...]
+    action_source_manifest_sha256: str | None = None
+    point_in_time_identity_sha256: str | None = None
+    unresolved_actions: tuple[UnresolvedAction, ...] = ()
 
     def __post_init__(self) -> None:
         flags = (
@@ -216,6 +246,25 @@ class DailyPilotAdmission:
         liquid = tuple(item for item in self.dispositions if item.label == "LIQUIDBEES")
         if len(liquid) != 1 or liquid[0].pilot_statuses != (FIXED_INCOME_DISPOSITION,) * 5:
             raise ValueError("LIQUIDBEES must remain the counted fixed-income disposition")
+        _sha(
+            self.action_source_manifest_sha256,
+            "action_source_manifest_sha256",
+            required=not self.invented,
+        )
+        _sha(
+            self.point_in_time_identity_sha256,
+            "point_in_time_identity_sha256",
+            required=not self.invented,
+        )
+        if self.invented:
+            if self.unresolved_actions:
+                raise ValueError("invented admission cannot claim actual action evidence")
+        elif (
+            self.action_source_manifest_sha256 != ACTION_SOURCE_MANIFEST_SHA256
+            or self.point_in_time_identity_sha256 != POINT_IN_TIME_IDENTITY_SHA256
+            or self.unresolved_actions != EXPECTED_UNRESOLVED_ACTIONS
+        ):
+            raise ValueError("actual pilot action or identity evidence differs from reviewed pins")
 
     @property
     def labels(self) -> tuple[str, ...]:
@@ -238,6 +287,8 @@ class DailyPilotAdmission:
             self.full_manifest_sha256 != SOURCE_INVENTORY_SHA256
             or self.requested_labels_sha256 != REQUESTED_LABELS_SHA256
             or self.calendar_sha256 != CALENDAR_SHA256
+            or self.action_source_manifest_sha256 != ACTION_SOURCE_MANIFEST_SHA256
+            or self.point_in_time_identity_sha256 != POINT_IN_TIME_IDENTITY_SHA256
             or _digest_json([value.isoformat() for value in self.session_dates])
             != SESSION_IDENTITIES_SHA256
             or _digest_json(list(self.labels)) != LABEL_IDENTITIES_SHA256
@@ -258,8 +309,23 @@ class DailyPilotAdmission:
                 "cards_sha256": self.cards_sha256,
                 "session_dates": [value.isoformat() for value in self.session_dates],
                 "dispositions": [
-                    {"label": item.label, "pilot_statuses": list(item.pilot_statuses)}
+                    {
+                        "label": item.label,
+                        "raw_screen_statuses": list(item.raw_screen_statuses),
+                        "pilot_statuses": list(item.pilot_statuses),
+                    }
                     for item in self.dispositions
+                ],
+                "action_source_manifest_sha256": self.action_source_manifest_sha256,
+                "point_in_time_identity_sha256": self.point_in_time_identity_sha256,
+                "unresolved_actions": [
+                    {
+                        "label": item.label,
+                        "ex_date": item.ex_date.isoformat(),
+                        "kind": item.kind,
+                        "subject": item.subject,
+                    }
+                    for item in self.unresolved_actions
                 ],
             }
         )
@@ -513,6 +579,9 @@ def load_actual_admission(
         "source_inventory_sha256",
         "requested_labels_sha256",
         "calendar_sha256",
+        "action_source_manifest_sha256",
+        "point_in_time_identity_sha256",
+        "unresolved_actions",
         "panel_sha256",
         "panel_file_sha256",
         "goal_sha256",
@@ -534,14 +603,40 @@ def load_actual_admission(
         or qualification.get("source_inventory_sha256") != source_digest
         or qualification.get("requested_labels_sha256") != labels_digest
         or qualification.get("calendar_sha256") != CALENDAR_SHA256
+        or qualification.get("action_source_manifest_sha256") != ACTION_SOURCE_MANIFEST_SHA256
+        or qualification.get("point_in_time_identity_sha256") != POINT_IN_TIME_IDENTITY_SHA256
     ):
+        raise ValueError("daily pilot qualification is absent, incomplete, or not evidence-bound")
+    try:
+        unresolved_actions = tuple(
+            UnresolvedAction(
+                item["label"],
+                date.fromisoformat(item["ex_date"]),
+                item["kind"],
+                item["subject"],
+            )
+            for item in qualification["unresolved_actions"]
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("daily pilot qualification has malformed unresolved actions") from exc
+    if unresolved_actions != EXPECTED_UNRESOLVED_ACTIONS:
         raise ValueError("daily pilot qualification is absent, incomplete, or not evidence-bound")
     raw_dispositions = qualification.get("label_dispositions")
     if not isinstance(raw_dispositions, list):
         raise ValueError("daily pilot qualification lacks label dispositions")
     try:
         dispositions = tuple(
-            LabelDisposition(item["label"], tuple(item["pilot_statuses"]))
+            LabelDisposition(
+                item["label"],
+                guard_unresolved_action_lookback(
+                    item["label"],
+                    tuple(item["raw_screen_statuses"]),
+                    PILOT_DATES,
+                    session_dates,
+                    unresolved_actions,
+                ),
+                tuple(item["raw_screen_statuses"]),
+            )
             for item in raw_dispositions
         )
     except (KeyError, TypeError, ValueError) as exc:
@@ -559,14 +654,29 @@ def load_actual_admission(
             "source_inventory_sha256": source_digest,
             "requested_labels_sha256": labels_digest,
             "calendar_sha256": CALENDAR_SHA256,
+            "action_source_manifest_sha256": ACTION_SOURCE_MANIFEST_SHA256,
+            "point_in_time_identity_sha256": POINT_IN_TIME_IDENTITY_SHA256,
             "panel_file_sha256": qualification["panel_file_sha256"],
             "panel_sha256": qualification["panel_sha256"],
             "goal_sha256": qualification["goal_sha256"],
             "cards_sha256": qualification["cards_sha256"],
             "session_dates": [value.isoformat() for value in session_dates],
             "dispositions": [
-                {"label": item.label, "pilot_statuses": list(item.pilot_statuses)}
+                {
+                    "label": item.label,
+                    "raw_screen_statuses": list(item.raw_screen_statuses),
+                    "pilot_statuses": list(item.pilot_statuses),
+                }
                 for item in dispositions
+            ],
+            "unresolved_actions": [
+                {
+                    "label": item.label,
+                    "ex_date": item.ex_date.isoformat(),
+                    "kind": item.kind,
+                    "subject": item.subject,
+                }
+                for item in unresolved_actions
             ],
         }
     )
@@ -588,6 +698,9 @@ def load_actual_admission(
         evidence_binding_sha256=binding,
         session_dates=session_dates,
         dispositions=dispositions,
+        action_source_manifest_sha256=ACTION_SOURCE_MANIFEST_SHA256,
+        point_in_time_identity_sha256=POINT_IN_TIME_IDENTITY_SHA256,
+        unresolved_actions=unresolved_actions,
     )
 
 
@@ -819,8 +932,14 @@ def _report(
         "evaluation_count": 7,
         "portfolio_evaluation_count": 0,
         "requested_label_count": REQUESTED_LABEL_COUNT,
+        "action_source_manifest_sha256": admission.action_source_manifest_sha256,
+        "point_in_time_identity_sha256": admission.point_in_time_identity_sha256,
         "label_dispositions": [
-            {"label": item.label, "pilot_statuses": list(item.pilot_statuses)}
+            {
+                "label": item.label,
+                "raw_screen_statuses": list(item.raw_screen_statuses),
+                "pilot_statuses": list(item.pilot_statuses),
+            }
             for item in admission.dispositions
         ],
         "daily_disposition_counts": daily_counts,
@@ -934,7 +1053,8 @@ def build_invented_panel(admission: DailyPilotAdmission) -> Panel:
     step = np.arange(SOURCE_SESSION_COUNT, dtype=np.float64)
     bars: dict[str, Bars] = {}
     membership: dict[str, npt.NDArray[np.bool_]] = {}
-    for offset, label in enumerate(admission.labels):
+    for offset, disposition in enumerate(admission.dispositions):
+        label = disposition.label
         close = (
             80.0
             + float(offset % 100)
@@ -949,7 +1069,13 @@ def build_invented_panel(admission: DailyPilotAdmission) -> Panel:
             close=close,
             volume=np.full(SOURCE_SESSION_COUNT, 1_000_000.0 + offset),
         )
-        membership[label] = np.full(SOURCE_SESSION_COUNT, label != "LIQUIDBEES", dtype=np.bool_)
+        membership[label] = np.array(
+            [
+                *([label != "LIQUIDBEES"] * PILOT_START_INDEX),
+                *(status == "ELIGIBLE" for status in disposition.pilot_statuses),
+            ],
+            dtype=np.bool_,
+        )
     return Panel.build(bars, membership)
 
 

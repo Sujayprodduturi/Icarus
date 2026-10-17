@@ -33,6 +33,13 @@ from icarus.engine.daily_pilot import (
     run_actual_daily_pilot,
     run_invented_daily_pilot,
 )
+from icarus.engine.daily_pilot_admission import (
+    ACTION_SOURCE_MANIFEST_SHA256,
+    ACTION_UNRESOLVED_LOOKBACK,
+    EXPECTED_UNRESOLVED_ACTIONS,
+    POINT_IN_TIME_IDENTITY_SHA256,
+    guard_unresolved_action_lookback,
+)
 from icarus.engine.runner import evaluate_once
 from icarus.engine.signaltest import (
     SignalExitFragment,
@@ -113,8 +120,30 @@ def _actual_fixture(
 
     invented = build_invented_admission()
     dates = invented.session_dates
-    labels = invented.labels
-    dispositions = invented.dispositions
+    replaced = {f"SYN{index:03d}" for index in range(len(EXPECTED_UNRESOLVED_ACTIONS))}
+    labels = tuple(
+        sorted(
+            (
+                *(label for label in invented.labels if label not in replaced),
+                *(action.label for action in EXPECTED_UNRESOLVED_ACTIONS),
+            )
+        )
+    )
+    dispositions = tuple(
+        LabelDisposition(
+            label,
+            guard_unresolved_action_lookback(
+                label,
+                ("CONDITIONAL_QUALIFIES",) * 5,
+                dates[-5:],
+                dates,
+                EXPECTED_UNRESOLVED_ACTIONS,
+            ),
+            ("CONDITIONAL_QUALIFIES",) * 5,
+        )
+        for label in labels
+    )
+    invented = replace(invented, dispositions=dispositions)
     panel = build_invented_panel(invented)
     labels_document = {
         "schema_version": 1,
@@ -156,12 +185,23 @@ def _actual_fixture(
         "source_inventory_sha256": source_digest,
         "requested_labels_sha256": labels_digest,
         "calendar_sha256": calendar_digest,
+        "action_source_manifest_sha256": ACTION_SOURCE_MANIFEST_SHA256,
+        "point_in_time_identity_sha256": POINT_IN_TIME_IDENTITY_SHA256,
+        "unresolved_actions": [
+            {
+                "label": action.label,
+                "ex_date": action.ex_date.isoformat(),
+                "kind": action.kind,
+                "subject": action.subject,
+            }
+            for action in EXPECTED_UNRESOLVED_ACTIONS
+        ],
         "panel_file_sha256": "7" * 64,
         "panel_sha256": panel_sha256(panel),
         "goal_sha256": spec.goal_sha256,
         "cards_sha256": spec.cards_sha256,
         "label_dispositions": [
-            {"label": item.label, "pilot_statuses": list(item.pilot_statuses)}
+            {"label": item.label, "raw_screen_statuses": list(item.raw_screen_statuses)}
             for item in dispositions
         ],
     }
@@ -171,6 +211,62 @@ def _actual_fixture(
         load_actual_admission(qualification_path, source_path, labels_path),
         panel,
     )
+
+
+def test_actual_admission_binds_action_identity_and_preserves_raw_screen_statuses(
+    repo_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    spec = _spec(repo_root)
+    admission, _ = _actual_fixture(tmp_path, spec, monkeypatch)
+    mother = next(item for item in admission.dispositions if item.label == "MOTHERSON")
+
+    assert admission.action_source_manifest_sha256 == ACTION_SOURCE_MANIFEST_SHA256
+    assert admission.point_in_time_identity_sha256 == POINT_IN_TIME_IDENTITY_SHA256
+    assert mother.raw_screen_statuses == ("CONDITIONAL_QUALIFIES",) * 5
+    assert mother.pilot_statuses == (ACTION_UNRESOLVED_LOOKBACK,) * 5
+
+
+def test_actual_admission_rejects_unbound_point_in_time_identity(
+    repo_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    spec = _spec(repo_root)
+    _actual_fixture(tmp_path, spec, monkeypatch)
+    qualification_path = tmp_path / "qualification.json"
+    qualification = json.loads(qualification_path.read_text(encoding="utf-8"))
+    qualification["point_in_time_identity_sha256"] = "0" * 64
+    qualification_path.write_text(json.dumps(qualification), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="evidence-bound"):
+        load_actual_admission(
+            qualification_path,
+            tmp_path / "invented-source-inventory.json",
+            tmp_path / "invented-requested-labels.json",
+        )
+
+
+def test_actual_admission_rejects_legacy_qualification_before_price_decode(
+    repo_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    spec = _spec(repo_root)
+    _actual_fixture(tmp_path, spec, monkeypatch)
+    qualification_path = tmp_path / "qualification.json"
+    qualification = json.loads(qualification_path.read_text(encoding="utf-8"))
+    for field in (
+        "action_source_manifest_sha256",
+        "point_in_time_identity_sha256",
+        "unresolved_actions",
+    ):
+        qualification.pop(field)
+    for item in qualification["label_dispositions"]:
+        item["pilot_statuses"] = item.pop("raw_screen_statuses")
+    qualification_path.write_text(json.dumps(qualification), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="evidence-bound"):
+        load_actual_admission(
+            qualification_path,
+            tmp_path / "invented-source-inventory.json",
+            tmp_path / "invented-requested-labels.json",
+        )
 
 
 class _Ledger:
@@ -595,11 +691,8 @@ def test_admission_rejects_post_2022_axis_and_wrong_liquidbees_disposition() -> 
                 datetime(2023, 1, 2, tzinfo=UTC).date(),
             ),
         )
-    index = next(i for i, item in enumerate(admission.dispositions) if item.label == "LIQUIDBEES")
-    changed = list(admission.dispositions)
-    changed[index] = LabelDisposition("LIQUIDBEES", ("ELIGIBLE",) * 5)
-    with pytest.raises(ValueError, match="LIQUIDBEES"):
-        replace(admission, dispositions=tuple(changed))
+    with pytest.raises(ValueError, match="action guard"):
+        LabelDisposition("LIQUIDBEES", ("ELIGIBLE",) * 5)
     with pytest.raises(ValueError, match="unreviewed status"):
         LabelDisposition("X", ("TYPO_EXCLUSION",) * 5)
 
@@ -620,6 +713,9 @@ def test_admission_rejects_post_2022_axis_and_wrong_liquidbees_disposition() -> 
         goal_sha256="5" * 64,
         cards_sha256="4" * 64,
         evidence_binding_sha256="0" * 64,
+        action_source_manifest_sha256=ACTION_SOURCE_MANIFEST_SHA256,
+        point_in_time_identity_sha256=POINT_IN_TIME_IDENTITY_SHA256,
+        unresolved_actions=EXPECTED_UNRESOLVED_ACTIONS,
     )
     forged = replace(forged, evidence_binding_sha256=forged._evidence_binding())
     with pytest.raises(ValueError, match="evidence binding"):
