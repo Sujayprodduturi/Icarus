@@ -2,9 +2,11 @@
 
 ## Disposition
 
-The bounded metadata prerequisites for the NSE-only daily pilot are reproducible for **257 sessions from 2021-12-21 through 2022-12-30** and **all 693 requested stock labels**. This does not qualify the data or authorize a run. The pure 257×693 preparer and its source-binding wrapper are under final review; no panel has been emitted, the evidence-bound qualification document does not exist yet, and explicit source-use authorization remains open.
+The bounded metadata prerequisites for the NSE-only daily pilot are reproducible for **257 sessions from 2021-12-21 through 2022-12-30** and **all 693 requested stock labels**. The pure preparer, source-binding wrapper, and one exact-whitelist transient composition have passed scoped review. The transient run composed the 257×693 panel in memory and emitted no NPZ or study result. This does not qualify the data or authorize a run: the evidence-bound qualification document does not exist yet, explicit source-use authorization remains open, and actual-study authorization is a separate later gate.
 
 The machine-readable record is `var/daily-descriptive-pilot/2026-10-17/action-qa/qa-summary.json`. Its selected-source manifest is `var/daily-descriptive-pilot/2026-10-17/action-qa/source-manifest.json`, SHA-256 `b67a2566a7df9455b4709210be69037040aebce04028ee4f1264566ba9c8e5d6`.
+
+The transient composition receipt is `var/verification/2026-10-17/daily-action-composition/composition-receipt.json`, SHA-256 `0917d707f27413a618a3e2249a7991bcc2ef97321ba99b17a196e3c0c0bb5430`. It records 693 labels × 257 sessions, 150,215 observed and 27,886 explicit-absent cells, all 185 PIT overrides, 31 priceable action rows/29 cuts, zero pilot-date priceable actions, five known unresolved-action quarantines, zero requested-subunit exclusions, and a 7,302,141-byte in-memory panel. All 623 staged files were unchanged; every UID, network, mount, capability, resource, environment, and Docker-socket confinement check is true. Peak memory was unavailable and is recorded as null rather than inferred.
 
 ## Corporate-action result
 
@@ -36,10 +38,10 @@ The bounded calendar certificate SHA-256 `4d7902c85909cba50b00dfccd6c0d3b1051225
 
 ## Exact remaining blockers
 
-1. Complete final review of the pure 257×693 preparer and source-binding wrapper. They must retain every requested label and explicit absence; the existing full panel builder's drop-never-tradable path remains inadmissible for this pilot.
-2. After review and source-use authorization, run the source-bound path that joins corrected raw dated identities, fixes raw membership, applies the 29 exact split/bonus cuts, and then applies fixed-income and action dispositions.
-3. Emit and review the revised qualification contract with raw and effective statuses, panel digest, and bound source-inventory, calendar, action-manifest, and PIT-matrix hashes. Legacy qualification JSON remains rejected.
-4. Complete the other admission gates. `data_qualified=false` and `run_authorized=false` remain correct now.
-5. Obtain explicit source-use authorization. Provider questions remain **UNSENT**; readiness does not authorize contact, and any future contact requires a new explicit instruction.
+1. No technical action, PIT-identity, bounded-calendar, or transient-composition blocker remains for this 257×693 input. The reviewed path retains every requested label and explicit absence; the existing full panel builder's drop-never-tradable path remains inadmissible for this pilot.
+2. Obtain explicit source-use authorization. Until then, `data_qualified=false` remains correct.
+3. After source-use authorization, emit and review the evidence-bound qualification contract and write-once panel artifact with raw and effective statuses, panel digest, and bound source-inventory, calendar, action-manifest, and PIT-matrix hashes. Legacy qualification JSON remains rejected.
+4. Actual-study authorization remains a separate later gate after data qualification. `run_authorized=false` remains correct; the transient composition did not run a strategy, compute a metric, or activate a ledger.
+5. Provider questions remain **UNSENT**; readiness does not authorize contact, and any future contact requires a new explicit instruction.
 
 No additional corporate-action ratio, historical token, current-master alias, 2023 price, network fetch, provider contact, evaluation, metric, ledger, broker, or strategy work is needed for this bounded action/PIT/calendar determination.

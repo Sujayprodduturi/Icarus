@@ -107,3 +107,31 @@ Independent final regression across preparer, admission, pilot and source-QA mod
 ### Final resource delta — scoped GO
 
 Final frozen preparer `101e301860ac06212a59a2c147b7f5a7aaadbc23f7a7e897839e7e2e4439fb84`; tests `e35c115640af29e4d586656f2bb0c3dc6dcb4b9f1acc364188f19502e50d6e4f`. Reviewed the final delta: every cache row still receives shape/canonical-symbol validation, while only pinned requested-label rows are retained in memory. Full source-file hashing and source-QA binding remain intact. Earlier hardening rejects duplicate QA state paths and validates requested action rows after filtering out unrequested actions. Independent focused regression: **15 passed in 11.44s**, `var/verification/2026-10-17/daily-preparer-review-delta-tests.txt`. These final hashes supersede D6DD/4375 above. Scoped GO remains limited to preparation software and the previously described transient composition QA; actual study and policy qualification remain held.
+### Postcommit defect proof — PASS, exact restoration verified
+
+Root authorized an exclusive mutation window after source commit `c92074d8abd24a784d5af1b7fbb7397aa8e85b49`. The var-only harness verified HEAD and committed source before mutating one anchor at a time, used a distinct fresh bytecode directory for each subprocess, and restored exact in-memory original bytes in per-case and outer finally blocks. No checkout/reset was used.
+
+Ten distinct faults produced substantive focused failures: hidden earlier discontinuity; missing full-axis pin; missing exact source reason; source-observed subunit conflated with invalid research price; pilot-date priceable action admitted; decision day incorrectly counted as clean prior history; source QA minimum changed to one; duplicate CSV heading allowed; text equality substituted for Decimal equality; file-pin verification skipped. Logs and source-before/mutant hashes are retained under `var/verification/2026-10-17/daily-qualification-mutations/`.
+
+The original axis and pilot-action fixtures initially failed by expected-error regex mismatch because secondary checks still refused. Those were not claimed as behavioral escapes. Two stronger var-only fixtures supplied a consistently remapped source axis and a price-consistent split; both passed under restored source, then each failed **DID NOT RAISE** with its single guard disabled. Evidence: `daily-qualification-mutations-strengthened/`, with fixtures `test_qualification_mutation_controls.py` in the same verification date directory. This is ten distinct faults, twelve retained mutant runs, and two green strengthened controls.
+
+All three mutated source hashes were verified restored: preparer `101e301860ac06212a59a2c147b7f5a7aaadbc23f7a7e897839e7e2e4439fb84`; admission `9448b929d6213f4f1915ec3a6ee5320202cfeb4ddad6cdf659d1d463181de507`; source helper `bda4fd02f1ca33a8ecbc3bd3efae2ca54b4f43d85b503f1b2283f8444080c635`. Prepared tests remained `e35c115640af29e4d586656f2bb0c3dc6dcb4b9f1acc364188f19502e50d6e4f`; no runtime/test/script git diff remained. Both receipts report every protected source restored. Root received MUTATIONS RESTORED before any transient actual-source QA mount.
+
+Final post-restoration fresh-bytecode regression: **66 passed in 26.42s**, log `var/verification/2026-10-17/daily-postmutation-fresh-tests.txt`. Scoped software-review GO; real-source composition outcome and source-use decision remain separately evidenced gates.
+### Real-source transient composition receipt — scoped GO
+
+Independently read metadata only and verified receipt SHA-256 `0917d707f27413a618a3e2249a7991bcc2ef97321ba99b17a196e3c0c0bb5430` at `var/verification/2026-10-17/daily-action-composition/composition-receipt.json`. Exit 0, no error/stderr, all fourteen confinement checks true. The before/after stage summaries are exactly equal: 623 files, 157475667 bytes, digest `2f2597ce49c9b1f02abcb9150c2289e28fc73da7ea3243b73cf9fa14d76317c2`. Peak RSS is explicitly unavailable/null; the configured hard memory bound must not be described as measured use.
+
+Independently matched every one of the 3465 raw-status cells to the frozen source-QA receipt and independently derived every effective status using the five unresolved labels plus the narrow LIQUIDBEES class rule. All 693 unique labels remain on each date. Effective counts below are in the order ELIGIBLE / BELOW_CLOSE / BELOW_TURNOVER / MISSING_WINDOW / ACTION_UNRESOLVED_LOOKBACK / CLASS_INELIGIBLE_FIXED_INCOME:
+
+- 2022-12-26: 232 / 15 / 333 / 107 / 5 / 1.
+- 2022-12-27: 232 / 15 / 333 / 107 / 5 / 1.
+- 2022-12-28: 227 / 14 / 339 / 107 / 5 / 1.
+- 2022-12-29: 225 / 15 / 340 / 107 / 5 / 1.
+- 2022-12-30: 226 / 15 / 340 / 106 / 5 / 1.
+
+The action guard retains AARTIIND and WOCKPHARMA raw BELOW_TURNOVER reasons and MOTHERSON/NMDC/PEL raw CONDITIONAL_QUALIFIES reasons while counting all five explicitly as action-unresolved. LIQUIDBEES retains its original conditional source status and becomes class-ineligible; BANKBEES/NIFTYBEES remain ordinary BELOW_TURNOVER outcomes. The receipt's raw conditional totals include LIQUIDBEES, explaining the one-count difference from earlier class-adjusted QA summary totals.
+
+The observed/absent identity accounting independently sums to 178101 = 693×257: 150215 observed plus 27886 absent. Receipt evidence reports 526 verified files, 514 source files, 185 exact raw-ISIN overrides, 31 priceable rows/29 cuts, zero priceable pilot-date actions, five known unpriceable quarantines and zero requested research-subunit exclusions. Thus the 330 global source subunit rows did not affect requested panel cells. These are composition-QA facts, not strategy outcomes.
+
+Final scoped verdict: **GO for completed bounded source/action/PIT/calendar composition QA; no remaining observed software composition defect in this fixed bundle.** The policy flags `data_qualified`, `source_use_authorized`, and `run_authorized` are all explicitly false. Source-use resolution and the subsequent authorized durable panel/qualification publication and native seven-card reservation/run sequence remain gates; no NPZ, strategy evaluation, ledger result, inferred permission or actual-study readiness is claimed by this review.

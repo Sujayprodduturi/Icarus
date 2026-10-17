@@ -127,3 +127,30 @@ run a signal/simulator, or touch a trial ledger. Run it only in the same UID 100
 read-only-source confinement after the final code review. Durable emission then still requires the
 source-use disposition, reviewed qualification contract, confined resource/package proof, and
 separate actual-run authorization.
+
+## Transient composition-QA result
+
+The first reviewed transient run completed with exit code 0 in
+`icarus-daily-composition-qa:20261017` (image ID
+`sha256:108cdd2c8a2f9dc333c86256fce48d4ba1e37ec562be90c079c8019bd736da4c`).
+Every recorded confinement check passed: UID/GID, network-none, read-only root and sole stage
+mount, dropped capabilities, no-new-privileges, bounded memory/CPU/PIDs, tmpfs-only scratch, no
+Docker socket, and no sensitive environment. Peak memory measurement was unavailable and no value
+was inferred.
+
+The in-memory panel composition retained all 693 labels and 257 sessions: 150,215 observed cells,
+27,886 explicit absences, 185 required raw-ISIN overrides, 31 priceable action rows at 29 cuts,
+zero priceable pilot-date actions, five known unpriceable quarantines, and zero sub-INR-1 research
+exclusions among requested cells. The arrays occupied 7,302,141 bytes. The selected-lineage digest
+is `cc585ddc287544b054a477eded56ee2472a1ef5393169d6faab9108bbfd1bfb1`; the action-ledger digest
+is `006c3cde820ae0fedc6d659e68f2a8dee51bb0bf42cd5056a47732c5a82044f0`.
+
+The complete 693-label raw and effective five-day dispositions are in
+`var/verification/2026-10-17/daily-action-composition/composition-receipt.json`, SHA-256
+`0917d707f27413a618a3e2249a7991bcc2ef97321ba99b17a196e3c0c0bb5430`. All 623 staged files and
+157,475,667 bytes had the same before/after digest
+`2f2597ce49c9b1f02abcb9150c2289e28fc73da7ea3243b73cf9fa14d76317c2`. No NPZ or durable actual
+dataset was emitted and no strategy, simulator, metric, trial ledger, network, provider, broker, or
+2023 payload was used. The receipt correctly retains `data_qualified=false`,
+`source_use_authorized=false`, and `run_authorized=false`; source-use resolution and a separately
+authorized actual study remain held.
