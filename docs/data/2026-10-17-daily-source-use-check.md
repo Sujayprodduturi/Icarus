@@ -9,3 +9,7 @@ The public sources were also checked afresh:
 - [NSE website terms, Use 8–9](https://www.nseindia.com/static/nse-terms-of-use): website-data simulation and automated-collection restrictions remain present. Kite subscription terms do not clear a separate NSE website source.
 
 The present daily pilot uses saved NSE daily archives for its proposed inputs. Its applicable source-use permission therefore remains unresolved. Technical source QA may proceed under the operator's bounded offline authorization; successful file validation cannot set `source_use_authorized=true`. No strategy evaluation, actual-ledger activation, purchase, provider contact or retention-policy change is authorized by this check. Provider questions remain **UNSENT**.
+
+## Subsequent operator disposition — 2026-10-19
+
+The original findings above remain the record of the provider evidence. The operator has since explicitly instructed personal offline use of the NSE archive, with Kite subscription data as a fallback. D62 and the [dated disposition](2026-10-19-source-use-disposition.md) resolve the operator-side hold for confined local input publication and qualification review. They do not establish provider permission or change the recorded terms. In the bounded final qualification, `source_use_authorized` denotes this operator authority, supported by the separate disposition evidence; it must not be described as a provider licence. Actual strategy evaluation and ledger activation retain their separate gate. Provider questions remain **UNSENT**.
