@@ -444,9 +444,12 @@ strategy decision — and that is worth more than the code itself.
 *Added 2026-08-20 on operator instruction: "we need to keep a track of this repo and the
 enhancements in it that can add value to us."* A monthly scheduled check runs against this list.
 
-**Pin:** `HKUDS/Vibe-Trading` @ `1907e47`, version 0.1.14, **2026-08-21**. Everything below is a
-delta against that commit. *(Originally pinned at `7329cb0`, 2026-08-20; moved after the first
-watch run.)*
+**Pin:** `HKUDS/Vibe-Trading` @ `78fab6b3`, version 0.1.18, **2026-11-01**. Everything below is a
+delta against that commit. *(Originally pinned at `7329cb0`, 2026-08-20; `1907e47`/0.1.14 after the
+first watch run; moved to `78fab6b3` by the 2026-11-01 watch — see
+`docs/reviews/2026-11-01-vibe-trading-delta.md`. Note: the 2026-10-01 watch moved the pin to
+`18027a0` on branch `vibe-watch/2026-10-01`, but that PR was never merged to `dev`, so the pin of
+record stayed at `1907e47` until this run diffed from it.)*
 
 ### First watch run — 2026-08-21
 
